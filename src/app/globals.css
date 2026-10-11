@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #080b10;
+  --color-surface: #161f30;
+  --color-card: #1e2430;
+  --color-border: #334155;
+  --color-nav: #111724;
+  --color-deep: #1b2a4a;
+
+  --color-primary: #00e5ff;
+  --color-accent: #10b981;
+  --color-gold: #f59e0b;
+  --color-danger: #ff3b30;
+
+  --color-fg: #ffffff;
+  --color-muted: #94a3b8;
+  --color-dim: #64748b;
+
+  --font-sans: var(--font-cairo), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius-xl2: 1.25rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-primary) 35%, transparent);
+    color: #fff;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .glass {
+    background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 40%, transparent),
+      0 8px 30px -12px color-mix(in srgb, var(--color-primary) 60%, transparent);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 55%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 18px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+  .animate-pulse-ring {
+    animation: pulse-ring 1.6s ease-out infinite;
+  }
+}

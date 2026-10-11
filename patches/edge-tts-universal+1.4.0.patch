@@ -1,0 +1,36 @@
+diff --git a/node_modules/edge-tts-universal/dist/index.cjs b/node_modules/edge-tts-universal/dist/index.cjs
+index 2b01b22..07ebb9f 100644
+--- a/node_modules/edge-tts-universal/dist/index.cjs
++++ b/node_modules/edge-tts-universal/dist/index.cjs
+@@ -225,10 +225,10 @@ var TTSConfig = class _TTSConfig {
+ };
+ 
+ // src/constants.ts
+-var BASE_URL = "speech.platform.bing.com/consumer/speech/synthesize/readaloud";
++var BASE_URL = "api.msedgeservices.com/tts/cognitiveservices";
+ var TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+-var WSS_URL = `wss://${BASE_URL}/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}`;
+-var VOICE_LIST_URL = `https://${BASE_URL}/voices/list?trustedclienttoken=${TRUSTED_CLIENT_TOKEN}`;
++var WSS_URL = `wss://${BASE_URL}/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}`;
++var VOICE_LIST_URL = `https://${BASE_URL}/voices/list?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}`;
+ var DEFAULT_VOICE = "en-US-EmmaMultilingualNeural";
+ var CHROMIUM_FULL_VERSION = "143.0.3650.75";
+ var CHROMIUM_MAJOR_VERSION = CHROMIUM_FULL_VERSION.split(".")[0];
+diff --git a/node_modules/edge-tts-universal/dist/index.js b/node_modules/edge-tts-universal/dist/index.js
+index 57650af..711327f 100644
+--- a/node_modules/edge-tts-universal/dist/index.js
++++ b/node_modules/edge-tts-universal/dist/index.js
+@@ -217,10 +217,10 @@ var TTSConfig = class _TTSConfig {
+ };
+ 
+ // src/constants.ts
+-var BASE_URL = "speech.platform.bing.com/consumer/speech/synthesize/readaloud";
++var BASE_URL = "api.msedgeservices.com/tts/cognitiveservices";
+ var TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+-var WSS_URL = `wss://${BASE_URL}/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}`;
+-var VOICE_LIST_URL = `https://${BASE_URL}/voices/list?trustedclienttoken=${TRUSTED_CLIENT_TOKEN}`;
++var WSS_URL = `wss://${BASE_URL}/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}`;
++var VOICE_LIST_URL = `https://${BASE_URL}/voices/list?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}`;
+ var DEFAULT_VOICE = "en-US-EmmaMultilingualNeural";
+ var CHROMIUM_FULL_VERSION = "143.0.3650.75";
+ var CHROMIUM_MAJOR_VERSION = CHROMIUM_FULL_VERSION.split(".")[0];
