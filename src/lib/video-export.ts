@@ -11,12 +11,58 @@ export const VIDEO_HEIGHT = 1280;
 export const VIDEO_FPS = 30;
 const AUDIO_SAMPLE_RATE = 48000;
 
+export type CompressionPreset = "compact" | "balanced" | "high";
+
+export interface CompressionProfile {
+  id: CompressionPreset;
+  labelAr: string;
+  descriptionAr: string;
+  videoBitrate: number;
+  audioBitrate: number;
+  badge: string;
+}
+
+export const COMPRESSION_PROFILES: Record<CompressionPreset, CompressionProfile> = {
+  compact: {
+    id: "compact",
+    labelAr: "مضغوط وموفر (سريع وخفيف)",
+    descriptionAr: "أصغر حجم (~8-12 MB للدقيقة)، مثالي للشورتس ومشاركة الواتساب",
+    videoBitrate: 1_250_000,
+    audioBitrate: 96_000,
+    badge: "توفير 65%",
+  },
+  balanced: {
+    id: "balanced",
+    labelAr: "متوازن (موصى به)",
+    descriptionAr: "جودة ممتازة متوازنة مع حجم مناسب (~16-20 MB للدقيقة)",
+    videoBitrate: 2_200_000,
+    audioBitrate: 128_000,
+    badge: "موصى به",
+  },
+  high: {
+    id: "high",
+    labelAr: "جودة سينمائية كاملة",
+    descriptionAr: "أعلى وضوح وتفاصيل مع حجم ملف أكبر (~28-35 MB للدقيقة)",
+    videoBitrate: 3_600_000,
+    audioBitrate: 160_000,
+    badge: "أعلى دقة",
+  },
+};
+
+export function estimateVideoSizeMB(durationSec: number, preset: CompressionPreset = "balanced"): number {
+  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
+  const totalBitrate = profile.videoBitrate + profile.audioBitrate;
+  const bytes = (totalBitrate / 8) * durationSec;
+  return Math.round((bytes / (1024 * 1024)) * 10) / 10;
+}
+
 export interface ExportInput {
   project: StoryProject;
   voiceBlob?: Blob | null;
   bgmTrack?: BgmTrack | null;
   voiceVolume: number;
   bgmVolume: number;
+  compressionPreset?: CompressionPreset;
   onProgress?: (ratio: number, stage: string) => void;
   signal?: AbortSignal;
 }
@@ -580,6 +626,11 @@ async function exportWithWebCodecs(
   const codec = await pickVideoCodec();
   if (!codec) return null;
 
+  const preset = input.compressionPreset ?? "balanced";
+  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
+  const videoBitrate = profile.videoBitrate;
+  const audioBitrate = profile.audioBitrate;
+
   const { project, onProgress, signal } = input;
   const timeline = computeProjectTimeline(project);
   const totalSec = timeline.totalDurationSec;
@@ -618,7 +669,7 @@ async function exportWithWebCodecs(
     codec,
     width: VIDEO_WIDTH,
     height: VIDEO_HEIGHT,
-    bitrate: 3_500_000,
+    bitrate: videoBitrate,
     framerate: VIDEO_FPS,
   });
 
@@ -672,7 +723,7 @@ async function exportWithWebCodecs(
       codec: "mp4a.40.2",
       numberOfChannels: 2,
       sampleRate: AUDIO_SAMPLE_RATE,
-      bitrate: 128_000,
+      bitrate: audioBitrate,
     });
 
     const left = mixed.getChannelData(0);
@@ -746,8 +797,12 @@ async function exportWithMediaRecorder(
   source.connect(dest);
   for (const track of dest.stream.getAudioTracks()) stream.addTrack(track);
 
+  const preset = input.compressionPreset ?? "balanced";
+  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
+  const videoBitrate = profile.videoBitrate;
+
   const { mime, extension } = pickRecorderMime();
-  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_500_000 });
+  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: videoBitrate });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => {
     if (e.data.size > 0) chunks.push(e.data);

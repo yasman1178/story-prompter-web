@@ -284,52 +284,54 @@ export default function RecordPage() {
   const selectedShot = project.shots.find((s) => s.shotNumber === selectedShotNumber) ?? project.shots[0];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
       {/* Per-Shot Voice Studio Section */}
-      <section className="rounded-2xl sm:rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-5 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border/50">
-          <div>
+      <section className="rounded-2xl sm:rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-4 sm:p-5 shadow-xl min-w-0 w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border/50 min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-fg">تسجيل وتوليد الصوت لكل مشهد على حدة</h2>
             <p className="text-xs text-muted">
               اربط كل مقطع صوتي مباشرة بصورته مع إمكانية التوليد الفردي أو الجماعي.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto min-w-0">
             <button
               type="button"
               onClick={() => void generateVoice()}
               disabled={generating}
-              className="flex h-10 items-center gap-2 rounded-xl bg-primary px-3.5 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-60 shadow-md"
+              className="flex h-10 w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-3.5 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-60 shadow-md shrink-0"
             >
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
               <span>{generating ? "جارٍ التوليد…" : "توليد كل المشاهد دفعة واحدة"}</span>
             </button>
 
-            <span className="text-xs text-dim">المشهد:</span>
-            <select
-              value={selectedShotNumber}
-              onChange={(e) => setSelectedShotNumber(Number(e.target.value))}
-              className="h-10 rounded-xl border border-border bg-card px-3 text-sm text-primary font-bold outline-none focus:border-primary"
-            >
-              {project.shots.map((s) => (
-                <option key={s.shotNumber} value={s.shotNumber} className="bg-surface text-fg">
-                  مشهد #{s.shotNumber} - {s.type} {s.customAudioId ? "✓" : ""}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 h-10 text-xs min-w-0 w-full sm:w-auto max-w-full">
+              <span className="text-xs text-dim shrink-0">المشهد:</span>
+              <select
+                value={selectedShotNumber}
+                onChange={(e) => setSelectedShotNumber(Number(e.target.value))}
+                className="bg-transparent text-sm text-primary font-bold outline-none cursor-pointer truncate min-w-0 flex-1 sm:max-w-[180px]"
+              >
+                {project.shots.map((s) => (
+                  <option key={s.shotNumber} value={s.shotNumber} className="bg-surface text-fg">
+                    #{s.shotNumber} - {s.type} {s.customAudioId ? "✓" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
         {/* Real-time batch progress card */}
         {batchProgress && (
-          <div className="mt-3 rounded-2xl border border-primary/40 bg-primary/10 p-4 space-y-2.5 shadow-sm">
-            <div className="flex items-center justify-between text-xs font-bold">
-              <span className="flex items-center gap-2 text-primary">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                جارٍ توليد صوت المشهد #{batchProgress.shotNumber} ({batchProgress.current} من {batchProgress.total}) ومزامنة الصورة…
+          <div className="mt-3 rounded-2xl border border-primary/40 bg-primary/10 p-3 sm:p-4 space-y-2.5 shadow-sm min-w-0">
+            <div className="flex items-center justify-between text-xs font-bold gap-2">
+              <span className="flex items-center gap-2 text-primary truncate">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                <span className="truncate">صوت المشهد #{batchProgress.shotNumber} ({batchProgress.current} من {batchProgress.total})…</span>
               </span>
-              <span className="font-mono text-primary font-bold">{batchProgress.percent}%</span>
+              <span className="font-mono text-primary font-bold shrink-0">{batchProgress.percent}%</span>
             </div>
             <div className="h-2.5 w-full overflow-hidden rounded-full bg-black/40">
               <div
@@ -344,7 +346,7 @@ export default function RecordPage() {
         )}
 
         {/* Horizontal Visual Shot Strip */}
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-none w-full max-w-full">
           {project.shots.map((s) => {
             const isSelected = s.shotNumber === selectedShotNumber;
             return (
@@ -377,7 +379,7 @@ export default function RecordPage() {
         </div>
 
         {selectedShot && (
-          <div className="mt-4 flex flex-col md:flex-row gap-4 items-start bg-card/40 p-3.5 rounded-2xl border border-border/60">
+          <div className="mt-4 flex flex-col sm:flex-row gap-4 items-center sm:items-start bg-card/40 p-3.5 rounded-2xl border border-border/60 min-w-0 w-full">
             {/* Visual Image Preview */}
             <div className="relative h-36 w-24 shrink-0 overflow-hidden rounded-2xl border-2 border-primary/40 shadow-lg bg-black">
               <ShotThumbnailView shot={selectedShot} />
@@ -390,7 +392,7 @@ export default function RecordPage() {
             </div>
 
             {/* Script and Linking Info */}
-            <div className="min-w-0 flex-1 space-y-2">
+            <div className="min-w-0 flex-1 space-y-2 w-full">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-bold text-primary">المشهد #{selectedShot.shotNumber}</span>
                 <span className="text-xs text-dim font-mono">({selectedShot.timeframe})</span>
@@ -407,7 +409,7 @@ export default function RecordPage() {
                 )}
               </div>
 
-              <p className="text-sm leading-relaxed text-fg bg-surface/80 p-3 rounded-xl border border-border/60">
+              <p className="text-sm leading-relaxed text-fg bg-surface/80 p-3 rounded-xl border border-border/60 break-words">
                 {selectedShot.voiceoverEgyptian || "لا يوجد نص تعليق مكتوب لهذا المشهد."}
               </p>
 
@@ -433,7 +435,7 @@ export default function RecordPage() {
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-row md:flex-col gap-2 w-full md:w-auto shrink-0 justify-center">
+            <div className="flex flex-col gap-2 w-full sm:w-auto shrink-0 justify-center">
               <button
                 type="button"
                 onClick={() => void generateVoiceForShot(selectedShot.shotNumber)}

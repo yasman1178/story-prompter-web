@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderUp, Layers, Search } from "lucide-react";
+import { FileText, FileUp, FolderUp, Layers, RotateCcw, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { StoryShot, TRANSITION_TYPES } from "@/lib/types";
@@ -25,9 +25,17 @@ export default function ProjectPage() {
   const toggleSubtitles = useStudio((s) => s.toggleSubtitles);
   const setTransitionType = useStudio((s) => s.setTransitionType);
   const assignImages = useStudio((s) => s.assignImages);
+  const importJson = useStudio((s) => s.importJson);
+  const loadSample = useStudio((s) => s.loadSample);
+  const showFeedback = useStudio((s) => s.showFeedback);
+
   const folderRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
+
   const [query, setQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("ALL");
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteValue, setPasteValue] = useState("");
 
   const shots = useMemo(() => project?.shots ?? [], [project?.shots]);
 
@@ -60,6 +68,32 @@ export default function ProjectPage() {
     });
   }, [shots, query, filterMode]);
 
+  async function handleJsonFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const ok = importJson(text);
+      if (ok) {
+        showFeedback(`تم تحميل مشروع جديد بنجاح من ${file.name}`);
+      } else {
+        setPasteValue(text);
+        setPasteOpen(true);
+      }
+    } catch {
+      showFeedback("تعذّر قراءة ملف JSON.");
+    }
+  }
+
+  function handlePasteImport() {
+    if (!pasteValue.trim()) return;
+    const ok = importJson(pasteValue);
+    if (ok) {
+      setPasteOpen(false);
+      setPasteValue("");
+      showFeedback("تم استيراد السيناريو الجديد بنجاح!");
+    }
+  }
+
   if (!hydrated) {
     return <p className="py-20 text-center text-muted">جارٍ تحميل المشروع…</p>;
   }
@@ -69,12 +103,35 @@ export default function ProjectPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
+      {/* Hidden File Inputs */}
+      <input
+        ref={jsonInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(e) => {
+          void handleJsonFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={folderRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void assignImages(files);
+          e.target.value = "";
+        }}
+      />
+
       {/* Top Project Settings & Stats */}
-      <section className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-base sm:text-lg font-bold text-fg">{project.title}</h1>
+      <section className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg min-w-0 w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base sm:text-lg font-bold text-fg truncate">{project.title}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-dim">
               <span>{project.platform}</span>
               <span>·</span>
@@ -86,32 +143,46 @@ export default function ProjectPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              ref={folderRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length) void assignImages(files);
-                e.target.value = "";
-              }}
-            />
+          {/* Action Buttons: JSON first, then Images */}
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {/* 1. Upload JSON Button (Placed right before image bundle) */}
+            <button
+              type="button"
+              onClick={() => jsonInputRef.current?.click()}
+              className="flex h-11 flex-1 sm:flex-initial items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs sm:text-sm font-bold text-black transition hover:brightness-110 shadow-md shrink-0"
+              title="استيراد سيناريو جديد من ملف JSON"
+            >
+              <FileUp className="h-4 w-4" />
+              <span>استيراد ملف JSON</span>
+            </button>
+
+            {/* 2. Paste JSON modal trigger */}
+            <button
+              type="button"
+              onClick={() => setPasteOpen(true)}
+              className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs sm:text-sm font-medium text-fg hover:border-primary/50 transition shrink-0"
+              title="لصق نص JSON مباشرة"
+            >
+              <FileText className="h-4 w-4 text-dim" />
+              <span className="hidden md:inline">لصق كود JSON</span>
+            </button>
+
+            {/* 3. Assign Images Button */}
             <button
               type="button"
               onClick={() => folderRef.current?.click()}
-              className="flex h-11 w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-black transition hover:brightness-110 shadow-md"
+              className="flex h-11 flex-1 sm:flex-initial items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-4 text-xs sm:text-sm font-semibold text-fg transition hover:border-primary hover:bg-surface shadow-sm shrink-0"
+              title="تعيين وربط صور للمشاهد"
             >
-              <FolderUp className="h-4 w-4" />
-              تعيين حزمة صور
+              <FolderUp className="h-4 w-4 text-primary" />
+              <span>تعيين حزمة صور</span>
             </button>
           </div>
         </div>
 
         {/* Settings Sliders & Toggles */}
-        <div className="mt-4 grid gap-3 sm:grid-cols-3 pt-3 border-t border-border/50">
-          <label className="block">
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 pt-3 border-t border-border/50 min-w-0">
+          <label className="block min-w-0">
             <span className="mb-1.5 flex items-center justify-between text-xs text-muted">
               <span>مدة المشهد</span>
               <span className="font-semibold text-primary font-mono">{project.shotDurationSec} ث</span>
@@ -126,7 +197,7 @@ export default function ProjectPage() {
             />
           </label>
 
-          <label className="block">
+          <label className="block min-w-0">
             <span className="mb-1.5 block text-xs text-muted">نوع الانتقال البصري</span>
             <select
               value={project.transitionType}
@@ -141,30 +212,30 @@ export default function ProjectPage() {
             </select>
           </label>
 
-          <label className="flex items-center justify-between rounded-xl border border-border bg-card px-4 h-11 self-end cursor-pointer">
-            <span className="text-sm text-fg">ترجمة الكلام على الشاشة</span>
+          <label className="flex items-center justify-between rounded-xl border border-border bg-card px-4 h-11 self-end cursor-pointer min-w-0">
+            <span className="text-sm text-fg truncate">ترجمة الكلام على الشاشة</span>
             <input
               type="checkbox"
               checked={project.showSubtitlesInVideo}
               onChange={(e) => toggleSubtitles(e.target.checked)}
-              className="h-5 w-5 accent-[#00e5ff]"
+              className="h-5 w-5 accent-[#00e5ff] shrink-0"
             />
           </label>
         </div>
 
         {/* Filter & Search Bar */}
-        <div className="mt-4 flex flex-col sm:flex-row gap-2.5 pt-3 border-t border-border/50">
-          <div className="flex h-11 flex-1 items-center gap-2 rounded-xl border border-border bg-card px-3 focus-within:border-primary">
+        <div className="mt-4 flex flex-col sm:flex-row gap-2.5 pt-3 border-t border-border/50 min-w-0">
+          <div className="flex h-11 flex-1 items-center gap-2 rounded-xl border border-border bg-card px-3 focus-within:border-primary min-w-0">
             <Search className="h-4 w-4 text-dim shrink-0" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="ابحث برقم المشهد أو نص التعليق أو المؤثر…"
-              className="w-full bg-transparent text-sm text-fg outline-none placeholder:text-dim"
+              className="w-full bg-transparent text-sm text-fg outline-none placeholder:text-dim min-w-0"
             />
           </div>
 
-          <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none">
+          <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none max-w-full">
             <FilterChip active={filterMode === "ALL"} onClick={() => setFilterMode("ALL")} label="الكل" count={counts.total} />
             <FilterChip active={filterMode === "HAS_AUDIO"} onClick={() => setFilterMode("HAS_AUDIO")} label="بصوت مرتبط" count={counts.hasAudio} />
             <FilterChip active={filterMode === "HAS_IMAGE"} onClick={() => setFilterMode("HAS_IMAGE")} label="بصورة مخصصة" count={counts.hasImage} />
@@ -172,6 +243,72 @@ export default function ProjectPage() {
           </div>
         </div>
       </section>
+
+      {/* Paste JSON Modal Dialog */}
+      {pasteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-2xl rounded-2xl sm:rounded-3xl border border-border bg-surface p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <FileUp className="h-5 w-5 text-primary" />
+                <h3 className="text-base font-bold text-fg">استيراد سيناريو جديد (لصق JSON)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasteOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted hover:text-fg transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="mt-2 text-xs text-muted">
+              الصق كود JSON الخاص بالقصة هنا. يدعم هيكل المشروع الكامل أو مصفوفة المشاهد المباشرة:
+            </p>
+
+            <textarea
+              value={pasteValue}
+              onChange={(e) => setPasteValue(e.target.value)}
+              rows={8}
+              dir="ltr"
+              placeholder='{\n  "project_info": { "title": "حكاية جديدة" },\n  "shots": [ ... ]\n}'
+              className="mt-3 w-full rounded-xl border border-border bg-card p-3 font-mono text-xs text-fg outline-none focus:border-primary"
+            />
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  loadSample();
+                  setPasteOpen(false);
+                }}
+                className="flex items-center gap-1.5 text-xs text-dim hover:text-primary transition"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                استعادة القصة النموذجية الافتراضية
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen(false)}
+                  className="h-10 rounded-xl border border-border px-4 text-xs font-medium text-muted hover:text-fg transition"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasteImport}
+                  disabled={!pasteValue.trim()}
+                  className="h-10 rounded-xl bg-primary px-5 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-50"
+                >
+                  استيراد وتحديث المشاهد
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shot Grid */}
       <ShotList

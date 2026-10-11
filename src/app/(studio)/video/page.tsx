@@ -19,14 +19,17 @@ import { useStudio, findBgm } from "@/lib/store";
 import { audioEngine } from "@/lib/audio-engine";
 import { getAsset } from "@/lib/db";
 import {
+  COMPRESSION_PROFILES,
+  CompressionPreset,
   VIDEO_HEIGHT,
   VIDEO_WIDTH,
   ShotImage,
   drawFrame,
+  estimateVideoSizeMB,
   exportStoryVideo,
   loadShotImages,
 } from "@/lib/video-export";
-import { formatTimecode } from "@/lib/utils";
+import { cn, formatTimecode } from "@/lib/utils";
 import { computeProjectTimeline } from "@/lib/timeline";
 import { LikeSubscribeCta } from "@/components/studio/like-subscribe-cta";
 
@@ -49,9 +52,14 @@ export default function VideoPage() {
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   const [result, setResult] = useState<{ url: string; name: string; size: number } | null>(null);
+  const [compressionPreset, setCompressionPreset] = useState<CompressionPreset>("compact");
 
   const timeline = useMemo(() => (project ? computeProjectTimeline(project) : null), [project]);
   const totalSec = timeline?.totalDurationSec ?? 0;
+  const estimatedMB = useMemo(
+    () => estimateVideoSizeMB(totalSec, compressionPreset),
+    [totalSec, compressionPreset]
+  );
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -155,6 +163,7 @@ export default function VideoPage() {
         bgmTrack,
         voiceVolume,
         bgmVolume,
+        compressionPreset,
         onProgress: (ratio, s) => {
           setProgress(ratio);
           setStage(s);
@@ -172,11 +181,11 @@ export default function VideoPage() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[380px_1fr] min-w-0 w-full max-w-full">
       {/* Left Control Column */}
-      <section className="space-y-4">
+      <section className="space-y-4 min-w-0 w-full">
         {/* Export Card */}
-        <div className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg">
+        <div className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg min-w-0 w-full">
           <div className="flex items-center gap-2.5">
             <Film className="h-5 w-5 text-primary" />
             <h1 className="text-base font-bold text-fg">تصدير فيديو MP4</h1>
@@ -185,6 +194,44 @@ export default function VideoPage() {
             مدة الفيديو {formatTimecode(totalSec)} · {project.shots.length} مشهد · عمودي 9:16
           </p>
 
+          {/* Video Compression and Quality Presets */}
+          <div className="mt-4 space-y-2 pt-3 border-t border-border/50">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-fg">مستوى ضغط وحجم الفيديو:</span>
+              <span className="font-bold text-primary font-mono bg-primary/10 px-2 py-0.5 rounded-md">
+                التقديري: ~{estimatedMB} MB
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5">
+              {(["compact", "balanced", "high"] as CompressionPreset[]).map((presetKey) => {
+                const profile = COMPRESSION_PROFILES[presetKey];
+                const isSelected = compressionPreset === presetKey;
+                return (
+                  <button
+                    key={presetKey}
+                    type="button"
+                    onClick={() => setCompressionPreset(presetKey)}
+                    className={cn(
+                      "flex flex-col items-center justify-center rounded-xl p-2 text-center transition border text-xs",
+                      isSelected
+                        ? "border-primary bg-primary/15 text-primary font-bold shadow-sm"
+                        : "border-border bg-card text-muted hover:border-border/80 hover:text-fg"
+                    )}
+                  >
+                    <span className="text-[11px] font-bold truncate w-full">
+                      {presetKey === "compact" ? "⚡ موفر وخفيف" : presetKey === "balanced" ? "⚖️ متوازن" : "🎬 سينمائي"}
+                    </span>
+                    <span className="text-[9px] text-dim font-mono mt-0.5">{profile.badge}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted leading-relaxed">
+              {COMPRESSION_PROFILES[compressionPreset].descriptionAr}
+            </p>
+          </div>
+
           <button
             type="button"
             onClick={() => void handleExport()}
@@ -192,7 +239,7 @@ export default function VideoPage() {
             className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-bold text-black transition hover:brightness-110 shadow-lg disabled:opacity-60"
           >
             {exporting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-            {exporting ? "جارٍ الإنشاء والترميز…" : "إنشاء وتحميل الفيديو"}
+            {exporting ? "جارٍ الإنشاء والترميز…" : `إنشاء وتحميل الفيديو (~${estimatedMB} MB)`}
           </button>
 
           {exporting && (
