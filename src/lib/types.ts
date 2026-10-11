@@ -112,9 +112,12 @@ export interface StoryShot {
   soundMusic: string;
   soundSfx: string;
   customImageId?: string;
+  customAudioId?: string;
+  audioDurationSec?: number;
   sceneType: SceneArtType;
   textOverlay: string;
   sfxName: string;
+  assignedSfxId?: number;
   sfxVolumePercent: number;
   sfxTriggerSec: number;
   dialogueLines: DialogueLine[];
@@ -154,6 +157,13 @@ export interface StoryProject {
   channelName: string;
   showChannelWatermark: boolean;
   showSubscribeCta: boolean;
+  enableDazzlingCTA?: boolean;
+  enableVFXParticles?: boolean;
+  enableVFXVignette?: boolean;
+  enableVFXLaserFlare?: boolean;
+  enableVFXSpeedlines?: boolean;
+  enableVFXGlitch?: boolean;
+  enableKenBurns?: boolean;
   voiceName: string;
   voiceNameAr: string;
   generatedVoiceIds: string[];

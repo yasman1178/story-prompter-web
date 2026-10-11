@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookOpen, ScrollText, Search, Volume2 } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, Play, ScrollText, Search, Volume2 } from "lucide-react";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
+import { audioEngine } from "@/lib/audio-engine";
 
 const VOICEOVER_RULES = [
   "اكتب باللهجة المصرية العامية القريبة من الشارع، وكأن شخصاً يحكي لصديقه، وتجنّب الفصحى المعقدة.",
@@ -93,18 +95,30 @@ export default function GuidePage() {
 
       <section className="rounded-2xl border border-border bg-surface/70 p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="flex items-center gap-2 text-sm font-bold text-fg">
-            <Volume2 className="h-4 w-4 text-primary" />
-            كتالوج المؤثرات الصوتية ({SFX_CATALOG.length})
-          </h2>
-          <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3">
-            <Search className="h-4 w-4 text-dim" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث عن مؤثر…"
-              className="h-full w-40 bg-transparent text-sm text-fg outline-none placeholder:text-dim"
-            />
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-bold text-fg">
+              <Volume2 className="h-4 w-4 text-primary" />
+              كتالوج المؤثرات الصوتية ({SFX_CATALOG.length})
+            </h2>
+            <p className="text-xs text-dim mt-0.5">انقر على زر التشغيل للاستماع لكل مؤثر مباشرة.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/sfx"
+              className="flex h-10 items-center gap-1.5 rounded-xl bg-primary/20 border border-primary/40 px-3 text-xs font-bold text-primary hover:bg-primary/30 transition"
+            >
+              <span>فتح مكتبة المؤثرات الكاملة</span>
+              <span>←</span>
+            </Link>
+            <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3">
+              <Search className="h-4 w-4 text-dim" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="ابحث عن مؤثر…"
+                className="h-full w-36 bg-transparent text-sm text-fg outline-none placeholder:text-dim"
+              />
+            </div>
           </div>
         </div>
 
@@ -114,17 +128,25 @@ export default function GuidePage() {
               <h3 className="mb-2 text-xs font-bold text-primary">{categoryAr}</h3>
               <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {items.map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/15 text-xs font-bold text-primary">
-                      {item.id}
-                    </span>
+                  <li key={item.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-2.5 hover:border-primary/40 transition">
+                    <button
+                      type="button"
+                      onClick={() => void audioEngine.playCatalogSfx(item)}
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary hover:bg-primary/25 transition active:scale-95"
+                      aria-label="استماع"
+                    >
+                      <Play className="h-4 w-4 fill-current" />
+                    </button>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-fg">{item.nameAr}</p>
-                      <p className="truncate text-[11px] text-dim" dir="ltr">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] text-dim">#{item.id}</span>
+                        <p className="truncate text-sm font-semibold text-fg">{item.nameAr}</p>
+                      </div>
+                      <p className="truncate text-[11px] text-dim font-mono" dir="ltr">
                         {item.nameEn}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs font-semibold text-accent">{item.volume}%</span>
+                    <span className="shrink-0 text-xs font-semibold text-accent font-mono">{item.volume}%</span>
                   </li>
                 ))}
               </ul>

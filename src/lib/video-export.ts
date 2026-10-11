@@ -1,8 +1,9 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { BgmTrack, StoryProject, StoryShot } from "@/lib/types";
 import { getImage } from "@/lib/db";
-import { getBgmBuffer } from "@/lib/audio-engine";
+import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
 import { drawSceneArtwork } from "@/lib/scene-art";
+import { SFX_CATALOG } from "@/lib/sfx-catalog";
 
 export const VIDEO_WIDTH = 720;
 export const VIDEO_HEIGHT = 1280;
@@ -91,55 +92,317 @@ export function drawFrame(
   image: ShotImage | undefined
 ) {
   const progress = Math.min(1, localSec / Math.max(1, duration));
-  const zoom = 1 + progress * 0.16;
+
+  // 1. Ken Burns Camera Motions (alternate zoom in, zoom out, pan)
+  const moveType = shot.shotNumber % 3;
+  let zoom = 1 + progress * 0.14;
+  let panX = 0;
+  if (project.enableKenBurns !== false) {
+    if (moveType === 0) {
+      zoom = 1.0 + progress * 0.16; // smooth push in
+    } else if (moveType === 1) {
+      zoom = 1.15 - progress * 0.13; // smooth pull out
+    } else {
+      zoom = 1.08;
+      panX = (progress - 0.5) * 36; // slow lateral pan
+    }
+  }
+
+  // 2. Camera Screen Shake on impacts / lasers
+  const isImpact =
+    shot.type.includes("انغلاق") ||
+    shot.type.includes("زئير") ||
+    shot.type.includes("ليزر") ||
+    shot.type.includes("ارتطام") ||
+    shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
+    shot.sceneType === "THRONE_STATUE_RED_EYES";
+  let shakeX = 0;
+  let shakeY = 0;
+  if (isImpact && localSec < 0.28) {
+    const intensity = (1 - localSec / 0.28) * 12;
+    shakeX = Math.sin(localSec * 60) * intensity;
+    shakeY = Math.cos(localSec * 50) * intensity;
+  }
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
 
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
 
+  // Draw visual artwork
   if (image) {
-    drawCover(ctx, image.bitmap, zoom);
+    drawCover(ctx, image.bitmap, zoom, panX);
   } else {
     drawSceneArt(ctx, shot, zoom);
   }
 
-  const sheen = ctx.createLinearGradient(0, VIDEO_HEIGHT * 0.45, 0, VIDEO_HEIGHT);
+  // 2b. Manga / Anime Dynamic Action Speedlines
+  const isActionMoment =
+    isImpact ||
+    shot.type.includes("قتال") ||
+    shot.type.includes("خطر") ||
+    shot.type.includes("تحول") ||
+    shot.type.includes("سيف");
+  if ((project.enableVFXSpeedlines || isActionMoment) && project.enableVFXSpeedlines !== false) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+    ctx.lineWidth = 2.5;
+    const cx = VIDEO_WIDTH / 2;
+    const cy = VIDEO_HEIGHT * 0.46;
+    const numLines = 26;
+    const seed = Math.floor(localSec * 14);
+    for (let i = 0; i < numLines; i++) {
+      const angle = (i / numLines) * Math.PI * 2 + ((seed + i * 7) % 11) * 0.04;
+      const innerR = 210 + (((seed * 17 + i * 31) % 70));
+      const outerR = Math.max(VIDEO_WIDTH, VIDEO_HEIGHT);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
+      ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 2c. Tension Glitch / Shockwave slice
+  const isTenseMoment =
+    shot.mood.includes("رعب") || shot.mood.includes("توتر") || shot.type.includes("صدمة");
+  if ((project.enableVFXGlitch || isTenseMoment) && project.enableVFXGlitch !== false && localSec < 0.22) {
+    ctx.save();
+    const glitchH = 28;
+    const glitchY = VIDEO_HEIGHT * 0.35 + (localSec * 350) % (VIDEO_HEIGHT * 0.3);
+    ctx.fillStyle = "rgba(0, 229, 255, 0.18)";
+    ctx.fillRect(0, glitchY, VIDEO_WIDTH, glitchH);
+    ctx.fillStyle = "rgba(239, 68, 68, 0.15)";
+    ctx.fillRect(0, glitchY + 6, VIDEO_WIDTH, glitchH * 0.6);
+    ctx.restore();
+  }
+
+  // 3. Cinematic Vignette (darkened edges for focus)
+  if (project.enableVFXVignette !== false) {
+    const vig = ctx.createRadialGradient(
+      VIDEO_WIDTH / 2,
+      VIDEO_HEIGHT / 2,
+      VIDEO_WIDTH * 0.35,
+      VIDEO_WIDTH / 2,
+      VIDEO_HEIGHT / 2,
+      VIDEO_HEIGHT * 0.75
+    );
+    vig.addColorStop(0, "rgba(0,0,0,0)");
+    vig.addColorStop(0.65, "rgba(0,0,0,0.35)");
+    vig.addColorStop(1, "rgba(0,0,0,0.85)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+  }
+
+  // 4. Red Eye Laser Glow Flares for thrilling moments
+  const hasRedEyes =
+    shot.sceneType === "THRONE_STATUE_RED_EYES" ||
+    shot.type.includes("أحمر") ||
+    shot.voiceoverEgyptian.includes("ليزر") ||
+    shot.voiceoverEgyptian.includes("أحمر");
+  if (hasRedEyes && project.enableVFXLaserFlare !== false) {
+    const eyeY = VIDEO_HEIGHT * 0.42;
+    const eyeLeftX = VIDEO_WIDTH * 0.42;
+    const eyeRightX = VIDEO_WIDTH * 0.58;
+    const flarePulse = 0.85 + Math.sin(localSec * 14) * 0.15;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    [eyeLeftX, eyeRightX].forEach((ex) => {
+      const glow = ctx.createRadialGradient(ex, eyeY, 4, ex, eyeY, 95 * flarePulse);
+      glow.addColorStop(0, "rgba(255, 255, 255, 1)");
+      glow.addColorStop(0.2, "rgba(255, 30, 60, 0.95)");
+      glow.addColorStop(0.6, "rgba(255, 0, 0, 0.45)");
+      glow.addColorStop(1, "rgba(255, 0, 0, 0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, 95 * flarePulse, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Sharp laser ray
+      ctx.strokeStyle = "rgba(255, 60, 90, 0.85)";
+      ctx.lineWidth = 4 * flarePulse;
+      ctx.beginPath();
+      ctx.moveTo(ex - 85, eyeY);
+      ctx.lineTo(ex + 85, eyeY);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // 5. Atmospheric Floating Particles (Embers & Magic)
+  if (project.enableVFXParticles !== false) {
+    ctx.save();
+    for (let p = 0; p < 22; p++) {
+      const seed = p * 137.5;
+      const px = ((Math.sin(seed) * 0.5 + 0.5) * VIDEO_WIDTH + Math.sin(localSec * 0.8 + p) * 25) % VIDEO_WIDTH;
+      const py = VIDEO_HEIGHT - ((localSec * 70 + seed * 9) % VIDEO_HEIGHT);
+      const size = (p % 3) + 2.5;
+      const alpha = 0.25 + (Math.sin(localSec * 3 + p) * 0.5 + 0.5) * 0.65;
+      ctx.fillStyle = p % 2 === 0 ? `rgba(0, 229, 255, ${alpha})` : `rgba(245, 158, 11, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Bottom Shadow Gradient for Text Contrast
+  const sheen = ctx.createLinearGradient(0, VIDEO_HEIGHT * 0.42, 0, VIDEO_HEIGHT);
   sheen.addColorStop(0, "rgba(0,0,0,0)");
-  sheen.addColorStop(1, "rgba(0,0,0,0.85)");
+  sheen.addColorStop(0.5, "rgba(0,0,0,0.65)");
+  sheen.addColorStop(1, "rgba(0,0,0,0.92)");
   ctx.fillStyle = sheen;
-  ctx.fillRect(0, VIDEO_HEIGHT * 0.45, VIDEO_WIDTH, VIDEO_HEIGHT * 0.55);
+  ctx.fillRect(0, VIDEO_HEIGHT * 0.42, VIDEO_WIDTH, VIDEO_HEIGHT * 0.58);
 
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "700 44px Cairo, sans-serif";
-  ctx.textBaseline = "alphabetic";
-
+  // 6. Subtitles with stylish background plate
   const caption = project.showSubtitlesInVideo ? shot.voiceoverEgyptian : shot.textOverlay;
   if (caption) {
-    const lines = wrapText(ctx, caption, VIDEO_WIDTH - 120);
-    let y = VIDEO_HEIGHT - 200 - (lines.length - 1) * 56;
+    const lines = wrapText(ctx, caption, VIDEO_WIDTH - 140);
+    const boxHeight = lines.length * 60 + 34;
+    const boxY = VIDEO_HEIGHT - 220 - lines.length * 60;
+    const bx = 45;
+    const bw = VIDEO_WIDTH - 90;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(10, 15, 26, 0.86)";
+    ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bx, boxY, bw, boxHeight, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.font = "700 38px Cairo, sans-serif";
+    ctx.fillStyle = "#ffffff";
+    let textY = boxY + 50;
     for (const line of lines) {
-      ctx.strokeStyle = "rgba(0,0,0,0.85)";
-      ctx.lineWidth = 8;
-      ctx.strokeText(line, VIDEO_WIDTH / 2, y);
-      ctx.fillText(line, VIDEO_WIDTH / 2, y);
-      y += 56;
+      ctx.strokeStyle = "rgba(0,0,0,0.9)";
+      ctx.lineWidth = 6;
+      ctx.strokeText(line, VIDEO_WIDTH / 2, textY);
+      ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+      textY += 60;
     }
+    ctx.restore();
   }
 
+  // Channel Watermark
   if (project.showChannelWatermark) {
     ctx.textAlign = "right";
-    ctx.font = "600 26px Cairo, sans-serif";
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.fillText(project.channelName, VIDEO_WIDTH - 32, 56);
+    ctx.font = "700 26px Cairo, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(project.channelName, VIDEO_WIDTH - 36, 58);
   }
 
-  if (project.showSubscribeCta) {
+  // 7. Dazzling Animated Like & Subscribe CTA Overlay
+  if (project.showSubscribeCta || project.enableDazzlingCTA !== false) {
+    ctx.save();
+    const ctaW = 460;
+    const ctaH = 74;
+    const ctaX = (VIDEO_WIDTH - ctaW) / 2;
+    const ctaY = VIDEO_HEIGHT - 98;
+    const pulse = 1 + Math.sin(localSec * 5) * 0.02;
+
+    ctx.translate(VIDEO_WIDTH / 2, ctaY + ctaH / 2);
+    ctx.scale(pulse, pulse);
+    ctx.translate(-VIDEO_WIDTH / 2, -(ctaY + ctaH / 2));
+
+    // Glow aura
+    const aura = ctx.createRadialGradient(
+      VIDEO_WIDTH / 2,
+      ctaY + ctaH / 2,
+      ctaW * 0.15,
+      VIDEO_WIDTH / 2,
+      ctaY + ctaH / 2,
+      ctaW * 0.6
+    );
+    aura.addColorStop(0, "rgba(0, 229, 255, 0.32)");
+    aura.addColorStop(1, "rgba(0, 229, 255, 0)");
+    ctx.fillStyle = aura;
+    ctx.fillRect(ctaX - 35, ctaY - 25, ctaW + 70, ctaH + 50);
+
+    // Pill background
+    const bgGrad = ctx.createLinearGradient(ctaX, ctaY, ctaX + ctaW, ctaY + ctaH);
+    bgGrad.addColorStop(0, "#0b1325");
+    bgGrad.addColorStop(0.5, "#15243e");
+    bgGrad.addColorStop(1, "#0b1325");
+    ctx.fillStyle = bgGrad;
+    ctx.strokeStyle = "#00e5ff";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(ctaX, ctaY, ctaW, ctaH, 37);
+    ctx.fill();
+    ctx.stroke();
+
+    // Shimmering light sweep reflection wave
+    const shimmerProgress = (localSec * 0.55) % 1;
+    const shimX = ctaX + shimmerProgress * (ctaW + 120) - 60;
+    const shimGrad = ctx.createLinearGradient(shimX - 35, ctaY, shimX + 35, ctaY);
+    shimGrad.addColorStop(0, "rgba(255, 255, 255, 0)");
+    shimGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.4)");
+    shimGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(ctaX, ctaY, ctaW, ctaH, 37);
+    ctx.clip();
+    ctx.fillStyle = shimGrad;
+    ctx.fillRect(shimX - 35, ctaY, 70, ctaH);
+    ctx.restore();
+
+    // Red Like Badge on left
+    const likeX = ctaX + 16;
+    const likeY = ctaY + 12;
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.roundRect(likeX, likeY, 95, 50, 25);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 23px Cairo, sans-serif";
     ctx.textAlign = "center";
-    ctx.font = "700 30px Cairo, sans-serif";
-    ctx.fillStyle = "#00e5ff";
-    ctx.fillText("اشترك في القناة 🔔", VIDEO_WIDTH / 2, VIDEO_HEIGHT - 70);
+    ctx.fillText("👍 لايك", likeX + 47, likeY + 33);
+
+    // Cyan Subscribe Button
+    const subX = ctaX + 122;
+    const subY = ctaY + 12;
+    const subW = ctaW - 138;
+    const subGrad = ctx.createLinearGradient(subX, subY, subX + subW, subY);
+    subGrad.addColorStop(0, "#00e5ff");
+    subGrad.addColorStop(1, "#38bdf8");
+    ctx.fillStyle = subGrad;
+    ctx.beginPath();
+    ctx.roundRect(subX, subY, subW, 50, 25);
+    ctx.fill();
+
+    // Wiggling bell 🔔
+    const bellAngle = Math.sin(localSec * 14) * 0.2;
+    ctx.save();
+    ctx.translate(subX + subW - 32, subY + 25);
+    ctx.rotate(bellAngle);
+    ctx.font = "24px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🔔", 0, 0);
+    ctx.restore();
+
+    ctx.fillStyle = "#000000";
+    ctx.font = "700 24px Cairo, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("اشترك في القناة", subX + (subW - 36) / 2, subY + 34);
+
+    // Sparkles
+    const starAlpha = 0.5 + Math.sin(localSec * 8) * 0.5;
+    ctx.fillStyle = `rgba(245, 158, 11, ${starAlpha})`;
+    ctx.font = "18px sans-serif";
+    ctx.fillText("✨", ctaX - 12, ctaY + 24);
+    ctx.fillText("✨", ctaX + ctaW + 4, ctaY + 52);
+
+    ctx.restore();
   }
 
+  // Transitions
   if (project.transitionType === "FLASH_CUT" && localSec < 0.12) {
     ctx.fillStyle = `rgba(255,255,255,${1 - localSec / 0.12})`;
     ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
@@ -147,6 +410,8 @@ export function drawFrame(
     ctx.fillStyle = `rgba(0,0,0,${1 - localSec / 0.45})`;
     ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
   }
+
+  ctx.restore();
 }
 
 export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, ShotImage>> {
@@ -175,7 +440,32 @@ async function buildMixedAudio(
   const durationSec = Math.max(1, project.shotDurationSec * project.shots.length);
   const offline = new OfflineAudioContext(2, Math.ceil(AUDIO_SAMPLE_RATE * durationSec), AUDIO_SAMPLE_RATE);
 
-  if (voiceBlob) {
+  // 1. Check if individual shots have their own linked audio
+  let hasShotAudio = false;
+  for (let i = 0; i < project.shots.length; i++) {
+    const shot = project.shots[i];
+    if (shot.customAudioId) {
+      try {
+        const asset = await getImage(shot.customAudioId);
+        if (asset?.blob) {
+          hasShotAudio = true;
+          const decoded = await decodeInContext(asset.blob, offline);
+          const src = offline.createBufferSource();
+          src.buffer = decoded;
+          const gain = offline.createGain();
+          gain.gain.value = voiceVolume;
+          src.connect(gain);
+          gain.connect(offline.destination);
+          src.start(i * project.shotDurationSec);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // 2. If no individual shot audios, fall back to project-wide voice recording
+  if (!hasShotAudio && voiceBlob) {
     try {
       const voice = await decodeInContext(voiceBlob, offline);
       const src = offline.createBufferSource();
@@ -190,6 +480,7 @@ async function buildMixedAudio(
     }
   }
 
+  // 3. Background Music
   if (project.isBgmEnabled && bgmTrack) {
     try {
       const bgm = await getBgmBuffer(bgmTrack);
@@ -204,6 +495,32 @@ async function buildMixedAudio(
       src.stop(durationSec);
     } catch {
       // ignore bgm failure
+    }
+  }
+
+  // 4. Per-shot Synchronized SFX sound effects
+  for (let i = 0; i < project.shots.length; i++) {
+    const shot = project.shots[i];
+    if (shot.assignedSfxId || shot.sfxName) {
+      try {
+        const item = SFX_CATALOG.find(
+          (s) => s.id === shot.assignedSfxId || s.nameAr === shot.sfxName
+        );
+        if (item) {
+          const sfxBuffer = await getCatalogSfxBuffer(item);
+          const src = offline.createBufferSource();
+          src.buffer = sfxBuffer;
+          const gain = offline.createGain();
+          const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85;
+          gain.gain.value = effVol;
+          src.connect(gain);
+          gain.connect(offline.destination);
+          const trigger = i * project.shotDurationSec + (shot.sfxTriggerSec || 0);
+          src.start(Math.max(0, trigger));
+        }
+      } catch {
+        // ignore sfx failure
+      }
     }
   }
 
@@ -263,7 +580,10 @@ async function exportWithWebCodecs(
   const duration = project.shotDurationSec;
   const totalSec = duration * project.shots.length;
   const totalFrames = Math.round(totalSec * VIDEO_FPS);
-  const hasAudio = Boolean(input.voiceBlob) || project.isBgmEnabled;
+  const hasAudio =
+    Boolean(input.voiceBlob) ||
+    project.isBgmEnabled ||
+    project.shots.some((s) => Boolean(s.customAudioId || s.assignedSfxId));
   const audioOk = hasAudio ? await supportsAac() : false;
 
   const canvas = document.createElement("canvas");

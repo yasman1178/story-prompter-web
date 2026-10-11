@@ -42,6 +42,21 @@ interface StudioState {
   setShotImage: (shotNumber: number, imageId: string) => void;
   assignSingleImage: (shotNumber: number, file: File) => Promise<void>;
   setRecordedAudio: (audioId: string, durationSec: number) => void;
+  assignShotAudio: (shotNumber: number, blob: Blob, durationSec: number) => Promise<void>;
+  clearShotAudio: (shotNumber: number) => Promise<void>;
+  assignShotSfx: (shotNumber: number, sfxId: number, nameAr: string, volume: number, triggerSec?: number) => void;
+  updateShotVoiceover: (shotNumber: number, text: string) => void;
+  toggleDazzlingCTA: (enabled: boolean) => void;
+  toggleVFX: (
+    key:
+      | "enableVFXParticles"
+      | "enableVFXVignette"
+      | "enableVFXLaserFlare"
+      | "enableVFXSpeedlines"
+      | "enableVFXGlitch"
+      | "enableKenBurns",
+    value: boolean
+  ) => void;
   assignImages: (files: File[]) => Promise<number>;
   clearShotImage: (shotNumber: number) => Promise<void>;
 
@@ -204,6 +219,73 @@ export const useStudio = create<StudioState>((set, get) => ({
     const project = get().project;
     if (!project) return;
     set({ project: { ...project, audioRecordId: audioId, audioRecordDurationSec: durationSec } });
+  },
+
+  assignShotAudio: async (shotNumber, blob, durationSec) => {
+    const id = newId("aud");
+    await putImage({ id, name: `shot_${shotNumber}.mp3`, type: blob.type || "audio/mpeg", blob, createdAt: Date.now() });
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? { ...s, customAudioId: id, audioDurationSec: durationSec }
+        : s
+    );
+    set({ project: { ...project, shots }, feedback: `تم ربط الصوت مع صورة المشهد #${shotNumber}` });
+  },
+
+  clearShotAudio: async (shotNumber) => {
+    const project = get().project;
+    if (!project) return;
+    const shot = project.shots.find((s) => s.shotNumber === shotNumber);
+    if (shot?.customAudioId) {
+      await deleteImage(shot.customAudioId).catch(() => undefined);
+    }
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber ? { ...s, customAudioId: undefined, audioDurationSec: undefined } : s
+    );
+    set({ project: { ...project, shots }, feedback: `تم فك ارتباط صوت المشهد #${shotNumber}` });
+  },
+
+  assignShotSfx: (shotNumber, sfxId, nameAr, volume, triggerSec) => {
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? {
+            ...s,
+            assignedSfxId: sfxId,
+            sfxName: nameAr,
+            sfxVolumePercent: Math.min(100, Math.max(0, Math.round(volume))),
+            sfxTriggerSec: triggerSec ?? s.sfxTriggerSec,
+          }
+        : s
+    );
+    set({ project: { ...project, shots }, feedback: `تم تعيين مؤثر [${nameAr}] للمشهد #${shotNumber}` });
+  },
+
+  updateShotVoiceover: (shotNumber, text) => {
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber ? { ...s, voiceoverEgyptian: text } : s
+    );
+    set({ project: { ...project, shots } });
+  },
+
+  toggleDazzlingCTA: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: { ...project, enableDazzlingCTA: enabled },
+      feedback: enabled ? "تم تفعيل زر الإعجاب والاشتراك المبهر 🔔" : "تم إخفاء زر الإعجاب والاشتراك",
+    });
+  },
+
+  toggleVFX: (key, value) => {
+    const project = get().project;
+    if (!project) return;
+    set({ project: { ...project, [key]: value } });
   },
 
   assignImages: async (files) => {

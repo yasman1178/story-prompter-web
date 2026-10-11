@@ -1,8 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Film, Loader2, Pause, Play, RotateCcw } from "lucide-react";
+import {
+  Activity,
+  Download,
+  Eye,
+  Film,
+  Flame,
+  Loader2,
+  Move,
+  Pause,
+  Play,
+  RotateCcw,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { useStudio, findBgm } from "@/lib/store";
+import { audioEngine } from "@/lib/audio-engine";
 import { getAsset } from "@/lib/db";
 import {
   VIDEO_HEIGHT,
@@ -13,12 +27,15 @@ import {
   loadShotImages,
 } from "@/lib/video-export";
 import { formatTimecode } from "@/lib/utils";
+import { LikeSubscribeCta } from "@/components/studio/like-subscribe-cta";
 
 export default function VideoPage() {
   const project = useStudio((s) => s.project);
   const hydrated = useStudio((s) => s.hydrated);
   const voiceVolume = useStudio((s) => s.voiceVolume);
   const bgmVolume = useStudio((s) => s.bgmVolume);
+  const toggleDazzlingCTA = useStudio((s) => s.toggleDazzlingCTA);
+  const toggleVFX = useStudio((s) => s.toggleVFX);
   const showFeedback = useStudio((s) => s.showFeedback);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -89,6 +106,19 @@ export default function VideoPage() {
     if (!playing) paint();
   }, [displayTime, playing, paint]);
 
+  useEffect(() => {
+    if (playing && project?.isBgmEnabled) {
+      const track = findBgm(project.selectedBgmId);
+      audioEngine.setVolume(bgmVolume * 0.7);
+      void audioEngine.playTrack(track);
+    } else if (!playing) {
+      audioEngine.stop();
+    }
+    return () => {
+      audioEngine.stop();
+    };
+  }, [playing, project?.isBgmEnabled, project?.selectedBgmId, bgmVolume]);
+
   if (!hydrated) return <p className="py-20 text-center text-muted">جارٍ التحميل…</p>;
   if (!project) return <p className="py-20 text-center text-muted">حمّل مشروعاً من تبويب المشاهد أولاً.</p>;
 
@@ -142,92 +172,215 @@ export default function VideoPage() {
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      {/* Left Control Column */}
       <section className="space-y-4">
-        <div className="rounded-2xl border border-border bg-surface/70 p-4">
-          <div className="flex items-center gap-2">
+        {/* Export Card */}
+        <div className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg">
+          <div className="flex items-center gap-2.5">
             <Film className="h-5 w-5 text-primary" />
             <h1 className="text-base font-bold text-fg">تصدير فيديو MP4</h1>
           </div>
-          <p className="mt-1 text-sm text-muted">
-            مدة الفيديو {formatTimecode(totalSec)} · {project.shots.length} مشهد · 9:16
+          <p className="mt-1 text-xs text-muted">
+            مدة الفيديو {formatTimecode(totalSec)} · {project.shots.length} مشهد · عمودي 9:16
           </p>
-          {project.shots.length > 120 && (
-            <p className="mt-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs text-gold">
-              مشروع كبير ({project.shots.length} مشهد). قد يستغرق الإنشاء عدة دقائق — اترك التاب مفتوحاً.
-            </p>
-          )}
 
           <button
             type="button"
             onClick={() => void handleExport()}
             disabled={exporting}
-            className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-black transition hover:brightness-110 disabled:opacity-60"
+            className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-bold text-black transition hover:brightness-110 shadow-lg disabled:opacity-60"
           >
             {exporting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-            {exporting ? "جارٍ الإنشاء…" : "إنشاء وتحميل الفيديو"}
+            {exporting ? "جارٍ الإنشاء والترميز…" : "إنشاء وتحميل الفيديو"}
           </button>
 
           {exporting && (
             <div className="mt-4 space-y-2">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-card">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-card">
                 <div
-                  className="h-full rounded-full bg-primary transition-[width]"
+                  className="h-full rounded-full bg-primary transition-[width] duration-200"
                   style={{ width: `${Math.round(progress * 100)}%` }}
                 />
               </div>
-              <p className="text-center text-xs text-dim">
+              <p className="text-center text-xs font-mono text-dim">
                 {stage} {Math.round(progress * 100)}%
               </p>
             </div>
           )}
 
           {result && (
-            <div className="mt-4 space-y-3 rounded-xl border border-accent/40 bg-card p-3">
-              <p className="text-sm font-semibold text-fg">الفيديو جاهز</p>
-              <video src={result.url} controls className="w-full rounded-lg" />
+            <div className="mt-4 space-y-3 rounded-2xl border border-accent/40 bg-card p-3.5 shadow-lg">
+              <p className="text-sm font-bold text-fg">الفيديو جاهز للمشاركة والتنزيل!</p>
+              <video src={result.url} controls className="w-full rounded-xl" />
               <a
                 href={result.url}
                 download={result.name}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg bg-accent font-semibold text-black"
+                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-accent font-bold text-black shadow-md hover:brightness-110 transition"
               >
                 <Download className="h-4 w-4" />
-                تحميل ({Math.round(result.size / 1024 / 1024 * 10) / 10} MB)
+                تحميل الملف ({Math.round((result.size / 1024 / 1024) * 10) / 10} MB)
               </a>
             </div>
           )}
         </div>
 
-        {!project.showSubtitlesInVideo && (
-          <p className="rounded-xl border border-border bg-card p-3 text-xs text-dim">
-            نصيحة: فعّل «إظهار الترجمة في الفيديو» من تبويب المشاهد لإضافة الكلام المكتوب على الشاشة.
-          </p>
-        )}
+        {/* Visual Effects & Dazzling CTA Controls */}
+        <div className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg space-y-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-fg">
+            <Sparkles className="h-4 w-4 text-accent" />
+            <span>المؤثرات البصرية وتنسيق الفيديو</span>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <Move className="h-4 w-4 text-primary" />
+                <div>
+                  <p className="font-semibold text-fg">حركات كاميرا كين بيرنز (Ken Burns)</p>
+                  <p className="text-[11px] text-dim">تكبير وانسكاب حركي متناغم لكل مشهد</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableKenBurns !== false}
+                onChange={(e) => toggleVFX("enableKenBurns", e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-primary" />
+                <div>
+                  <p className="font-semibold text-fg">حواف سينمائية داكنة (Vignette)</p>
+                  <p className="text-[11px] text-dim">تركيز بصري درامي في أطراف الكادر</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableVFXVignette !== false}
+                onChange={(e) => toggleVFX("enableVFXVignette", e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <Flame className="h-4 w-4 text-gold" />
+                <div>
+                  <p className="font-semibold text-fg">جسيمات وبريق سحري طائر (Particles)</p>
+                  <p className="text-[11px] text-dim">ذرات ضوئية متحركة في الهواء</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableVFXParticles !== false}
+                onChange={(e) => toggleVFX("enableVFXParticles", e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-danger" />
+                <div>
+                  <p className="font-semibold text-fg">توهج وليزر العيون الحمراء (Laser Flares)</p>
+                  <p className="text-[11px] text-dim">أشعة ليزر مضيئة في اللحظات الخطيرة</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableVFXLaserFlare !== false}
+                onChange={(e) => toggleVFX("enableVFXLaserFlare", e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-400" />
+                <div>
+                  <p className="font-semibold text-fg">خطوط السرعة والأكشن المانجا (Speedlines)</p>
+                  <p className="text-[11px] text-dim">إشعاع حركي ياباني حول المشاهد الحماسية</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableVFXSpeedlines !== false}
+                onChange={(e) => toggleVFX("enableVFXSpeedlines", e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-purple-400" />
+                <div>
+                  <p className="font-semibold text-fg">اهتزاز وتشويش الصدمة (Tension Glitch)</p>
+                  <p className="text-[11px] text-dim">تشويش لوني طارئ عند لحظات التوتر والرعب</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableVFXGlitch !== false}
+                onChange={(e) => toggleVFX("enableVFXGlitch", e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-border bg-card p-3 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🔔</span>
+                <div>
+                  <p className="font-semibold text-fg">زر تسجيل الإعجاب والاشتراك المبهر</p>
+                  <p className="text-[11px] text-dim">شريط تفاعلي نيون متحرك داخل الفيديو</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project.enableDazzlingCTA !== false}
+                onChange={(e) => toggleDazzlingCTA(e.target.checked)}
+                className="h-5 w-5 accent-[#00e5ff]"
+              />
+            </label>
+          </div>
+
+          {/* Dazzling CTA Live Preview */}
+          <div className="pt-2">
+            <p className="text-[11px] text-dim mb-2 text-center">معاينة تفاعلية لزر الاشتراك والإعجاب:</p>
+            <div className="flex justify-center p-2 rounded-xl bg-card/60 border border-border/60">
+              <LikeSubscribeCta channelName={project.channelName} interactive={true} />
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section className="flex flex-col items-center gap-3">
-        <div className="relative w-full max-w-[360px] overflow-hidden rounded-3xl border border-border bg-black">
+      {/* Right Video Canvas & Player Controls */}
+      <section className="flex flex-col items-center justify-start gap-4">
+        <div className="relative w-full max-w-[340px] sm:max-w-[380px] aspect-[9/16] overflow-hidden rounded-3xl border-2 border-border/80 bg-black shadow-2xl">
           <canvas
             ref={canvasRef}
             width={VIDEO_WIDTH}
             height={VIDEO_HEIGHT}
-            className="block h-auto w-full"
+            className="block h-full w-full object-contain"
           />
         </div>
 
-        <div className="flex w-full max-w-[360px] items-center gap-3">
+        {/* Player controls */}
+        <div className="flex w-full max-w-[340px] sm:max-w-[380px] items-center gap-3 bg-surface/80 p-3 rounded-2xl border border-border shadow-md">
           <button
             type="button"
             onClick={togglePlay}
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary text-black transition hover:brightness-110"
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary text-black transition hover:brightness-110 shadow-md active:scale-95"
             aria-label={playing ? "إيقاف" : "تشغيل"}
           >
-            {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            {playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
           </button>
           <button
             type="button"
             onClick={reset}
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-border text-fg transition hover:border-primary/50"
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-border bg-card text-fg transition hover:border-primary/50"
             aria-label="إعادة"
           >
             <RotateCcw className="h-5 w-5" />

@@ -13,6 +13,11 @@ export const metadata: Metadata = {
   description:
     "استوديو متكامل لتحويل حكايات الأنمي إلى شورتس عمودية: سيناريو، تسجيل صوتي، موسيقى ومؤثرات، ومعاينة واعية بالتوقيت.",
   applicationName: "Story Prompter",
+  openGraph: {
+    title: "استوديو حكايات الشورتس",
+    description:
+      "استوديو متكامل لتحويل حكايات الأنمي إلى شورتس عمودية: سيناريو، تسجيل صوتي، موسيقى ومؤثرات، ومعاينة واعية بالتوقيت.",
+  },
 };
 
 export const viewport: Viewport = {

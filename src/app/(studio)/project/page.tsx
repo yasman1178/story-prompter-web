@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { StoryShot, TRANSITION_TYPES } from "@/lib/types";
 import { useStudio } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 40;
 
@@ -13,6 +14,8 @@ interface IndexedShot {
   shot: StoryShot;
   index: number;
 }
+
+type FilterMode = "ALL" | "HAS_IMAGE" | "NO_IMAGE" | "HAS_AUDIO" | "NO_AUDIO";
 
 export default function ProjectPage() {
   const hydrated = useStudio((s) => s.hydrated);
@@ -24,19 +27,38 @@ export default function ProjectPage() {
   const assignImages = useStudio((s) => s.assignImages);
   const folderRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [filterMode, setFilterMode] = useState<FilterMode>("ALL");
+
+  const shots = useMemo(() => project?.shots ?? [], [project?.shots]);
+
+  const counts = useMemo(() => {
+    let hasImage = 0;
+    let hasAudio = 0;
+    for (const s of shots) {
+      if (s.customImageId) hasImage++;
+      if (s.customAudioId) hasAudio++;
+    }
+    return { hasImage, hasAudio, total: shots.length };
+  }, [shots]);
 
   const filtered = useMemo<IndexedShot[]>(() => {
-    const shots = project?.shots ?? [];
     const indexed = shots.map((shot, index) => ({ shot, index }));
     const q = query.trim().toLowerCase();
-    if (!q) return indexed;
-    return indexed.filter(
-      ({ shot }) =>
+    return indexed.filter(({ shot }) => {
+      if (filterMode === "HAS_IMAGE" && !shot.customImageId) return false;
+      if (filterMode === "NO_IMAGE" && shot.customImageId) return false;
+      if (filterMode === "HAS_AUDIO" && !shot.customAudioId) return false;
+      if (filterMode === "NO_AUDIO" && shot.customAudioId) return false;
+
+      if (!q) return true;
+      return (
         String(shot.shotNumber).includes(q) ||
         shot.type.toLowerCase().includes(q) ||
-        shot.voiceoverEgyptian.toLowerCase().includes(q)
-    );
-  }, [project, query]);
+        shot.voiceoverEgyptian.toLowerCase().includes(q) ||
+        (shot.sfxName && shot.sfxName.toLowerCase().includes(q))
+      );
+    });
+  }, [shots, query, filterMode]);
 
   if (!hydrated) {
     return <p className="py-20 text-center text-muted">جارٍ تحميل المشروع…</p>;
@@ -48,14 +70,22 @@ export default function ProjectPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-border bg-surface/70 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Top Project Settings & Stats */}
+      <section className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-base font-bold text-fg">{project.title}</h1>
-            <p className="text-xs text-dim">
-              {project.platform} · {project.language} · {project.shots.length} مشهد
-            </p>
+            <h1 className="text-base sm:text-lg font-bold text-fg">{project.title}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-dim">
+              <span>{project.platform}</span>
+              <span>·</span>
+              <span>{project.shots.length} مشهد</span>
+              <span>·</span>
+              <span className="text-accent font-semibold">{counts.hasImage} بصورة</span>
+              <span>·</span>
+              <span className="text-primary font-semibold">{counts.hasAudio} بصوت مرتبط</span>
+            </div>
           </div>
+
           <div className="flex items-center gap-2">
             <input
               ref={folderRef}
@@ -71,19 +101,20 @@ export default function ProjectPage() {
             <button
               type="button"
               onClick={() => folderRef.current?.click()}
-              className="flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-black transition hover:brightness-110"
+              className="flex h-11 w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-black transition hover:brightness-110 shadow-md"
             >
               <FolderUp className="h-4 w-4" />
-              تعيين صور المشاهد
+              تعيين حزمة صور
             </button>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        {/* Settings Sliders & Toggles */}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 pt-3 border-t border-border/50">
           <label className="block">
             <span className="mb-1.5 flex items-center justify-between text-xs text-muted">
               <span>مدة المشهد</span>
-              <span className="font-semibold text-primary">{project.shotDurationSec} ث</span>
+              <span className="font-semibold text-primary font-mono">{project.shotDurationSec} ث</span>
             </span>
             <input
               type="range"
@@ -96,7 +127,7 @@ export default function ProjectPage() {
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-xs text-muted">نوع الانتقال</span>
+            <span className="mb-1.5 block text-xs text-muted">نوع الانتقال البصري</span>
             <select
               value={project.transitionType}
               onChange={(e) => setTransitionType(e.target.value as (typeof project)["transitionType"])}
@@ -110,8 +141,8 @@ export default function ProjectPage() {
             </select>
           </label>
 
-          <label className="flex items-center justify-between rounded-xl border border-border bg-card px-4 sm:mt-5">
-            <span className="text-sm text-fg">إظهار الترجمة في الفيديو</span>
+          <label className="flex items-center justify-between rounded-xl border border-border bg-card px-4 h-11 self-end cursor-pointer">
+            <span className="text-sm text-fg">ترجمة الكلام على الشاشة</span>
             <input
               type="checkbox"
               checked={project.showSubtitlesInVideo}
@@ -121,26 +152,53 @@ export default function ProjectPage() {
           </label>
         </div>
 
-        {project.shots.length > 20 && (
-          <div className="mt-4 flex h-11 max-w-sm items-center gap-2 rounded-xl border border-border bg-card px-3">
-            <Search className="h-4 w-4 text-dim" />
+        {/* Filter & Search Bar */}
+        <div className="mt-4 flex flex-col sm:flex-row gap-2.5 pt-3 border-t border-border/50">
+          <div className="flex h-11 flex-1 items-center gap-2 rounded-xl border border-border bg-card px-3 focus-within:border-primary">
+            <Search className="h-4 w-4 text-dim shrink-0" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث برقم المشهد أو الكلام…"
-              className="h-full w-full bg-transparent text-sm text-fg outline-none placeholder:text-dim"
+              placeholder="ابحث برقم المشهد أو نص التعليق أو المؤثر…"
+              className="w-full bg-transparent text-sm text-fg outline-none placeholder:text-dim"
             />
           </div>
-        )}
+
+          <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none">
+            <FilterChip active={filterMode === "ALL"} onClick={() => setFilterMode("ALL")} label="الكل" count={counts.total} />
+            <FilterChip active={filterMode === "HAS_AUDIO"} onClick={() => setFilterMode("HAS_AUDIO")} label="بصوت مرتبط" count={counts.hasAudio} />
+            <FilterChip active={filterMode === "HAS_IMAGE"} onClick={() => setFilterMode("HAS_IMAGE")} label="بصورة مخصصة" count={counts.hasImage} />
+            <FilterChip active={filterMode === "NO_IMAGE"} onClick={() => setFilterMode("NO_IMAGE")} label="ينقصها صورة" count={counts.total - counts.hasImage} />
+          </div>
+        </div>
       </section>
 
+      {/* Shot Grid */}
       <ShotList
-        key={`${project.id}:${query}`}
+        key={`${project.id}:${query}:${filterMode}`}
         shots={filtered}
         activeShotIndex={activeShotIndex}
-        searchActive={query.trim().length > 0}
+        searchActive={query.trim().length > 0 || filterMode !== "ALL"}
       />
     </div>
+  );
+}
+
+function FilterChip({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count?: number }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 h-11 text-xs font-semibold transition border",
+        active
+          ? "bg-primary text-black border-primary shadow-sm"
+          : "bg-card text-muted hover:bg-surface hover:text-fg border-border"
+      )}
+    >
+      <span>{label}</span>
+      {count !== undefined && <span className="opacity-75 font-mono">({count})</span>}
+    </button>
   );
 }
 
@@ -191,7 +249,7 @@ function ShotList({
         ))}
       </div>
 
-      {shots.length === 0 && <p className="py-10 text-center text-sm text-muted">لا نتائج مطابقة.</p>}
+      {shots.length === 0 && <p className="py-12 text-center text-sm text-muted">لا نتائج مطابقة للمشاهد المحددة.</p>}
 
       {shown.length < shots.length && <div ref={sentinelRef} className="h-12" />}
     </>

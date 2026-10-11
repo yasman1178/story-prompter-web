@@ -42,7 +42,7 @@ async function loadUrlBuffer(audio: AudioContext, url: string): Promise<AudioBuf
 
 const WAVEFORMS: OscillatorType[] = ["sawtooth", "triangle", "square", "sine"];
 
-function renderBgmBuffer(track: BgmTrack): AudioBuffer {
+async function renderBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
   const sampleRate = 44100;
   const beat = 60 / Math.max(40, track.tempoBpm);
   const bars = 8;
@@ -88,7 +88,7 @@ function renderBgmBuffer(track: BgmTrack): AudioBuffer {
     }
   }
 
-  return offline.startRendering() as unknown as AudioBuffer;
+  return await offline.startRendering();
 }
 
 const SFX_RECIPES: Record<SfxTypeId, { type: OscillatorType; from: number; to: number; dur: number; noise: number }> = {
@@ -102,7 +102,7 @@ const SFX_RECIPES: Record<SfxTypeId, { type: OscillatorType; from: number; to: n
   LAUGHTER: { type: "square", from: 300, to: 480, dur: 0.5, noise: 0.1 },
 };
 
-function renderSfxBuffer(type: SfxTypeId): AudioBuffer {
+async function renderSfxBuffer(type: SfxTypeId): Promise<AudioBuffer> {
   const sampleRate = 44100;
   const recipe = SFX_RECIPES[type];
   const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * recipe.dur), sampleRate);
@@ -135,7 +135,7 @@ function renderSfxBuffer(type: SfxTypeId): AudioBuffer {
     noise.start(0);
   }
 
-  return offline.startRendering() as unknown as AudioBuffer;
+  return await offline.startRendering();
 }
 
 export async function getBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
@@ -146,7 +146,7 @@ export async function getBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
   const cacheKey = `synth:${track.id}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
-  const rendered = renderBgmBuffer(track);
+  const rendered = await renderBgmBuffer(track);
   bufferCache.set(cacheKey, rendered);
   return rendered;
 }
@@ -159,7 +159,7 @@ export async function getSfxBuffer(type: SfxTypeId): Promise<AudioBuffer> {
   const cacheKey = `sfx:${type}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
-  const rendered = renderSfxBuffer(type);
+  const rendered = await renderSfxBuffer(type);
   bufferCache.set(cacheKey, rendered);
   return rendered;
 }
@@ -169,6 +169,123 @@ export async function decodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
   const data = await blob.arrayBuffer();
   return audio.decodeAudioData(data);
 }
+
+function getCatalogSoundUrl(nameEn: string): string | null {
+  const n = nameEn.toLowerCase();
+  if (n.includes("roar") || n.includes("growl")) return `${SOUNDS_BASE}/monster_roar.wav`;
+  if (n.includes("heartbeat") || n.includes("pulse")) return `${SOUNDS_BASE}/heartbeat.wav`;
+  if (n.includes("laser") || n.includes("beam") || n.includes("blast")) return `${SOUNDS_BASE}/laser_beam.wav`;
+  if (n.includes("door slam") || n.includes("heavy slam") || n.includes("ground impact") || n.includes("slam")) return `${SOUNDS_BASE}/heavy_slam.wav`;
+  if (n.includes("creak") || n.includes("stone")) return `${SOUNDS_BASE}/stone_creak.wav`;
+  if (n.includes("footstep") || n.includes("steps")) return `${SOUNDS_BASE}/footsteps.wav`;
+  if (n.includes("heal") || n.includes("chime")) return `${SOUNDS_BASE}/healing_magic.wav`;
+  if (n.includes("laugh") || n.includes("chuckle")) return `${SOUNDS_BASE}/laughter.wav`;
+  return null;
+}
+
+async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: string): Promise<AudioBuffer> {
+  const sampleRate = 44100;
+  const cat = categoryEn.toLowerCase();
+  const name = nameEn.toLowerCase();
+
+  let dur = 0.5;
+  let wave: OscillatorType = "sine";
+  let fromFreq = 440;
+  let toFreq = 220;
+  let noiseAmt = 0.1;
+
+  if (cat.includes("combat") || cat.includes("impact")) {
+    dur = name.includes("explosion") ? 1.4 : name.includes("slash") || name.includes("slice") ? 0.35 : 0.5;
+    wave = name.includes("clang") || name.includes("metal") ? "triangle" : "sawtooth";
+    fromFreq = name.includes("laser") ? 1600 : name.includes("slash") ? 880 : 320;
+    toFreq = name.includes("laser") ? 120 : name.includes("slash") ? 180 : 40;
+    noiseAmt = name.includes("explosion") ? 0.55 : 0.3;
+  } else if (cat.includes("horror") || cat.includes("suspense")) {
+    dur = name.includes("drone") || name.includes("whisper") ? 1.6 : 0.8;
+    wave = name.includes("roar") ? "sawtooth" : name.includes("sub") ? "sine" : "triangle";
+    fromFreq = name.includes("riser") ? 110 : name.includes("roar") ? 220 : 70;
+    toFreq = name.includes("riser") ? 660 : 35;
+    noiseAmt = name.includes("whisper") || name.includes("wind") ? 0.45 : 0.15;
+  } else if (cat.includes("movement") || cat.includes("transition")) {
+    dur = name.includes("whoosh") || name.includes("swoosh") ? 0.4 : name.includes("door") ? 0.9 : 0.45;
+    wave = name.includes("door") ? "square" : "sine";
+    fromFreq = name.includes("whoosh") ? 600 : 150;
+    toFreq = name.includes("whoosh") ? 120 : 50;
+    noiseAmt = name.includes("whoosh") ? 0.5 : 0.25;
+  } else if (cat.includes("magic") || cat.includes("energy")) {
+    dur = name.includes("aura") || name.includes("surge") ? 1.2 : 0.7;
+    wave = "sine";
+    fromFreq = name.includes("heal") || name.includes("chime") ? 587 : 440;
+    toFreq = name.includes("heal") || name.includes("sparkle") ? 1174 : 880;
+    noiseAmt = 0.05;
+  } else if (cat.includes("humor") || cat.includes("ui")) {
+    dur = name.includes("horn") ? 0.8 : name.includes("click") ? 0.12 : 0.4;
+    wave = name.includes("boing") ? "triangle" : name.includes("pop") ? "sine" : "square";
+    fromFreq = name.includes("boing") ? 220 : name.includes("pop") ? 600 : 400;
+    toFreq = name.includes("boing") ? 880 : name.includes("pop") ? 150 : 500;
+    noiseAmt = name.includes("scratch") ? 0.6 : 0.02;
+  } else {
+    dur = 0.6;
+    wave = "triangle";
+    fromFreq = 260;
+    toFreq = 180;
+    noiseAmt = 0.2;
+  }
+
+  const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * dur), sampleRate);
+  const osc = offline.createOscillator();
+  osc.type = wave;
+  osc.frequency.setValueAtTime(fromFreq, 0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(20, toFreq), dur);
+
+  const env = offline.createGain();
+  env.gain.setValueAtTime(0.0001, 0);
+  env.gain.exponentialRampToValueAtTime(0.85, Math.min(0.04, dur * 0.15));
+  env.gain.exponentialRampToValueAtTime(0.0001, dur);
+  osc.connect(env);
+  env.connect(offline.destination);
+  osc.start(0);
+  osc.stop(dur);
+
+  if (noiseAmt > 0) {
+    const len = Math.ceil(sampleRate * dur);
+    const nBuf = offline.createBuffer(1, len, sampleRate);
+    const ch = nBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * noiseAmt;
+    const nSrc = offline.createBufferSource();
+    nSrc.buffer = nBuf;
+    const nEnv = offline.createGain();
+    nEnv.gain.setValueAtTime(noiseAmt, 0);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, dur);
+    nSrc.connect(nEnv);
+    nEnv.connect(offline.destination);
+    nSrc.start(0);
+  }
+
+  return await offline.startRendering();
+}
+
+export async function getCatalogSfxBuffer(item: { id: number; nameEn: string; categoryEn: string }): Promise<AudioBuffer> {
+  const audio = getContext();
+  const cacheKey = `cat-sfx:${item.id}`;
+  const cached = bufferCache.get(cacheKey);
+  if (cached) return cached;
+
+  const wavUrl = getCatalogSoundUrl(item.nameEn);
+  if (wavUrl) {
+    const loaded = await loadUrlBuffer(audio, wavUrl);
+    if (loaded) {
+      bufferCache.set(cacheKey, loaded);
+      return loaded;
+    }
+  }
+
+  const rendered = await renderCatalogSfxBuffer(item.id, item.categoryEn, item.nameEn);
+  bufferCache.set(cacheKey, rendered);
+  return rendered;
+}
+
+let activeBlobSource: AudioBufferSourceNode | null = null;
 
 export const audioEngine = {
   setVolume(v: number) {
@@ -188,7 +305,7 @@ export const audioEngine = {
     let buffer = await loadUrlBuffer(audio, assetUrl);
     if (!buffer) {
       const cacheKey = `synth:${track.id}`;
-      buffer = bufferCache.get(cacheKey) ?? renderBgmBuffer(track);
+      buffer = bufferCache.get(cacheKey) ?? await renderBgmBuffer(track);
       bufferCache.set(cacheKey, buffer);
     }
 
@@ -211,6 +328,15 @@ export const audioEngine = {
       activeSource.disconnect();
       activeSource = null;
     }
+    if (activeBlobSource) {
+      try {
+        activeBlobSource.stop();
+      } catch {
+        // already stopped
+      }
+      activeBlobSource.disconnect();
+      activeBlobSource = null;
+    }
     activeTrackId = null;
   },
 
@@ -224,7 +350,7 @@ export const audioEngine = {
     let buffer = await loadUrlBuffer(audio, assetUrl);
     if (!buffer) {
       const cacheKey = `sfx:${type}`;
-      buffer = bufferCache.get(cacheKey) ?? renderSfxBuffer(type);
+      buffer = bufferCache.get(cacheKey) ?? await renderSfxBuffer(type);
       bufferCache.set(cacheKey, buffer);
     }
     const source = audio.createBufferSource();
@@ -234,5 +360,73 @@ export const audioEngine = {
     source.connect(gain);
     gain.connect(masterGain!);
     source.start();
+  },
+
+  async playCatalogSfx(
+    item: { id: number; nameEn: string; categoryEn: string; volume?: number },
+    customVolume?: number
+  ) {
+    const audio = getContext();
+    const buffer = await getCatalogSfxBuffer(item);
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    const gain = audio.createGain();
+    const effVolume = (customVolume ?? (item.volume ? item.volume / 100 : 0.8)) * 0.9;
+    gain.gain.value = Math.max(0, Math.min(1, effVolume));
+    source.connect(gain);
+    gain.connect(masterGain!);
+    source.start();
+  },
+
+  playLikeSubscribeChime() {
+    const audio = getContext();
+    const now = audio.currentTime;
+    // Pleasant dual harmonic chime (E5 -> G#5 -> B5 -> E6)
+    const notes = [659.25, 830.61, 987.77, 1318.51];
+    notes.forEach((freq, idx) => {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+      gain.gain.setValueAtTime(0.0001, now + idx * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.4, now + idx * 0.09 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.09 + 0.6);
+      osc.connect(gain);
+      gain.connect(masterGain!);
+      osc.start(now + idx * 0.09);
+      osc.stop(now + idx * 0.09 + 0.65);
+    });
+  },
+
+  async playBlobAudio(blob: Blob, onEnded?: () => void): Promise<() => void> {
+    const audio = getContext();
+    if (activeBlobSource) {
+      try {
+        activeBlobSource.stop();
+      } catch {
+        // already stopped
+      }
+      activeBlobSource.disconnect();
+      activeBlobSource = null;
+    }
+    const buffer = await decodeAudioBlob(blob);
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.connect(masterGain!);
+    source.onended = () => {
+      if (activeBlobSource === source) activeBlobSource = null;
+      onEnded?.();
+    };
+    source.start();
+    activeBlobSource = source;
+    return () => {
+      try {
+        source.stop();
+      } catch {
+        // ignore
+      }
+      source.disconnect();
+      if (activeBlobSource === source) activeBlobSource = null;
+    };
   },
 };
