@@ -24,6 +24,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
   }
 
-  await setSessionCookie(username);
+  try {
+    await setSessionCookie(username);
+  } catch (err) {
+    console.error("Login session cookie error:", err);
+    return NextResponse.json({ error: "session_failed" }, { status: 500 });
+  }
   return NextResponse.json({ ok: true, username });
 }

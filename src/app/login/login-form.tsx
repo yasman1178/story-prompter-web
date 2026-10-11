@@ -48,9 +48,22 @@ export function LoginForm({ nextPath }: { nextPath: string }) {
         </span>
         <h1 className="text-xl font-bold text-fg">استوديو حكايات الشورتس</h1>
         <p className="mt-1 text-sm text-muted">سجّل الدخول للوصول إلى الاستوديو</p>
-        <p className="mt-2 rounded-lg bg-card/60 px-3 py-1 text-xs text-muted">
-          بيانات الدخول الافتراضية: <code className="text-primary font-mono">admin</code> / <code className="text-primary font-mono">admin</code>
-        </p>
+        <div className="mt-3 flex flex-col items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted w-full">
+          <div>
+            بيانات الدخول الافتراضية: <code className="font-mono font-bold text-primary">admin</code> / <code className="font-mono font-bold text-primary">admin</code>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setUsername("admin");
+              setPassword("admin");
+              setError(null);
+            }}
+            className="mt-1 inline-flex items-center gap-1 rounded-lg bg-primary/20 hover:bg-primary/30 px-2.5 py-1 text-xs font-semibold text-primary transition"
+          >
+            اضغط هنا لتعبئة البيانات تلقائياً
+          </button>
+        </div>
       </div>
 
       <label className="mb-4 block">
