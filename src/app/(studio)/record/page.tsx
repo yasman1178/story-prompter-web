@@ -40,12 +40,19 @@ export default function RecordPage() {
   const hydrated = useStudio((s) => s.hydrated);
   const setRecordedAudio = useStudio((s) => s.setRecordedAudio);
   const assignShotAudio = useStudio((s) => s.assignShotAudio);
+  const batchAssignShotsAudio = useStudio((s) => s.batchAssignShotsAudio);
   const showFeedback = useStudio((s) => s.showFeedback);
 
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    current: number;
+    total: number;
+    shotNumber: number;
+    percent: number;
+  } | null>(null);
   const [selectedShotNumber, setSelectedShotNumber] = useState<number>(1);
   const [singleGenLoading, setSingleGenLoading] = useState(false);
 
@@ -152,51 +159,113 @@ export default function RecordPage() {
     await audio.play();
   }
 
+  function getShotText(shot: StoryShot): string {
+    if (shot.voiceoverEgyptian && shot.voiceoverEgyptian.trim()) {
+      return shot.voiceoverEgyptian.trim();
+    }
+    if (shot.textOverlay && shot.textOverlay.trim()) {
+      return shot.textOverlay.trim();
+    }
+    if (shot.dialogueLines && shot.dialogueLines.length > 0) {
+      const text = shot.dialogueLines.map((d) => d.text).filter(Boolean).join(" ").trim();
+      if (text) return text;
+    }
+    if (shot.type && shot.type.trim()) {
+      return shot.type.trim();
+    }
+    return "";
+  }
+
   async function generateVoice() {
     if (!project || generating) return;
     setGenerating(true);
+    setBatchProgress({ current: 0, total: project.shots.length, shotNumber: 1, percent: 0 });
+
     try {
+      const assignments: { shotNumber: number; blob: Blob; durationSec: number }[] = [];
       const buffers: Blob[] = [];
-      let failures = 0;
-      for (const shot of project.shots) {
-        if (!shot.voiceoverEgyptian.trim()) continue;
-        try {
-          const { blob } = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (let i = 0; i < project.shots.length; i++) {
+        const shot = project.shots[i];
+        const text = getShotText(shot);
+
+        setBatchProgress({
+          current: i + 1,
+          total: project.shots.length,
+          shotNumber: shot.shotNumber,
+          percent: Math.round(((i + 1) / project.shots.length) * 100),
+        });
+
+        if (!text) {
+          continue;
+        }
+
+        let blob: Blob | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await synthesizeSpeech(text, project.voiceName);
+            blob = res.blob;
+            break;
+          } catch {
+            if (attempt === 0) await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+
+        if (blob) {
           buffers.push(blob);
           const dur = await blobDuration(blob);
-          await assignShotAudio(shot.shotNumber, blob, dur);
-        } catch {
-          failures++;
+          assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur });
+          successCount++;
+        } else {
+          failureCount++;
         }
+
+        // Pacing delay to avoid WebSocket rate-limiting
+        await new Promise((r) => setTimeout(r, 120));
       }
+
+      if (assignments.length > 0) {
+        await batchAssignShotsAudio(assignments);
+      }
+
       if (buffers.length === 0) {
-        showFeedback("تعذّر توليد الصوت. تحقق من الاتصال بالإنترنت وحاول مرة أخرى.");
+        showFeedback("تعذّر توليد الصوت. تحقق من الاتصال بالإنترنت ومحتوى النصوص.");
         return;
       }
-      const blob = new Blob(buffers, { type: "audio/mpeg" });
+
+      const combined = new Blob(buffers, { type: "audio/mpeg" });
       const id = uid("vo");
-      await putAsset({ id, name: "voiceover.mp3", type: "audio/mpeg", blob, createdAt: Date.now() });
-      const duration = await blobDuration(blob);
+      await putAsset({ id, name: "voiceover.mp3", type: "audio/mpeg", blob: combined, createdAt: Date.now() });
+      const duration = await blobDuration(combined);
       setRecordedAudio(id, duration);
-      const note = failures > 0 ? ` (تعذّر ${failures} مشهد)` : "";
-      showFeedback(`تم توليد وربط صوت التعليق لكل المشاهد (${Math.round(duration)} ث)${note}.`);
+
+      const note = failureCount > 0 ? ` (تعذّر ${failureCount} مشهد)` : "";
+      showFeedback(`تم توليد وربط الصوت لجميع المشاهد (${successCount} مشهد بنجاح، إجمالي ${Math.round(duration)} ث) ومزامنة توقيت الانتقالات مع الصور!${note}`);
     } catch {
       showFeedback("حدث خطأ أثناء توليد الصوت.");
     } finally {
       setGenerating(false);
+      setBatchProgress(null);
     }
   }
 
   async function generateVoiceForShot(shotNumber: number) {
     if (!project || singleGenLoading) return;
     const shot = project.shots.find((s) => s.shotNumber === shotNumber);
-    if (!shot || !shot.voiceoverEgyptian.trim()) return;
+    if (!shot) return;
+    const text = getShotText(shot);
+    if (!text) {
+      showFeedback("لا يوجد نص تعليق مكتوب لهذا المشهد.");
+      return;
+    }
     setSingleGenLoading(true);
     try {
-      const { blob } = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
+      const { blob } = await synthesizeSpeech(text, project.voiceName);
       const dur = await blobDuration(blob);
       await assignShotAudio(shotNumber, blob, dur);
-      showFeedback(`تم توليد وربط الصوت للمشهد #${shotNumber} بنجاح!`);
+      showFeedback(`تم توليد وربط الصوت للمشهد #${shotNumber} بنجاح (${dur.toFixed(1)} ث)!`);
     } catch {
       showFeedback("تعذّر توليد الصوت لهذا المشهد.");
     } finally {
@@ -226,8 +295,18 @@ export default function RecordPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-dim">اختر المشهد:</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void generateVoice()}
+              disabled={generating}
+              className="flex h-10 items-center gap-2 rounded-xl bg-primary px-3.5 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-60 shadow-md"
+            >
+              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+              <span>{generating ? "جارٍ التوليد…" : "توليد كل المشاهد دفعة واحدة"}</span>
+            </button>
+
+            <span className="text-xs text-dim">المشهد:</span>
             <select
               value={selectedShotNumber}
               onChange={(e) => setSelectedShotNumber(Number(e.target.value))}
@@ -241,6 +320,28 @@ export default function RecordPage() {
             </select>
           </div>
         </div>
+
+        {/* Real-time batch progress card */}
+        {batchProgress && (
+          <div className="mt-3 rounded-2xl border border-primary/40 bg-primary/10 p-4 space-y-2.5 shadow-sm">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="flex items-center gap-2 text-primary">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                جارٍ توليد صوت المشهد #{batchProgress.shotNumber} ({batchProgress.current} من {batchProgress.total}) ومزامنة الصورة…
+              </span>
+              <span className="font-mono text-primary font-bold">{batchProgress.percent}%</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-black/40">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${batchProgress.percent}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-muted">
+              يتم حفظ الصوت لكل مشهد وتحديث توقيت ظهور الصورة في ملف المشروع تلقائياً.
+            </p>
+          </div>
+        )}
 
         {/* Horizontal Visual Shot Strip */}
         <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-none">

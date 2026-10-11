@@ -3,6 +3,7 @@ import { BGM_TRACKS, createSampleProject, parseStoryJson } from "@/lib/data";
 import { StoryProject, StoryShot, TransitionTypeId } from "@/lib/types";
 import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
+import { syncProjectShotTimeframes } from "@/lib/timeline";
 
 const PROJECT_KEY = "project";
 const SETTINGS_KEY = "settings";
@@ -43,6 +44,7 @@ interface StudioState {
   assignSingleImage: (shotNumber: number, file: File) => Promise<void>;
   setRecordedAudio: (audioId: string, durationSec: number) => void;
   assignShotAudio: (shotNumber: number, blob: Blob, durationSec: number) => Promise<void>;
+  batchAssignShotsAudio: (assignments: { shotNumber: number; blob: Blob; durationSec: number }[]) => Promise<void>;
   clearShotAudio: (shotNumber: number) => Promise<void>;
   assignShotSfx: (shotNumber: number, sfxId: number, nameAr: string, volume: number, triggerSec?: number) => void;
   updateShotVoiceover: (shotNumber: number, text: string) => void;
@@ -226,12 +228,44 @@ export const useStudio = create<StudioState>((set, get) => ({
     await putImage({ id, name: `shot_${shotNumber}.mp3`, type: blob.type || "audio/mpeg", blob, createdAt: Date.now() });
     const project = get().project;
     if (!project) return;
-    const shots = project.shots.map((s) =>
-      s.shotNumber === shotNumber
-        ? { ...s, customAudioId: id, audioDurationSec: durationSec }
-        : s
-    );
-    set({ project: { ...project, shots }, feedback: `تم ربط الصوت مع صورة المشهد #${shotNumber}` });
+    const updated = {
+      ...project,
+      shots: project.shots.map((s) =>
+        s.shotNumber === shotNumber
+          ? { ...s, customAudioId: id, audioDurationSec: durationSec }
+          : s
+      ),
+    };
+    const syncedShots = syncProjectShotTimeframes(updated);
+    set({ project: { ...updated, shots: syncedShots }, feedback: `تم ربط الصوت مع صورة المشهد #${shotNumber}` });
+  },
+
+  batchAssignShotsAudio: async (assignments) => {
+    const project = get().project;
+    if (!project || assignments.length === 0) return;
+    const shotMap = new Map<number, { id: string; durationSec: number }>();
+    for (const a of assignments) {
+      const id = newId("aud");
+      await putImage({ id, name: `shot_${a.shotNumber}.mp3`, type: a.blob.type || "audio/mpeg", blob: a.blob, createdAt: Date.now() });
+      shotMap.set(a.shotNumber, { id, durationSec: a.durationSec });
+    }
+    const current = get().project;
+    if (!current) return;
+    const updated = {
+      ...current,
+      shots: current.shots.map((s) => {
+        const assigned = shotMap.get(s.shotNumber);
+        if (assigned) {
+          return { ...s, customAudioId: assigned.id, audioDurationSec: assigned.durationSec };
+        }
+        return s;
+      }),
+    };
+    const syncedShots = syncProjectShotTimeframes(updated);
+    set({
+      project: { ...updated, shots: syncedShots },
+      feedback: `تم توليد وربط الصوت بنجاح لـ ${assignments.length} مشهد ومزامنة توقيت الانتقالات!`,
+    });
   },
 
   clearShotAudio: async (shotNumber) => {

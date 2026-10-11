@@ -4,6 +4,7 @@ import { getImage } from "@/lib/db";
 import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
 import { drawSceneArtwork } from "@/lib/scene-art";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
+import { computeProjectTimeline } from "@/lib/timeline";
 
 export const VIDEO_WIDTH = 720;
 export const VIDEO_HEIGHT = 1280;
@@ -437,13 +438,15 @@ async function buildMixedAudio(
   voiceVolume: number,
   bgmVolume: number
 ): Promise<AudioBuffer> {
-  const durationSec = Math.max(1, project.shotDurationSec * project.shots.length);
+  const timeline = computeProjectTimeline(project);
+  const durationSec = Math.max(1, timeline.totalDurationSec);
   const offline = new OfflineAudioContext(2, Math.ceil(AUDIO_SAMPLE_RATE * durationSec), AUDIO_SAMPLE_RATE);
 
   // 1. Check if individual shots have their own linked audio
   let hasShotAudio = false;
-  for (let i = 0; i < project.shots.length; i++) {
-    const shot = project.shots[i];
+  for (let i = 0; i < timeline.items.length; i++) {
+    const item = timeline.items[i];
+    const shot = item.shot;
     if (shot.customAudioId) {
       try {
         const asset = await getImage(shot.customAudioId);
@@ -456,7 +459,7 @@ async function buildMixedAudio(
           gain.gain.value = voiceVolume;
           src.connect(gain);
           gain.connect(offline.destination);
-          src.start(i * project.shotDurationSec);
+          src.start(item.startSec);
         }
       } catch {
         // ignore
@@ -499,15 +502,16 @@ async function buildMixedAudio(
   }
 
   // 4. Per-shot Synchronized SFX sound effects
-  for (let i = 0; i < project.shots.length; i++) {
-    const shot = project.shots[i];
+  for (let i = 0; i < timeline.items.length; i++) {
+    const item = timeline.items[i];
+    const shot = item.shot;
     if (shot.assignedSfxId || shot.sfxName) {
       try {
-        const item = SFX_CATALOG.find(
+        const sfxItem = SFX_CATALOG.find(
           (s) => s.id === shot.assignedSfxId || s.nameAr === shot.sfxName
         );
-        if (item) {
-          const sfxBuffer = await getCatalogSfxBuffer(item);
+        if (sfxItem) {
+          const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
           const src = offline.createBufferSource();
           src.buffer = sfxBuffer;
           const gain = offline.createGain();
@@ -515,7 +519,7 @@ async function buildMixedAudio(
           gain.gain.value = effVol;
           src.connect(gain);
           gain.connect(offline.destination);
-          const trigger = i * project.shotDurationSec + (shot.sfxTriggerSec || 0);
+          const trigger = item.startSec + (shot.sfxTriggerSec || 0);
           src.start(Math.max(0, trigger));
         }
       } catch {
@@ -542,7 +546,7 @@ function pickVideoCodec(): Promise<string | null> {
           codec,
           width: VIDEO_WIDTH,
           height: VIDEO_HEIGHT,
-          bitrate: 4_000_000,
+          bitrate: 3_500_000,
           framerate: VIDEO_FPS,
         });
         if (support.supported) return codec;
@@ -577,9 +581,9 @@ async function exportWithWebCodecs(
   if (!codec) return null;
 
   const { project, onProgress, signal } = input;
-  const duration = project.shotDurationSec;
-  const totalSec = duration * project.shots.length;
-  const totalFrames = Math.round(totalSec * VIDEO_FPS);
+  const timeline = computeProjectTimeline(project);
+  const totalSec = timeline.totalDurationSec;
+  const totalFrames = Math.max(1, Math.round(totalSec * VIDEO_FPS));
   const hasAudio =
     Boolean(input.voiceBlob) ||
     project.isBgmEnabled ||
@@ -589,7 +593,7 @@ async function exportWithWebCodecs(
   const canvas = document.createElement("canvas");
   canvas.width = VIDEO_WIDTH;
   canvas.height = VIDEO_HEIGHT;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: false });
   if (!ctx) return null;
 
   const target = new ArrayBufferTarget();
@@ -600,12 +604,13 @@ async function exportWithWebCodecs(
       hasAudio && audioOk
         ? { codec: "aac", numberOfChannels: 2, sampleRate: AUDIO_SAMPLE_RATE }
         : undefined,
-    fastStart: "in-memory",
+    fastStart: false,
   });
 
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: (e) => {
+      console.error("VideoEncoder error:", e);
       throw e;
     },
   });
@@ -613,7 +618,7 @@ async function exportWithWebCodecs(
     codec,
     width: VIDEO_WIDTH,
     height: VIDEO_HEIGHT,
-    bitrate: 4_000_000,
+    bitrate: 3_500_000,
     framerate: VIDEO_FPS,
   });
 
@@ -622,31 +627,44 @@ async function exportWithWebCodecs(
   for (let frame = 0; frame < totalFrames; frame++) {
     checkAborted(signal);
     const t = frame / VIDEO_FPS;
-    const shotIndex = Math.min(project.shots.length - 1, Math.floor(t / duration));
-    const shot = project.shots[shotIndex];
-    const localSec = t - shotIndex * duration;
-    drawFrame(ctx, project, shot, localSec, duration, images.get(shot.shotNumber));
+    const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
+    drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
+
+    // STRICT QUEUE THROTTLING TO PREVENT AW SNAP / OOM CRASH:
+    // Never allow more than 2 uncompressed frames to pile up in GPU/RAM memory!
+    while (videoEncoder.encodeQueueSize > 2) {
+      checkAborted(signal);
+      await new Promise((r) => setTimeout(r, 8));
+    }
 
     const timestamp = Math.round((frame / VIDEO_FPS) * 1_000_000);
     const videoFrame = new VideoFrame(canvas, { timestamp, duration: Math.round(1_000_000 / VIDEO_FPS) });
-    const keyFrame = frame % (VIDEO_FPS * Math.max(2, Math.round(duration))) === 0;
+    const keyFrame = frame % (VIDEO_FPS * 2) === 0;
     videoEncoder.encode(videoFrame, { keyFrame });
     videoFrame.close();
 
-    if (videoEncoder.encodeQueueSize > 12) {
-      await new Promise((r) => setTimeout(r, 4));
+    // Periodically yield to event loop so browser engine can run garbage collection
+    if (frame % 6 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
     }
-    if (frame % 15 === 0) onProgress?.(0.05 + (frame / totalFrames) * 0.6, "ترميز الفيديو…");
+
+    if (frame % 15 === 0) {
+      onProgress?.(
+        0.05 + (frame / totalFrames) * 0.65,
+        `ترميز الفيديو (${Math.round((frame / totalFrames) * 100)}%)…`
+      );
+    }
   }
 
   await videoEncoder.flush();
 
   if (hasAudio && audioOk) {
-    onProgress?.(0.7, "معالجة الصوت…");
+    onProgress?.(0.72, "معالجة ومزامنة الصوت…");
     const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => {
+        console.error("AudioEncoder error:", e);
         throw e;
       },
     });
@@ -662,6 +680,9 @@ async function exportWithWebCodecs(
     const block = 1024;
     for (let offset = 0; offset < left.length; offset += block) {
       checkAborted(signal);
+      while (audioEncoder.encodeQueueSize > 4) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
       const count = Math.min(block, left.length - offset);
       const planar = new Float32Array(count * 2);
       planar.set(left.subarray(offset, offset + count), 0);
@@ -676,7 +697,6 @@ async function exportWithWebCodecs(
       });
       audioEncoder.encode(audioData);
       audioData.close();
-      if (audioEncoder.encodeQueueSize > 20) await new Promise((r) => setTimeout(r, 0));
     }
     await audioEncoder.flush();
     audioEncoder.close();
@@ -707,8 +727,8 @@ async function exportWithMediaRecorder(
   images: Map<number, ShotImage>
 ): Promise<ExportResult> {
   const { project, onProgress, signal } = input;
-  const duration = project.shotDurationSec;
-  const totalSec = duration * project.shots.length;
+  const timeline = computeProjectTimeline(project);
+  const totalSec = timeline.totalDurationSec;
 
   const canvas = document.createElement("canvas");
   canvas.width = VIDEO_WIDTH;
@@ -727,7 +747,7 @@ async function exportWithMediaRecorder(
   for (const track of dest.stream.getAudioTracks()) stream.addTrack(track);
 
   const { mime, extension } = pickRecorderMime();
-  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 });
+  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_500_000 });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => {
     if (e.data.size > 0) chunks.push(e.data);
@@ -753,10 +773,8 @@ async function exportWithMediaRecorder(
         resolve();
         return;
       }
-      const shotIndex = Math.min(project.shots.length - 1, Math.floor(t / duration));
-      const shot = project.shots[shotIndex];
-      const localSec = t - shotIndex * duration;
-      drawFrame(ctx, project, shot, localSec, duration, images.get(shot.shotNumber));
+      const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
+      drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
       onProgress?.(Math.min(0.95, t / totalSec), "تسجيل الفيديو…");
       requestAnimationFrame(render);
     };

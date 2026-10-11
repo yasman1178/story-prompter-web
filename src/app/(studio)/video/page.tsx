@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Download,
@@ -27,6 +27,7 @@ import {
   loadShotImages,
 } from "@/lib/video-export";
 import { formatTimecode } from "@/lib/utils";
+import { computeProjectTimeline } from "@/lib/timeline";
 import { LikeSubscribeCta } from "@/components/studio/like-subscribe-cta";
 
 export default function VideoPage() {
@@ -49,18 +50,17 @@ export default function VideoPage() {
   const [stage, setStage] = useState("");
   const [result, setResult] = useState<{ url: string; name: string; size: number } | null>(null);
 
-  const totalSec = project ? project.shotDurationSec * project.shots.length : 0;
+  const timeline = useMemo(() => (project ? computeProjectTimeline(project) : null), [project]);
+  const totalSec = timeline?.totalDurationSec ?? 0;
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx || !project || project.shots.length === 0) return;
-    const duration = project.shotDurationSec;
-    const t = Math.min(timeRef.current, totalSec - 0.001);
-    const index = Math.min(project.shots.length - 1, Math.max(0, Math.floor(t / duration)));
-    const shot = project.shots[index];
-    drawFrame(ctx, project, shot, t - index * duration, duration, imagesRef.current.get(shot.shotNumber));
-  }, [project, totalSec]);
+    if (!canvas || !ctx || !project || !timeline || project.shots.length === 0) return;
+    const t = Math.min(timeRef.current, totalSec - 0.0001);
+    const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
+    drawFrame(ctx, project, shot, localSec, durationSec, imagesRef.current.get(shot.shotNumber));
+  }, [project, timeline, totalSec]);
 
   useEffect(() => {
     let cancelled = false;

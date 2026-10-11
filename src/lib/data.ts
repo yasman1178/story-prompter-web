@@ -433,10 +433,28 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
 
       const shotNum = extractInt(shotObj, i + 1, ["shot_number", "shot", "number", "num", "id", "index", "scene_number"]);
 
-      const rawTimeframe = extractString(shotObj, ["timeframe", "timing", "time", "duration", "interval", "timestamps", "range"]);
+      const rawTimeframe = extractString(shotObj, ["timeframe", "timing", "time", "interval", "timestamps", "range"]);
+      const explicitDuration = extractInt(shotObj, 0, ["duration_sec", "duration", "length_sec", "length"]);
+      const explicitStart = extractInt(shotObj, -1, ["start_time_sec", "start_time", "start_sec", "start"]);
+      const explicitEnd = extractInt(shotObj, -1, ["end_time_sec", "end_time", "end_sec", "end"]);
+
       const range = parseTimeframeRange(rawTimeframe);
-      const startSec = range ? range[0] : i * d;
-      const endSec = range ? range[1] : (i + 1) * d;
+      let startSec: number;
+      let endSec: number;
+
+      if (range && range[1] > range[0]) {
+        startSec = range[0];
+        endSec = range[1];
+      } else if (explicitStart >= 0 && explicitEnd > explicitStart) {
+        startSec = explicitStart;
+        endSec = explicitEnd;
+      } else if (explicitDuration > 0) {
+        startSec = explicitStart >= 0 ? explicitStart : (shots.length > 0 ? shots[shots.length - 1].endTimeSec : 0);
+        endSec = startSec + explicitDuration;
+      } else {
+        startSec = shots.length > 0 ? shots[shots.length - 1].endTimeSec : 0;
+        endSec = startSec + d;
+      }
       const timeframe = rawTimeframe ?? formatTimeframe(startSec, endSec);
 
       const type =
