@@ -97,26 +97,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile Fixed Bottom Tab Bar (Thumb Zone) */}
       <nav
         aria-label="التنقل الرئيسي للهاتف"
-        className="fixed bottom-0 left-0 right-0 z-40 block md:hidden border-t border-border/80 bg-nav/95 backdrop-blur-xl safe-bottom shadow-[0_-10px_25px_rgba(0,0,0,0.5)] w-full max-w-full overflow-hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 block md:hidden border-t border-border/80 bg-nav/95 backdrop-blur-xl safe-bottom shadow-[0_-10px_25px_rgba(0,0,0,0.5)] w-full max-w-full overflow-x-auto no-scrollbar"
       >
-        <ul className="grid grid-cols-7 items-center h-[62px] px-0.5 w-full">
+        <ul className="flex items-center h-[62px] px-1.5 w-max min-w-full justify-between gap-1">
           {STUDIO_TABS.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             const Icon = tab.icon;
             return (
-              <li key={tab.href} className="flex justify-center min-w-0">
+              <li key={tab.href} className="flex justify-center shrink-0 min-w-[58px]">
                 <Link
                   href={tab.href}
                   className={cn(
-                    "relative flex flex-col items-center justify-center min-h-[48px] w-full py-1 text-center transition-all min-w-0 px-0.5",
+                    "relative flex flex-col items-center justify-center min-h-[48px] w-full py-1 text-center transition-all min-w-0 px-1",
                     active ? "text-primary font-bold" : "text-muted hover:text-fg"
                   )}
                 >
                   {active && (
-                    <span className="absolute top-0 inset-x-1 sm:inset-x-2 h-0.5 rounded-full bg-primary shadow-[0_0_8px_#00e5ff]" />
+                    <span className="absolute top-0 inset-x-2 h-0.5 rounded-full bg-primary shadow-[0_0_8px_#00e5ff]" />
                   )}
-                  <Icon className={cn("h-4 w-4 sm:h-4.5 sm:w-4.5 transition-transform duration-200", active && "scale-110 stroke-[2.5]")} />
-                  <span className="text-[9px] sm:text-[10px] tracking-tight mt-0.5 truncate w-full px-0.5">
+                  <Icon className={cn("h-4 w-4 transition-transform duration-200", active && "scale-110 stroke-[2.5]")} />
+                  <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-[62px] text-center">
                     {tab.labelAr.split(" ")[0]}
                   </span>
                 </Link>

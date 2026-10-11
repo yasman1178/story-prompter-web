@@ -172,10 +172,10 @@ export async function decodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
 
 function getCatalogSoundUrl(nameEn: string): string | null {
   const n = nameEn.toLowerCase();
-  if (n.includes("roar") || n.includes("growl")) return `${SOUNDS_BASE}/monster_roar.wav`;
+  if (n.includes("roar") || n.includes("growl") || n.includes("monster")) return `${SOUNDS_BASE}/monster_roar.wav`;
   if (n.includes("heartbeat") || n.includes("pulse")) return `${SOUNDS_BASE}/heartbeat.wav`;
   if (n.includes("laser") || n.includes("beam") || n.includes("blast")) return `${SOUNDS_BASE}/laser_beam.wav`;
-  if (n.includes("door slam") || n.includes("heavy slam") || n.includes("ground impact") || n.includes("slam")) return `${SOUNDS_BASE}/heavy_slam.wav`;
+  if (n.includes("door slam") || n.includes("heavy slam") || n.includes("ground impact") || n.includes("slam") || n.includes("heavy thump")) return `${SOUNDS_BASE}/heavy_slam.wav`;
   if (n.includes("creak") || n.includes("stone")) return `${SOUNDS_BASE}/stone_creak.wav`;
   if (n.includes("footstep") || n.includes("steps")) return `${SOUNDS_BASE}/footsteps.wav`;
   if (n.includes("heal") || n.includes("chime")) return `${SOUNDS_BASE}/healing_magic.wav`;
@@ -188,51 +188,68 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
   const cat = categoryEn.toLowerCase();
   const name = nameEn.toLowerCase();
 
-  let dur = 0.5;
+  let dur = 0.6;
   let wave: OscillatorType = "sine";
   let fromFreq = 440;
-  let toFreq = 220;
-  let noiseAmt = 0.1;
+  let toFreq = 180;
+  let noiseAmt = 0.15;
+  const filterType: BiquadFilterType = "lowpass";
+  let filterFreq = 1200;
 
   if (cat.includes("combat") || cat.includes("impact")) {
-    dur = name.includes("explosion") ? 1.4 : name.includes("slash") || name.includes("slice") ? 0.35 : 0.5;
-    wave = name.includes("clang") || name.includes("metal") ? "triangle" : "sawtooth";
-    fromFreq = name.includes("laser") ? 1600 : name.includes("slash") ? 880 : 320;
-    toFreq = name.includes("laser") ? 120 : name.includes("slash") ? 180 : 40;
-    noiseAmt = name.includes("explosion") ? 0.55 : 0.3;
+    dur = name.includes("explosion") ? 1.6 : name.includes("slash") || name.includes("slice") ? 0.38 : 0.65;
+    wave = name.includes("clang") || name.includes("metal") ? "triangle" : name.includes("slash") ? "sawtooth" : "square";
+    fromFreq = name.includes("laser") ? 1800 : name.includes("slash") ? 920 : name.includes("explosion") ? 220 : 380;
+    toFreq = name.includes("laser") ? 90 : name.includes("slash") ? 140 : name.includes("explosion") ? 30 : 45;
+    noiseAmt = name.includes("explosion") ? 0.65 : name.includes("slash") ? 0.4 : 0.3;
+    filterFreq = name.includes("clang") ? 3200 : 900;
   } else if (cat.includes("horror") || cat.includes("suspense")) {
-    dur = name.includes("drone") || name.includes("whisper") ? 1.6 : 0.8;
+    dur = name.includes("drone") || name.includes("whisper") ? 1.8 : 0.95;
     wave = name.includes("roar") ? "sawtooth" : name.includes("sub") ? "sine" : "triangle";
-    fromFreq = name.includes("riser") ? 110 : name.includes("roar") ? 220 : 70;
-    toFreq = name.includes("riser") ? 660 : 35;
-    noiseAmt = name.includes("whisper") || name.includes("wind") ? 0.45 : 0.15;
+    fromFreq = name.includes("riser") ? 95 : name.includes("roar") ? 240 : 80;
+    toFreq = name.includes("riser") ? 720 : 35;
+    noiseAmt = name.includes("whisper") || name.includes("wind") ? 0.5 : 0.2;
+    filterFreq = 650;
   } else if (cat.includes("movement") || cat.includes("transition")) {
-    dur = name.includes("whoosh") || name.includes("swoosh") ? 0.4 : name.includes("door") ? 0.9 : 0.45;
-    wave = name.includes("door") ? "square" : "sine";
-    fromFreq = name.includes("whoosh") ? 600 : 150;
-    toFreq = name.includes("whoosh") ? 120 : 50;
-    noiseAmt = name.includes("whoosh") ? 0.5 : 0.25;
+    dur = name.includes("whoosh") || name.includes("swoosh") ? 0.42 : name.includes("door") ? 1.0 : 0.5;
+    wave = name.includes("door") ? "sawtooth" : "sine";
+    fromFreq = name.includes("whoosh") ? 650 : 160;
+    toFreq = name.includes("whoosh") ? 90 : 45;
+    noiseAmt = name.includes("whoosh") ? 0.55 : 0.25;
+    filterFreq = 1400;
   } else if (cat.includes("magic") || cat.includes("energy")) {
-    dur = name.includes("aura") || name.includes("surge") ? 1.2 : 0.7;
+    dur = name.includes("aura") || name.includes("surge") ? 1.3 : 0.75;
     wave = "sine";
     fromFreq = name.includes("heal") || name.includes("chime") ? 587 : 440;
-    toFreq = name.includes("heal") || name.includes("sparkle") ? 1174 : 880;
-    noiseAmt = 0.05;
+    toFreq = name.includes("heal") || name.includes("sparkle") ? 1200 : 880;
+    noiseAmt = 0.04;
+    filterFreq = 4000;
   } else if (cat.includes("humor") || cat.includes("ui")) {
-    dur = name.includes("horn") ? 0.8 : name.includes("click") ? 0.12 : 0.4;
+    dur = name.includes("horn") ? 0.85 : name.includes("click") ? 0.12 : 0.45;
     wave = name.includes("boing") ? "triangle" : name.includes("pop") ? "sine" : "square";
-    fromFreq = name.includes("boing") ? 220 : name.includes("pop") ? 600 : 400;
-    toFreq = name.includes("boing") ? 880 : name.includes("pop") ? 150 : 500;
+    fromFreq = name.includes("boing") ? 220 : name.includes("pop") ? 640 : 420;
+    toFreq = name.includes("boing") ? 920 : name.includes("pop") ? 140 : 520;
     noiseAmt = name.includes("scratch") ? 0.6 : 0.02;
+    filterFreq = 2200;
   } else {
     dur = 0.6;
     wave = "triangle";
     fromFreq = 260;
-    toFreq = 180;
+    toFreq = 160;
     noiseAmt = 0.2;
+    filterFreq = 1100;
   }
 
   const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * dur), sampleRate);
+
+  // Filter stage for cinematic richness
+  const filter = offline.createBiquadFilter();
+  filter.type = filterType;
+  filter.frequency.setValueAtTime(filterFreq, 0);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(60, filterFreq * 0.4), dur);
+  filter.connect(offline.destination);
+
+  // Primary body oscillator
   const osc = offline.createOscillator();
   osc.type = wave;
   osc.frequency.setValueAtTime(fromFreq, 0);
@@ -240,13 +257,46 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
 
   const env = offline.createGain();
   env.gain.setValueAtTime(0.0001, 0);
-  env.gain.exponentialRampToValueAtTime(0.85, Math.min(0.04, dur * 0.15));
+  env.gain.exponentialRampToValueAtTime(0.7, Math.min(0.04, dur * 0.15));
   env.gain.exponentialRampToValueAtTime(0.0001, dur);
   osc.connect(env);
-  env.connect(offline.destination);
+  env.connect(filter);
   osc.start(0);
   osc.stop(dur);
 
+  // Sub-bass punch layer for high impact realism
+  if (fromFreq < 500 && dur > 0.3) {
+    const subOsc = offline.createOscillator();
+    subOsc.type = "sine";
+    subOsc.frequency.setValueAtTime(Math.min(120, fromFreq * 0.5), 0);
+    subOsc.frequency.exponentialRampToValueAtTime(32, Math.min(0.35, dur));
+    const subEnv = offline.createGain();
+    subEnv.gain.setValueAtTime(0.0001, 0);
+    subEnv.gain.exponentialRampToValueAtTime(0.65, 0.025);
+    subEnv.gain.exponentialRampToValueAtTime(0.0001, Math.min(0.4, dur));
+    subOsc.connect(subEnv);
+    subEnv.connect(offline.destination);
+    subOsc.start(0);
+    subOsc.stop(Math.min(0.45, dur));
+  }
+
+  // Harmonic shimmer overtone for magic or clangs
+  if (cat.includes("magic") || name.includes("clang") || name.includes("metal")) {
+    const highOsc = offline.createOscillator();
+    highOsc.type = "sine";
+    highOsc.frequency.setValueAtTime(fromFreq * 2.02, 0);
+    highOsc.frequency.exponentialRampToValueAtTime(toFreq * 1.5, dur);
+    const highEnv = offline.createGain();
+    highEnv.gain.setValueAtTime(0.0001, 0);
+    highEnv.gain.exponentialRampToValueAtTime(0.25, 0.03);
+    highEnv.gain.exponentialRampToValueAtTime(0.0001, dur * 0.7);
+    highOsc.connect(highEnv);
+    highEnv.connect(filter);
+    highOsc.start(0);
+    highOsc.stop(dur);
+  }
+
+  // Filtered shaped noise for realism (swishes, explosions, air friction)
   if (noiseAmt > 0) {
     const len = Math.ceil(sampleRate * dur);
     const nBuf = offline.createBuffer(1, len, sampleRate);
@@ -258,7 +308,7 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
     nEnv.gain.setValueAtTime(noiseAmt, 0);
     nEnv.gain.exponentialRampToValueAtTime(0.0001, dur);
     nSrc.connect(nEnv);
-    nEnv.connect(offline.destination);
+    nEnv.connect(filter);
     nSrc.start(0);
   }
 
