@@ -57,23 +57,24 @@ export const SFX_EFFECTS: SfxEffect[] = [
   { id: 8, nameAr: "ضحكات مكتومة", nameEn: "Crowd Laugh", description: "مزاح بين الصيادين", iconName: "sentiment_very_satisfied", type: "LAUGHTER" },
 ];
 
+// Legacy file assets removed; sound effects are powered by MaterialFoundry SoundFxLibrary and procedural synthesis
 export const SFX_ASSET: Record<SfxTypeId, string> = {
-  MONSTER_ROAR: "monster_roar.wav",
-  HEARTBEAT: "heartbeat.wav",
-  STONE_CREAK: "stone_creak.wav",
-  HEAVY_SLAM: "heavy_slam.wav",
-  LASER_BEAM: "laser_beam.wav",
-  HEALING_MAGIC: "healing_magic.wav",
-  FOOTSTEPS: "footsteps.wav",
-  LAUGHTER: "laughter.wav",
+  MONSTER_ROAR: "monster_roar",
+  HEARTBEAT: "heartbeat",
+  STONE_CREAK: "stone_creak",
+  HEAVY_SLAM: "heavy_slam",
+  LASER_BEAM: "laser_beam",
+  HEALING_MAGIC: "healing_magic",
+  FOOTSTEPS: "footsteps",
+  LAUGHTER: "laughter",
 };
 
 export const BGM_CATEGORY_ASSET: Record<BgmCategoryId, string> = {
-  EPIC: "epic_cinematic.wav",
-  SUSPENSE: "dark_tension.wav",
-  DRAMA: "dramatic_piano.wav",
-  COMEDY: "comedy_groove.wav",
-  FANTASY: "fantasy_magic.wav",
+  EPIC: "epic_synth",
+  SUSPENSE: "suspense_synth",
+  DRAMA: "drama_synth",
+  COMEDY: "comedy_synth",
+  FANTASY: "fantasy_synth",
 };
 
 export const VOICES = [

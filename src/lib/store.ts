@@ -64,6 +64,9 @@ interface StudioState {
   ) => void;
   assignImages: (files: File[]) => Promise<number>;
   clearShotImage: (shotNumber: number) => Promise<void>;
+  swapShotImages: (shotNumberA: number, shotNumberB: number) => void;
+  shiftShotImage: (shotNumber: number, direction: "up" | "down") => void;
+  reorderImagesOrdinally: () => void;
 
   setVoiceVolume: (v: number) => void;
   setBgmVolume: (v: number) => void;
@@ -81,12 +84,28 @@ function reindexShots(shots: StoryShot[], durationSec: number): StoryShot[] {
   });
 }
 
-function candidateMatchesShot(shot: StoryShot, name: string): boolean {
+export function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+export function cleanBaseName(fileName: string): string {
+  if (!fileName) return "";
+  const withoutPath = fileName.split(/[/\\]/).pop() || fileName;
+  return withoutPath.replace(/\.[^.]+$/, "").trim().toLowerCase();
+}
+
+export function extractNumericSuffix(fileName: string): number | null {
+  const base = cleanBaseName(fileName);
+  const match = base.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+export function candidateMatchesShot(shot: StoryShot, name: string): boolean {
   if (!name) return false;
-  const base = name.replace(/\.[^.]+$/, "").toLowerCase();
+  const base = cleanBaseName(name);
   const wanted = shot.imageFilename;
   if (wanted) {
-    const wantedBase = wanted.replace(/\.[^.]+$/, "").toLowerCase();
+    const wantedBase = cleanBaseName(wanted);
     if (name.toLowerCase() === wanted.toLowerCase()) return true;
     if (base === wantedBase) return true;
   }
@@ -370,39 +389,99 @@ export const useStudio = create<StudioState>((set, get) => ({
     const project = get().project;
     if (!project || files.length === 0) return 0;
 
+    // 1. Natural Sort incoming files to eliminate OS file order bugs (e.g. 1, 10, 2 -> 1, 2, 10)
+    const sortedFiles = [...files].sort((a, b) => naturalCompare(a.name, b.name));
+
+    // Store in IndexedDB
     const stored = await Promise.all(
-      files.map(async (file) => {
+      sortedFiles.map(async (file) => {
         const id = newId("img");
         await putImage({ id, name: file.name, type: file.type, blob: file, createdAt: Date.now() });
-        return { id, name: file.name };
+        return {
+          id,
+          name: file.name,
+          base: cleanBaseName(file.name),
+          num: extractNumericSuffix(file.name),
+        };
       })
     );
 
-    const remaining = [...stored];
-    let matched = 0;
+    // Sort project shots strictly by shotNumber ascending
+    const shotsCopy = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    const remainingCandidates = [...stored];
 
-    const afterMatch = project.shots.map((shot) => {
-      const hitIndex = remaining.findIndex((candidate) => candidateMatchesShot(shot, candidate.name));
-      if (hitIndex >= 0) {
-        const [hit] = remaining.splice(hitIndex, 1);
-        matched++;
-        return { ...shot, customImageId: hit.id };
+    let matchedJsonCount = 0;
+    let matchedNumberCount = 0;
+    let matchedOrdinalCount = 0;
+
+    // Phase 1: Match by exact JSON imageFilename (ignoring directory prefix & extension)
+    const phase1Shots = shotsCopy.map((shot) => {
+      if (!shot.imageFilename) return shot;
+      const wantedBase = cleanBaseName(shot.imageFilename);
+      const hitIdx = remainingCandidates.findIndex(
+        (c) => c.base === wantedBase || c.name.toLowerCase() === shot.imageFilename?.toLowerCase()
+      );
+      if (hitIdx >= 0) {
+        const [hit] = remainingCandidates.splice(hitIdx, 1);
+        matchedJsonCount++;
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "json_filename" as const,
+        };
       }
       return shot;
     });
 
+    // Phase 2: Match by shot.shotNumber extracted from filename
+    const phase2Shots = phase1Shots.map((shot) => {
+      if (shot.customImageId) return shot;
+      const n = shot.shotNumber;
+      const regex = new RegExp(`(^|[^0-9])0*${n}([^0-9]|$)`);
+      const hitIdx = remainingCandidates.findIndex((c) => regex.test(c.base) || c.num === n);
+      if (hitIdx >= 0) {
+        const [hit] = remainingCandidates.splice(hitIdx, 1);
+        matchedNumberCount++;
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "shot_number" as const,
+        };
+      }
+      return shot;
+    });
+
+    // Phase 3: Strict ordinal sequential matching following shotNumber ascending (1, 2, 3...)
+    // remainingCandidates is already in natural numerical sort order
     let r = 0;
-    const finalShots = afterMatch.map((shot) => {
-      if (!shot.customImageId && r < remaining.length) {
-        const hit = remaining[r++];
-        matched++;
-        return { ...shot, customImageId: hit.id };
+    const finalShots = phase2Shots.map((shot) => {
+      if (!shot.customImageId && r < remainingCandidates.length) {
+        const hit = remainingCandidates[r++];
+        matchedOrdinalCount++;
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "ordinal" as const,
+        };
       }
       return shot;
     });
 
-    set({ project: { ...project, shots: finalShots }, feedback: `تم تعيين ${matched} صورة للمشاهد بنجاح!` });
-    return matched;
+    const totalMatched = matchedJsonCount + matchedNumberCount + matchedOrdinalCount;
+    const feedbackDetails: string[] = [];
+    if (matchedJsonCount > 0) feedbackDetails.push(`${matchedJsonCount} بمطابقة اسم JSON`);
+    if (matchedNumberCount > 0) feedbackDetails.push(`${matchedNumberCount} برقم المشهد shot_number`);
+    if (matchedOrdinalCount > 0) feedbackDetails.push(`${matchedOrdinalCount} تسلسلياً`);
+
+    const summary = feedbackDetails.length > 0 ? ` (${feedbackDetails.join("، ")})` : "";
+    set({
+      project: { ...project, shots: finalShots },
+      feedback: `تم تعيين ${totalMatched} صورة ومطابقتها وفق حقل shot_number وأسماء ملف الـ JSON بنجاح${summary}!`,
+    });
+    return totalMatched;
   },
 
   clearShotImage: async (shotNumber) => {
@@ -412,8 +491,109 @@ export const useStudio = create<StudioState>((set, get) => ({
     if (shot?.customImageId) {
       await deleteImage(shot.customImageId).catch(() => undefined);
     }
-    const shots = project.shots.map((s) => (s.shotNumber === shotNumber ? { ...s, customImageId: undefined } : s));
-    set({ project: { ...project, shots } });
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? {
+            ...s,
+            customImageId: undefined,
+            matchedFileName: undefined,
+            imageMatchMethod: undefined,
+          }
+        : s
+    );
+    set({ project: { ...project, shots }, feedback: `تم إزالة صورة المشهد #${shotNumber}` });
+  },
+
+  swapShotImages: (shotNumberA, shotNumberB) => {
+    const project = get().project;
+    if (!project) return;
+    const shotA = project.shots.find((s) => s.shotNumber === shotNumberA);
+    const shotB = project.shots.find((s) => s.shotNumber === shotNumberB);
+    if (!shotA || !shotB) return;
+
+    const shots = project.shots.map((s) => {
+      if (s.shotNumber === shotNumberA) {
+        return {
+          ...s,
+          customImageId: shotB.customImageId,
+          matchedFileName: shotB.matchedFileName,
+          imageMatchMethod: "manual" as const,
+        };
+      }
+      if (s.shotNumber === shotNumberB) {
+        return {
+          ...s,
+          customImageId: shotA.customImageId,
+          matchedFileName: shotA.matchedFileName,
+          imageMatchMethod: "manual" as const,
+        };
+      }
+      return s;
+    });
+
+    set({
+      project: { ...project, shots },
+      feedback: `تم تبديل صورة المشهد #${shotNumberA} مع صورة المشهد #${shotNumberB}`,
+    });
+  },
+
+  shiftShotImage: (shotNumber, direction) => {
+    const project = get().project;
+    if (!project) return;
+    const sorted = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    const currIdx = sorted.findIndex((s) => s.shotNumber === shotNumber);
+    if (currIdx === -1) return;
+
+    const targetIdx = direction === "up" ? currIdx - 1 : currIdx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+
+    const targetShotNumber = sorted[targetIdx].shotNumber;
+    get().swapShotImages(shotNumber, targetShotNumber);
+  },
+
+  reorderImagesOrdinally: () => {
+    const project = get().project;
+    if (!project) return;
+
+    // Collect all assigned images
+    const assigned = project.shots
+      .filter((s) => Boolean(s.customImageId))
+      .map((s) => ({
+        id: s.customImageId!,
+        name: s.matchedFileName || `shot_${s.shotNumber}.jpg`,
+      }));
+
+    if (assigned.length === 0) {
+      set({ feedback: "لا توجد صور معينة في المشروع لإعادة ترتيبها." });
+      return;
+    }
+
+    // Sort images by natural name order
+    assigned.sort((a, b) => naturalCompare(a.name, b.name));
+
+    // Sort shots by shotNumber ascending
+    const sortedShots = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    const newShots = sortedShots.map((shot, idx) => {
+      if (idx < assigned.length) {
+        return {
+          ...shot,
+          customImageId: assigned[idx].id,
+          matchedFileName: assigned[idx].name,
+          imageMatchMethod: "ordinal" as const,
+        };
+      }
+      return {
+        ...shot,
+        customImageId: undefined,
+        matchedFileName: undefined,
+        imageMatchMethod: undefined,
+      };
+    });
+
+    set({
+      project: { ...project, shots: newShots },
+      feedback: `تمت إعادة الترتيب التسلسلي الصارم لـ ${assigned.length} صورة وفق حقل shot_number (1، 2، 3...)!`,
+    });
   },
 
   setVoiceVolume: (v) => set({ voiceVolume: clamp(v, 0, 1) }),

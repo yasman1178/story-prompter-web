@@ -523,17 +523,24 @@ export function drawFrame(
 
 export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, ShotImage>> {
   const map = new Map<number, ShotImage>();
-  for (const shot of shots) {
+  if (!shots || shots.length === 0) return map;
+
+  // 1. Sort shots strictly by shot_number ascending (1, 2, 3...) to eliminate OS file sorting discrepancies
+  const sortedShots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
+
+  // 2. Load assets for each shot strictly mapped to shot.shotNumber
+  for (const shot of sortedShots) {
     if (!shot.customImageId) continue;
     const asset = await getImage(shot.customImageId).catch(() => undefined);
-    if (!asset) continue;
+    if (!asset || !asset.blob) continue;
     try {
       const bitmap = await createImageBitmap(asset.blob);
       map.set(shot.shotNumber, { bitmap });
-    } catch {
-      // ignore unreadable images
+    } catch (err) {
+      console.warn(`[loadShotImages] Failed to create bitmap for shot #${shot.shotNumber}:`, err);
     }
   }
+
   return map;
 }
 

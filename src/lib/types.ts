@@ -115,6 +115,8 @@ export interface StoryShot {
   soundSfx: string;
   sfxLibrarySource?: string;
   customImageId?: string;
+  matchedFileName?: string;
+  imageMatchMethod?: "json_filename" | "shot_number" | "ordinal" | "manual";
   customAudioId?: string;
   audioDurationSec?: number;
   sceneType: SceneArtType | string;

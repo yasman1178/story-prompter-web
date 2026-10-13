@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Loader2, Music2, Pause, Play, Upload, Volume2 } from "lucide-react";
+import Link from "next/link";
+import { Loader2, Music2, Pause, Play, Sparkles, Upload, Volume2 } from "lucide-react";
 import { BGM_TRACKS, VOICES } from "@/lib/data";
 import { BGM_CATEGORIES, BgmCategoryId } from "@/lib/types";
 import { findBgm, useStudio } from "@/lib/store";
@@ -59,6 +60,30 @@ export default function AudioPage() {
 
   return (
     <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
+      {/* Official MaterialFoundry SoundFxLibrary banner */}
+      <section className="rounded-2xl sm:rounded-3xl border border-primary/40 bg-gradient-to-r from-primary/10 via-card to-surface p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/20 text-primary border border-primary/40 shrink-0">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-fg">
+              مكتبة المؤثرات الصوتية الرسمية الجديدة (MaterialFoundry)
+            </h2>
+            <p className="text-xs text-muted">
+              تم حذف المكتبة القديمة واستبدالها بالكامل بـ 25+ مؤثر سينمائي ومقاطع قتال وزئير وسحر معتمدة للمونتاج.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/sfx"
+          className="flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-black transition hover:brightness-110 shadow-sm shrink-0"
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>استعراض مكتبة المؤثرات</span>
+        </Link>
+      </section>
+
       <section className="rounded-2xl border border-border bg-surface/70 p-4 min-w-0 w-full">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">

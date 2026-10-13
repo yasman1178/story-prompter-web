@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, FileUp, FolderUp, Layers, RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
+import { BatchImageMatcherModal } from "@/components/studio/batch-image-matcher-modal";
 import { StoryShot, TRANSITION_TYPES } from "@/lib/types";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ export default function ProjectPage() {
   const [filterMode, setFilterMode] = useState<FilterMode>("ALL");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
+  const [matcherModalOpen, setMatcherModalOpen] = useState(false);
 
   const shots = useMemo(() => project?.shots ?? [], [project?.shots]);
 
@@ -121,9 +123,12 @@ export default function ProjectPage() {
         type="file"
         multiple
         className="hidden"
-        onChange={(e) => {
+        onChange={async (e) => {
           const files = Array.from(e.target.files ?? []);
-          if (files.length) void assignImages(files);
+          if (files.length) {
+            await assignImages(files);
+            setMatcherModalOpen(true);
+          }
           e.target.value = "";
         }}
       />
@@ -180,16 +185,28 @@ export default function ProjectPage() {
               <span className="hidden md:inline">لصق كود JSON</span>
             </button>
 
-            {/* 4. Assign Images Button */}
-            <button
-              type="button"
-              onClick={() => folderRef.current?.click()}
-              className="flex h-11 flex-1 sm:flex-initial items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-4 text-xs sm:text-sm font-semibold text-fg transition hover:border-primary hover:bg-surface shadow-sm shrink-0"
-              title="تعيين وربط صور للمشاهد"
-            >
-              <FolderUp className="h-4 w-4 text-primary" />
-              <span>تعيين حزمة صور</span>
-            </button>
+            {/* 4. Assign Images & Match Modal Buttons */}
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <button
+                type="button"
+                onClick={() => folderRef.current?.click()}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-3.5 text-xs sm:text-sm font-semibold text-fg transition hover:border-primary hover:bg-surface shadow-sm shrink-0"
+                title="تعيين وربط صور للمشاهد وفق أرقام المشاهد وأسماء الـ JSON"
+              >
+                <FolderUp className="h-4 w-4 text-primary" />
+                <span>رفع حزمة صور</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMatcherModalOpen(true)}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-accent px-3.5 text-xs sm:text-sm font-bold text-black transition hover:brightness-110 shadow-md shrink-0"
+                title="مراجعة ومطابقة وترتيب الصور وفق حقل shot_number وأسماء ملف الـ JSON"
+              >
+                <Layers className="h-4 w-4" />
+                <span>ترتيب ومطابقة الصور</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -329,6 +346,12 @@ export default function ProjectPage() {
         shots={filtered}
         activeShotIndex={activeShotIndex}
         searchActive={query.trim().length > 0 || filterMode !== "ALL"}
+      />
+
+      {/* Batch Image Order & Match Modal */}
+      <BatchImageMatcherModal
+        isOpen={matcherModalOpen}
+        onClose={() => setMatcherModalOpen(false)}
       />
     </div>
   );

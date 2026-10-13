@@ -1,7 +1,4 @@
-import { BGM_CATEGORY_ASSET, SFX_ASSET } from "@/lib/data";
-import { BgmTrack, SfxTypeId } from "@/lib/types";
-
-const SOUNDS_BASE = "/sounds";
+import type { BgmTrack, SfxTypeId } from "@/lib/types";
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -23,21 +20,6 @@ function getContext(): AudioContext {
   }
   if (ctx.state === "suspended") void ctx.resume();
   return ctx;
-}
-
-async function loadUrlBuffer(audio: AudioContext, url: string): Promise<AudioBuffer | null> {
-  const cached = bufferCache.get(url);
-  if (cached) return cached;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.arrayBuffer();
-    const buffer = await audio.decodeAudioData(data);
-    bufferCache.set(url, buffer);
-    return buffer;
-  } catch {
-    return null;
-  }
 }
 
 const WAVEFORMS: OscillatorType[] = ["sawtooth", "triangle", "square", "sine"];
@@ -139,10 +121,6 @@ async function renderSfxBuffer(type: SfxTypeId): Promise<AudioBuffer> {
 }
 
 export async function getBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
-  const audio = getContext();
-  const assetUrl = `${SOUNDS_BASE}/${track.assetFileName ?? BGM_CATEGORY_ASSET[track.category]}`;
-  const fromUrl = await loadUrlBuffer(audio, assetUrl);
-  if (fromUrl) return fromUrl;
   const cacheKey = `synth:${track.id}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
@@ -152,10 +130,6 @@ export async function getBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
 }
 
 export async function getSfxBuffer(type: SfxTypeId): Promise<AudioBuffer> {
-  const audio = getContext();
-  const assetUrl = `${SOUNDS_BASE}/${SFX_ASSET[type]}`;
-  const fromUrl = await loadUrlBuffer(audio, assetUrl);
-  if (fromUrl) return fromUrl;
   const cacheKey = `sfx:${type}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
@@ -168,19 +142,6 @@ export async function decodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
   const audio = getContext();
   const data = await blob.arrayBuffer();
   return audio.decodeAudioData(data);
-}
-
-function getCatalogSoundUrl(nameOrFile: string): string | null {
-  const n = nameOrFile.toLowerCase();
-  if (n.includes("roar") || n.includes("growl") || n.includes("monster") || n.includes("beast")) return `${SOUNDS_BASE}/monster_roar.wav`;
-  if (n.includes("heartbeat") || n.includes("pulse") || n.includes("heart")) return `${SOUNDS_BASE}/heartbeat.wav`;
-  if (n.includes("laser") || n.includes("beam") || n.includes("blast")) return `${SOUNDS_BASE}/laser_beam.wav`;
-  if (n.includes("door slam") || n.includes("heavy slam") || n.includes("gate_slam") || n.includes("slam") || n.includes("boom") || n.includes("impact")) return `${SOUNDS_BASE}/heavy_slam.wav`;
-  if (n.includes("creak") || n.includes("stone_door") || n.includes("stone")) return `${SOUNDS_BASE}/stone_creak.wav`;
-  if (n.includes("footstep") || n.includes("steps") || n.includes("sprint") || n.includes("march")) return `${SOUNDS_BASE}/footsteps.wav`;
-  if (n.includes("heal") || n.includes("chime") || n.includes("magic") || n.includes("spell") || n.includes("rune")) return `${SOUNDS_BASE}/healing_magic.wav`;
-  if (n.includes("laugh") || n.includes("chuckle") || n.includes("tea_glass")) return `${SOUNDS_BASE}/laughter.wav`;
-  return null;
 }
 
 async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: string): Promise<AudioBuffer> {
@@ -316,19 +277,9 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
 }
 
 export async function getCatalogSfxBuffer(item: { id: number; nameEn: string; categoryEn: string; fileName?: string }): Promise<AudioBuffer> {
-  const audio = getContext();
   const cacheKey = `cat-sfx:${item.id}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
-
-  const wavUrl = getCatalogSoundUrl(item.fileName || item.nameEn);
-  if (wavUrl) {
-    const loaded = await loadUrlBuffer(audio, wavUrl);
-    if (loaded) {
-      bufferCache.set(cacheKey, loaded);
-      return loaded;
-    }
-  }
 
   const rendered = await renderCatalogSfxBuffer(item.id, item.categoryEn, item.nameEn);
   bufferCache.set(cacheKey, rendered);
@@ -351,11 +302,10 @@ export const audioEngine = {
     const audio = getContext();
     this.stop();
 
-    const assetUrl = `${SOUNDS_BASE}/${track.assetFileName ?? BGM_CATEGORY_ASSET[track.category]}`;
-    let buffer = await loadUrlBuffer(audio, assetUrl);
+    const cacheKey = `synth:${track.id}`;
+    let buffer = bufferCache.get(cacheKey);
     if (!buffer) {
-      const cacheKey = `synth:${track.id}`;
-      buffer = bufferCache.get(cacheKey) ?? await renderBgmBuffer(track);
+      buffer = await renderBgmBuffer(track);
       bufferCache.set(cacheKey, buffer);
     }
 
@@ -396,11 +346,10 @@ export const audioEngine = {
 
   async playSfx(type: SfxTypeId, sfxVolume = 0.8) {
     const audio = getContext();
-    const assetUrl = `${SOUNDS_BASE}/${SFX_ASSET[type]}`;
-    let buffer = await loadUrlBuffer(audio, assetUrl);
+    const cacheKey = `sfx:${type}`;
+    let buffer = bufferCache.get(cacheKey);
     if (!buffer) {
-      const cacheKey = `sfx:${type}`;
-      buffer = bufferCache.get(cacheKey) ?? await renderSfxBuffer(type);
+      buffer = await renderSfxBuffer(type);
       bufferCache.set(cacheKey, buffer);
     }
     const source = audio.createBufferSource();

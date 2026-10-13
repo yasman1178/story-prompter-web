@@ -1,6 +1,6 @@
 {
-  "summary": "خطة ترقية استوديو حكايات الشورتس:\n1. تحديث دليل التعليمات الموحد والبرومبت المرجعي (Edge-TTS & Shorts Engine v15) بدقة 100%.\n2. مسح المؤثرات القديمة واعتماد مكتبة MaterialFoundry/SoundFxLibrary الرسمية.\n3. حل مشكلة تكرار المشاهد بعد المشهد 16 وضمان استيعاب ملفات JSON الكبيرة متعددة الكتب (48 مشهداً فما فوق).\n4. إنشاء محرك تحسين النطق الصافي لمحرك Edge-TTS باللهجة المصرية النقية.\n5. إضافة مؤثرات بصرية سينمائية متقدمة (Neon Chiaroscuro, Ken Burns, Dynamic Subtitles).",
-  "updatedAt": "2026-10-13T07:55:30.855229674Z",
+  "summary": "Implementation plan for resolving image sequence alignment by JSON shot_number/image_name (bypassing OS file sorting quirks) and completely purging the legacy audio library in favor of the new MaterialFoundry SoundFxLibrary catalog.",
+  "updatedAt": "2026-10-13T09:13:47.801040118Z",
   "requestFeedback": true,
   "userFacing": true
 }

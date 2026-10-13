@@ -160,6 +160,11 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
                         {shot.bookOrPart}
                       </span>
                     )}
+                    {shot.matchedFileName && (
+                      <span className="text-[10px] rounded bg-surface border border-border px-1.5 py-0.5 font-mono text-dim truncate max-w-[110px]" title={`الصورة المطابقة: ${shot.matchedFileName}`}>
+                        📷 {shot.matchedFileName}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
