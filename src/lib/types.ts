@@ -99,11 +99,13 @@ export interface DialogueLine {
 
 export interface StoryShot {
   shotNumber: number;
+  bookOrPart?: string;
   timeframe: string;
   startTimeSec: number;
   endTimeSec: number;
   type: string;
   mood: string;
+  vocalCue?: string;
   voiceoverEgyptian: string;
   soundDesign: string;
   colorTheme: string;
@@ -111,10 +113,11 @@ export interface StoryShot {
   imageFilename?: string;
   soundMusic: string;
   soundSfx: string;
+  sfxLibrarySource?: string;
   customImageId?: string;
   customAudioId?: string;
   audioDurationSec?: number;
-  sceneType: SceneArtType;
+  sceneType: SceneArtType | string;
   textOverlay: string;
   sfxName: string;
   assignedSfxId?: number;

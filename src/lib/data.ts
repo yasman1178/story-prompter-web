@@ -11,6 +11,7 @@ import {
   DialogueLine,
 } from "./types";
 import { formatTimeframe, uid } from "./utils";
+import { optimizeEgyptianVoiceover } from "./tts-optimizer";
 
 export const BGM_TRACKS: BgmTrack[] = [
   { id: 1, titleAr: "لحن البوابة الزرقاء (Solo Leveling)", titleEn: "Blue Portal Awakening", category: "EPIC", description: "أوركسترا حماسي بطابع السولو ليفلينج", baseFreq: 220, tempoBpm: 130, synthPattern: 1 },
@@ -88,125 +89,203 @@ function sampleShot(
   endTimeSec: number,
   type: string,
   mood: string,
+  vocalCue: string,
   voiceoverEgyptian: string,
   soundDesign: string,
   colorTheme: string,
   imagePromptEn: string,
-  sceneType: SceneArtType
+  sceneType: SceneArtType | string,
+  bookOrPart = "الكتاب الأول - صحوة الصياد",
+  assignedSfxId?: number,
+  sfxFileName?: string
 ): StoryShot {
   return {
     shotNumber,
+    bookOrPart,
     timeframe: formatTimeframe(startTimeSec, endTimeSec),
     startTimeSec,
     endTimeSec,
     type,
     mood,
+    vocalCue,
     voiceoverEgyptian,
     soundDesign,
     colorTheme,
     imagePromptEn,
     soundMusic: "",
-    soundSfx: "",
+    soundSfx: sfxFileName || "",
+    sfxLibrarySource: "MaterialFoundry/SoundFxLibrary",
     sceneType,
     textOverlay: "",
-    sfxName: "",
-    sfxVolumePercent: 100,
+    sfxName: sfxFileName || soundDesign,
+    assignedSfxId,
+    sfxVolumePercent: 85,
     sfxTriggerSec: 0,
     dialogueLines: [],
   };
 }
 
 export const SEIF_SHOTS: StoryShot[] = [
-  sampleShot(1, 0, 6, "Hook (الخطاف الأولي)", "إثارة وتشويق حابس للأنفاس",
-    "تخيل تكون داخل مكان كله وحوش مرعبة.. وعارف إنك أضعف واحد في الدنيا وهتموت من أول ضربة!",
-    "موسيقى سينمائية سريعة + صوت زئير وحش ضخم + صدى ضربات قلب",
+  sampleShot(1, 0, 6, "Hook (القفشة الأولى)", "إثارة وتشويق حابس للأنفاس",
+    "غموض وتشويق - نبرة حبس أنفاس",
+    "بص في المشهد ده, واقف وسط كهف مظلم كله وحوش كاسرة, وعارف إنك أضعف واحد هنا وممكن تقع من أول ضربة!",
+    "موسيقى سينمائية سريعة + زئير وحش عملاق",
     "Dark Blue (#1B2A4A) & Cyan Portal Glow",
     "Solo Leveling manhwa style, vertical 9:16, close-up shot of 20yo male hunter Seif wearing a dark blue zip-up hoodie (#1B2A4A) over a gray t-shirt, bandages on left cheek, messy black hair, holding a small iron dagger with trembling hands, intense cyan blue portal light in background, sharp anime art",
-    "DAGGER_TREMBLING"),
+    "DAGGER_TREMBLING",
+    "الكتاب الأول - صحوة الصياد",
+    8,
+    "monster_roar_heavy.wav"),
   sampleShot(2, 6, 12, "Hook Follow-up (تابع الخطاف)", "ترقب وتوتر بصري",
-    "الخنجر في إيدك بترتعش، وكل خطوة بتمشيها ممكن تكون الأخيرة في حياتك!",
-    "صوت أنفاس متسارعة + احتكاك الخنجر الحديدي",
+    "ترقب وتوتر - نبرة حذرة",
+    "الخنجر في إيدك بيترعش, وكل خطوة بتمشيها ممكن تكون الأخيرة في مسيرتك!",
+    "صوت أنفاس متسارعة + دقات قلب متسارعة",
     "Dark Blue Hoodie (#1B2A4A) & Slate Gray",
     "Solo Leveling manhwa style, vertical 9:16, medium shot of Seif in the same dark blue hoodie (#1B2A4A) and gray t-shirt, standing firm in a dark stone dungeon, holding his iron dagger ready, same face and hair, cyan glowing blue light on his side",
-    "DUNGEON_FIRMED"),
+    "DUNGEON_FIRMED",
+    "الكتاب الأول - صحوة الصياد",
+    11,
+    "heartbeat_suspense_loop.wav"),
   sampleShot(3, 12, 18, "Introduction & Humor (المقدمة الكوميدية)", "كوميديا خفيفة بالعامية المصرية",
-    "ده سيف.. صياد رتبة E، بس بيني وبينكم؟ كلمة صياد دي كبيرة عليه قوي!",
-    "موسيقى إيقاعية كوميدية + صوت صفارة خفيفة",
+    "كوميديا وسخرية محبوبة - نبرة مرحة",
+    "ده سيف, صياد برتبة E-Rank ضعيفة, بس الصراحة كلمة صياد دي كبيرة عليه شوية!",
+    "موسيقى إيقاعية كوميدية + رنين كوب الشاي",
     "Daylight Construction Site & Blue Hoodie (#1B2A4A)",
     "Solo Leveling manhwa style, vertical 9:16, Seif wearing the exact same dark blue hoodie (#1B2A4A) with bandages on his cheek looking embarrassed, holding a cheap coffee cup, Seoul construction site in background, bright daylight, humor atmosphere",
-    "SEIF_COFFEE_SMILE"),
+    "SEIF_COFFEE_SMILE",
+    "الكتاب الأول - صحوة الصياد",
+    22,
+    "cairo_tea_glass_chime.wav"),
   sampleShot(4, 18, 24, "Humor Reaction (رد فعل الكوميديا)", "مزاح ودوي بين الصيادين",
-    "الراجل ده بياكل ضرب في المتاهات أكتر ما بياكل فول بالزيت الحار، وبيطلع متدغدغ كل مرة!",
-    "صوت ضحكات مكتومة للصيادين + إيقاع خفيف",
+    "ضحك ومزاح ودود - نبرة ساخرة",
+    "الراجل ده بياكل ضرب في المتاهات كل يوم, وبيطلع متبهدل وسط ضحكات زمايله!",
+    "صوت ضحكات وشهقة رعب خفيفة للصيادين",
     "Daylight Construction Site",
     "Solo Leveling manhwa style, vertical 9:16, older hunter uncle Kamal laughing cheerfully while pointing at Seif, Seif in dark blue hoodie (#1B2A4A) in background looking annoyed but friendly",
-    "UNCLE_KAMAL_LAUGH"),
-  sampleShot(5, 24, 30, "Emotional Transition (البر الدرامي)", "درامي مؤثر ويمس القلوب",
-    "بس سيف مش بيلعب.. سيف بياخد الريسك عشان يدفع مصاريف مستشفى والدته المريضة.",
-    "موسيقى بيانو هادئة ومؤثرة",
+    "UNCLE_KAMAL_LAUGH",
+    "الكتاب الأول - صحوة الصياد",
+    10,
+    "crowd_gasp_terror.wav"),
+  sampleShot(5, 24, 30, "Emotional Transition (البر والمسؤولية)", "درامي مؤثر ويمس القلوب",
+    "صعبانيات وشجن - نبرة مؤثرة دافئة",
+    "بس سيف مش بيهزر, سيف بيخاطر بحياته عشان يسدد مصاريف علاج والدته في المستشفى.",
+    "موسيقى بيانو هادئة + سحر علاجي",
     "Warm Sunlight & Soft Blue Hoodie (#1B2A4A)",
     "Solo Leveling manhwa style, vertical 9:16, close-up of Seif looking determined and thoughtful, wearing his dark blue hoodie (#1B2A4A), holding a hospital bill receipt in his hand, soft warm sunlight, emotional webtoon art",
-    "HOSPITAL_BILL_EMOTIONAL"),
-  sampleShot(6, 30, 36, "Healer Interaction (العلاج وبركة الدعاء)", "تعاطف وامتنان",
-    "بيستعين بالله ويدعي بالرزق، ومستحيل يستسلم عشان بر أمه وسداد علاجها بالحلال.",
-    "صوت توهج طاقة علاجية سحرية خفيفة",
+    "HOSPITAL_BILL_EMOTIONAL",
+    "الكتاب الأول - صحوة الصياد",
+    17,
+    "emerald_healing_spell.wav"),
+  sampleShot(6, 30, 36, "Healer Interaction (العلاج والوفاء)", "تعاطف وامتنان",
+    "وفاء وإصرار - نبرة شجاعة",
+    "عزيمته قوية ومستحيل يستسلم, ومكمل في طريقه عشان بر أمه وتضحيتها الكبيرة.",
+    "سحر الشفاء الزمردي ورنين الأمل",
     "Emerald Green Healing Energy & Dark Blue Hoodie (#1B2A4A)",
     "Solo Leveling manhwa style, vertical 9:16, female healer Salma with orange-brown ponytail casting emerald green healing magic on Seif's cheek, Seif wearing dark blue hoodie looking grateful",
-    "SALMA_EMERALD_HEAL"),
+    "SALMA_EMERALD_HEAL",
+    "الكتاب الأول - صحوة الصياد",
+    17,
+    "emerald_healing_spell.wav"),
   sampleShot(7, 36, 42, "Leader Entrance (قيادة الكابتن صابر)", "حماسي وقيادي",
-    "الفريق تجمع أمام البوابة الزرقاء الضخمة بقيادة الكابتن صابر.",
-    "صوت طاقة البوابة الأزرق (Portal Hum) + صدى سيف صابر",
+    "حماس وقيادة - نبرة قوية واثقة",
+    "الفريق كله اتجمع قدام البوابة الزرقاء الضخمة بقيادة الكابتن صابر.",
+    "هدير طاقة البوابة الزرقاء + صليل سيف",
     "Cyan Blue Gate Light & Blue Tactical Jacket",
     "Solo Leveling manhwa style, vertical 9:16, Captain Saber short dark hair with scar on cheek holding his steel sword pointing towards a massive glowing blue gate",
-    "CAPTAIN_SABER_GATE"),
+    "CAPTAIN_SABER_GATE",
+    "الكتاب الأول - صحوة الصياد",
+    19,
+    "blue_portal_hum_loop.wav"),
   sampleShot(8, 42, 48, "First Step (أول خطوة داخل البوابة)", "حماس وإقدام شجاع",
-    "اللحظة حاسمة.. سيف بيسمي الله وبيقدم أول خطوة جوة الظلام!",
-    "صوت ضربة قدم شجاعة + اهتزاز الطاقة الزرقاء",
+    "تحدي وإصرار - نبرة عازمة",
+    "اللحظة حاسمة, سيف بيجمع كل شجاعته وبيخطو أول خطوة جوة الظلام!",
+    "وقع أقدام شجاعة بممر المتاهة الصخري",
     "Cyan Blue Magic & Dark Blue Hoodie (#1B2A4A)",
     "Solo Leveling manhwa style, vertical 9:16, low-angle shot of Seif in dark blue hoodie stepping bravely into swirling cyan blue portal light, determined eyes",
-    "FIRST_STEP_INTO_PORTAL"),
-  sampleShot(9, 48, 54, "Dungeon March (مسيرة المتاهة)", "ترقب وغموض",
-    "دخلوا المتاهة، وقدروا يغلبوا الوحوش الأولى بفضل توفيق ربنا وتعاونهم.",
-    "موسيقى أوركسترا حماسية + صدى خطوات جماعية",
+    "FIRST_STEP_INTO_PORTAL",
+    "الكتاب الأول - صحوة الصياد",
+    20,
+    "footsteps_stone_dungeon_march.wav"),
+  sampleShot(9, 48, 54, "Dungeon March (مسيرة المتاهة - ربط درامي)", "ترقب وغموض",
+    "ترقب واستئناف حماسي - نبرة ربط مرجعي",
+    "دخلوا الممر المظلم, وتغلبوا على وحوش البداية بتعاونهم وتكاتفهم السريع.",
+    "ركض سريع واشتباك مع الوحوش الأولى",
     "Slate Gray Stone & Torchlight",
     "Solo Leveling manhwa style, vertical 9:16, team of hunters including Seif walking through dark slate stone dungeon holding glowing torches",
-    "DUNGEON_MARCH"),
+    "DUNGEON_MARCH",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    21,
+    "hunter_running_gravel_sprint.wav"),
   sampleShot(10, 54, 60, "Double Dungeon Discovery (اكتشاف المتاهة المزدوجة)", "ذهول واكتشاف نادر",
-    "لكن المتاهة كانت مخبية مفاجأة مرعبة: ممر سري يودي لبوابة نادرة جداً!",
-    "صوت صدى الرياح الصخرية (Eerie Wind SFX) + تموج موسيقي",
+    "ذهول وصدمة - نبرة اكتشاف مفاجئ",
+    "لكن المتاهة كانت مخبية مفاجأة غريبة, ممر سري بياخد الفريق لبوابة نادرة جداً!",
+    "توهج وتفعيل النقوش السحرية القديمة",
     "Deep Slate & Cyan Magic Torches",
     "Solo Leveling manhwa style, vertical 9:16, Seif raising a torch to reveal an ancient giant double door engraved with mysterious runes",
-    "DOUBLE_DUNGEON_RUNES"),
+    "DOUBLE_DUNGEON_RUNES",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    18,
+    "rune_activation_burst.wav"),
   sampleShot(11, 60, 66, "The Vote (قرار التصويت الخطير)", "تردد وتصميم",
-    "الكابتن صابر أخد أراء الفريق.. وسيف صوت بالدخول عشان المكافأة تغطي مصاريف علاج أمه.",
-    "موسيقى توتر متصاعدة (Suspense Drums)",
+    "تردد ومسؤولية - نبرة حاسمة",
+    "الكابتن صابر سأل الفريق, وسيف رفع إيده بالموافقة عشان مكافأة المغامرة تفك أزمتهم.",
+    "ارتطام درع وتصدي قوي وتوتر متصاعد",
     "Dark Blue Hoodie (#1B2A4A) & Slate Gray",
     "Solo Leveling manhwa style, vertical 9:16, close-up of Seif raising his hand to vote yes, determined facial expression, dark blue hoodie, bandages on cheek",
-    "THE_VOTE_HAND_UP"),
+    "THE_VOTE_HAND_UP",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    4,
+    "heavy_shield_block.wav"),
   sampleShot(12, 66, 72, "Entering Temple (دخول قاعة التماثيل)", "رهبة وغموض أثري",
-    "فتحوا الأبواب الصخرية الثقيلة، ودخلوا قاعة المعبد المظلمة..",
-    "صوت صرير الأبواب الصخرية الضخمة (Heavy Stone Creak)",
+    "رهبة واستغراب - نبرة مهيبة",
+    "زقوا الأبواب الحجرية الثقيلة, ودخلوا قاعة المعبد المليانة بتماثيل عملاقة مهيبة.",
+    "صرير باب حجري أثري ضخم",
     "Dark Slate & Dim Blue Torches",
     "Solo Leveling manhwa style, vertical 9:16, wide shot of hunters walking into colossal ancient temple chamber with giant stone statues along walls",
-    "TEMPLE_COLOSSAL_STATUES"),
+    "TEMPLE_COLOSSAL_STATUES",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    12,
+    "stone_door_creak_ancient.wav"),
   sampleShot(13, 72, 78, "Door Slam Trap (احتجاز الفريق وانغلاق الباب)", "صدمة وذعر مفاجئ",
-    "وفجأة! اتسدت الأبواب الصخرية وراهم بتكة مرعبة، واتحبسوا جوة المعبد!",
-    "صوت انغلاق الباب الصخري بقوة (Heavy Slam) + صدى الغبار",
+    "صدمة وذعر - نبرة فزع سريع",
+    "وفجأة! اتقفلت الأبواب الصخرية وراهم بضربة قوية, واتحاصر الفريق جوة المعبد!",
+    "انغلاق باب المعبد الصخري واحتجاز الفريق",
     "Dusty Gray & Dark Shadows",
     "Solo Leveling manhwa style, vertical 9:16, massive stone door slamming shut with dust flying, hunters turning around in shock and panic",
-    "STONE_DOOR_SLAM_SHOCK"),
-  sampleShot(14, 78, 84, "Statue Awakening (استيقاظ تمثال العرش - عيون حمراء)", "رعب سينمائي وإثارة قصوى",
-    "عيون تمثال العرش العملاق أضاءت فجأة باللون الأحمر الدموي!",
-    "صوت طاقة ليزر أحمر (Laser Charge SFX) + طنين مرعب",
+    "STONE_DOOR_SLAM_SHOCK",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    13,
+    "stone_gate_slam_trap.wav"),
+  sampleShot(14, 78, 84, "Statue Awakening (استيقاظ تمثال الملك - عيون حمراء)", "رعب سينمائي وإثارة قصوى",
+    "رعب وتوتر قصوى - نبرة متصاعدة",
+    "عيون تمثال الملك الحجري لمعت فجأة بنور أحمر دموي مرعب!",
+    "شحن طاقة الليزر بعيون التمثال",
     "Blood-Red Glowing Eyes & Dark Slate",
     "Solo Leveling manhwa style, vertical 9:16, low angle shot looking up at gigantic colossal stone God statue on throne, eyes glowing blood-red",
-    "THRONE_STATUE_RED_EYES"),
+    "THRONE_STATUE_RED_EYES",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    16,
+    "glowing_eyes_laser_charge.wav"),
   sampleShot(15, 84, 90, "Cliffhanger Warning (تحذير سيف والختام المشوق)", "ذروة التشويق للحلقة القادمة",
-    "سيف صرخ بأعلى صوته: الكل يوطي على الأرض فوراً!! العيون بتضرب ليزر!!",
-    "صوت انطلاق شعاع الليزر الأحمر + صرخة حماسية + صدى غامض",
+    "صرخة تحذير وتحدي - نبرة طاقة عالية",
+    "سيف صرخ في الكل بأعلى صوته, الكل ينزل على الأرض فوراً, العيون بتفرغ طاقة مدمرة!",
+    "انطلاق شعاع ليزر أحمر مميت",
     "Blood-Red Beam & Dark Blue Hoodie (#1B2A4A)",
     "Solo Leveling manhwa style, vertical 9:16, dramatic shot of Seif yelling to team to duck, red light beams reflecting in eyes, dust and danger everywhere",
-    "SEIF_DUCK_WARNING"),
+    "SEIF_DUCK_WARNING",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    15,
+    "laser_blast_red_beam.wav"),
+  sampleShot(16, 90, 96, "Shorts Finale & Cliffhanger Call (قفلة الشورتس التفاعلية)", "تشويق نهائي وتفاعل عالي",
+    "تشويق ونداء متابعة - نبرة نهاية الشورتس",
+    "يا ترى سيف هيقدر ينقذ الفريق من الفخ المظلم, ولا دي هتكون نهاية أضعف صياد؟ تابع للنهاية!",
+    "ضربة ختامية درامية لنهاية الشورتس",
+    "Deep Abyss & Golden Runes",
+    "Solo Leveling manhwa style, vertical 9:16, cliffhanger teaser frame, giant glowing rune symbols floating in darkness, epic dramatic anime typography",
+    "PROCEDURAL_SCENE_16",
+    "الكتاب الثاني - المتاهة المزدوجة",
+    24,
+    "dramatic_cliffhanger_stinger.wav"),
 ];
 
 export function createSampleProject(): StoryProject {
@@ -431,7 +510,16 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       if (!isObject(rawShot)) continue;
       const shotObj = rawShot;
 
-      const shotNum = extractInt(shotObj, i + 1, ["shot_number", "shot", "number", "num", "id", "index", "scene_number"]);
+      const rawShotNum = extractInt(shotObj, i + 1, ["shot_number", "shot", "number", "num", "id", "index", "scene_number"]);
+      // Guarantee unique monotonic numbering for multi-book stories (prevent shot_number resetting in book 2)
+      const shotNum = rawShotNum > 0 && !shots.some((s) => s.shotNumber === rawShotNum) ? rawShotNum : i + 1;
+
+      const bookOrPart =
+        extractString(shotObj, ["book_or_part", "book", "part", "chapter", "section", "volume", "season"]) ??
+        undefined;
+      let vocalCue =
+        extractString(shotObj, ["vocal_cue", "vocal_tone", "tone", "director_cue", "acting_cue"]) ??
+        undefined;
 
       const rawTimeframe = extractString(shotObj, ["timeframe", "timing", "time", "interval", "timestamps", "range"]);
       const explicitDuration = extractInt(shotObj, 0, ["duration_sec", "duration", "length_sec", "length"]);
@@ -455,7 +543,15 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         startSec = shots.length > 0 ? shots[shots.length - 1].endTimeSec : 0;
         endSec = startSec + d;
       }
-      const timeframe = rawTimeframe ?? formatTimeframe(startSec, endSec);
+
+      // CRITICAL MULTI-BOOK FIX: Prevent timeline rewinding when book 2 starts at 00:00
+      const prevEnd = shots.length > 0 ? shots[shots.length - 1].endTimeSec : 0;
+      if (startSec < prevEnd) {
+        const dur = endSec > startSec ? endSec - startSec : d;
+        startSec = prevEnd;
+        endSec = startSec + dur;
+      }
+      const timeframe = formatTimeframe(Math.round(startSec), Math.round(endSec));
 
       const type =
         extractString(shotObj, ["title_arabic", "type", "title", "name", "shot_title", "scene_title", "heading"]) ??
@@ -469,22 +565,30 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       ]);
       if (!voiceover) voiceover = findBestDialogueString(shotObj) ?? "";
 
+      // Automatic Egyptian Edge-TTS Optimization (Pure Clean Text Standard v15)
+      const opt = optimizeEgyptianVoiceover(voiceover, vocalCue);
+      voiceover = opt.cleanText;
+      if (opt.extractedVocalCue) vocalCue = opt.extractedVocalCue;
+
       let soundMusic = "";
       let soundSfx = "";
       let sfxName = "";
       let sfxVolumePercent = 100;
       let sfxTriggerSec = 0;
+      let sfxLibrarySource = "MaterialFoundry/SoundFxLibrary";
       let soundDesign: string;
       const sdObj = shotObj.sound_design;
       if (isObject(sdObj)) {
         soundMusic = extractString(sdObj, ["music", "bgm", "background_music", "score"]) ?? "";
         soundSfx = extractString(sdObj, ["sfx", "effects", "sound_effects", "sfx_cue", "ambience"]) ?? "";
         sfxName = extractString(sdObj, ["sfx_name", "sfx", "effects", "sound_effect"]) ?? soundSfx;
+        sfxLibrarySource =
+          extractString(sdObj, ["sfx_library_source", "library_source", "source"]) ?? "MaterialFoundry/SoundFxLibrary";
         sfxVolumePercent =
           parsePercent(extractString(sdObj, ["sfx_volume_percent", "volume", "volume_percent"])) ?? 100;
         sfxTriggerSec =
           parseTimecodeSec(extractString(sdObj, ["sfx_trigger_sec", "trigger_sec", "trigger", "start_sec"])) ?? 0;
-        soundDesign = [soundMusic, soundSfx].filter((s) => s).join(" + ");
+        soundDesign = [soundMusic, sfxName || soundSfx].filter((s) => s).join(" + ");
       } else {
         soundDesign =
           extractString(shotObj, ["sound_design", "sound", "sfx", "audio_cue", "audio", "music", "sfx_cue"]) ?? "";
@@ -501,15 +605,19 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         extractString(shotObj, ["image_filename", "image_file", "image_name", "file_name", "filename", "image_path"]) ?? undefined;
       const textOverlay = extractString(shotObj, ["text_overlay", "overlay", "caption", "onscreen_text", "headline"]) ?? "";
       const dialogueLines = parseDialogueLines(shotObj.dialogue);
-      const sceneType = SCENE_ART_TYPES[i % SCENE_ART_TYPES.length];
+
+      // Unique non-repeating scene art type
+      const sceneType = i < SCENE_ART_TYPES.length ? SCENE_ART_TYPES[i] : `PROCEDURAL_SCENE_${i + 1}`;
 
       shots.push({
         shotNumber: shotNum,
+        bookOrPart,
         timeframe,
         startTimeSec: startSec,
         endTimeSec: endSec,
         type,
         mood,
+        vocalCue,
         voiceoverEgyptian: voiceover,
         soundDesign,
         colorTheme,
@@ -517,6 +625,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         imageFilename,
         soundMusic,
         soundSfx,
+        sfxLibrarySource,
         sceneType,
         textOverlay,
         sfxName,

@@ -17,11 +17,10 @@ interface SfxPickerModalProps {
 const CATEGORIES = [
   { id: "ALL", label: "الكل" },
   { id: "Combat & Impacts", label: "القتال والضربات" },
-  { id: "Horror & Suspense", label: "الرعب والتشويق" },
-  { id: "Movement & Transitions", label: "الحركة والانتقالات" },
-  { id: "Magic & Energy", label: "السحر والطاقة" },
-  { id: "Humor & UI Effects", label: "كوميديا وواجهة" },
-  { id: "Human & Environment", label: "البيئة والتفاعل" },
+  { id: "Monsters & Vocals", label: "زئير الوحوش والكائنات" },
+  { id: "Suspense & Traps", label: "التشويق والفخاخ" },
+  { id: "Magic & Energy", label: "السحر والطاقة الفانتازية" },
+  { id: "Foley & Environment", label: "الحركة والبيئة والخطوات" },
 ];
 
 export function SfxPickerModal({ shotNumber, currentSfxId, isOpen, onClose }: SfxPickerModalProps) {
@@ -40,7 +39,11 @@ export function SfxPickerModal({ shotNumber, currentSfxId, isOpen, onClose }: Sf
       if (!matchCat) return false;
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
-      return item.nameAr.includes(q) || item.nameEn.toLowerCase().includes(q);
+      return (
+        item.nameAr.includes(q) ||
+        item.nameEn.toLowerCase().includes(q) ||
+        item.fileName.toLowerCase().includes(q)
+      );
     });
   }, [selectedCat, search]);
 
@@ -185,8 +188,8 @@ export function SfxPickerModal({ shotNumber, currentSfxId, isOpen, onClose }: Sf
                     <span className="font-mono text-xs font-bold text-dim">#{item.id}</span>
                     <p className="truncate text-sm font-semibold text-fg">{item.nameAr}</p>
                   </div>
-                  <p className="truncate text-xs text-dim font-mono" dir="ltr">
-                    {item.nameEn} · {item.categoryAr}
+                  <p className="truncate text-xs text-primary/80 font-mono" dir="ltr">
+                    {item.fileName} · {item.categoryAr}
                   </p>
                 </div>
 

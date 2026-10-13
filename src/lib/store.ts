@@ -4,6 +4,7 @@ import { StoryProject, StoryShot, TransitionTypeId } from "@/lib/types";
 import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
 import { syncProjectShotTimeframes } from "@/lib/timeline";
+import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
 
 const PROJECT_KEY = "project";
 const SETTINGS_KEY = "settings";
@@ -48,6 +49,8 @@ interface StudioState {
   clearShotAudio: (shotNumber: number) => Promise<void>;
   assignShotSfx: (shotNumber: number, sfxId: number, nameAr: string, volume: number, triggerSec?: number) => void;
   updateShotVoiceover: (shotNumber: number, text: string) => void;
+  optimizeShotVoiceover: (shotNumber: number) => void;
+  optimizeProjectVoiceovers: () => void;
   toggleDazzlingCTA: (enabled: boolean) => void;
   toggleVFX: (
     key:
@@ -305,6 +308,47 @@ export const useStudio = create<StudioState>((set, get) => ({
       s.shotNumber === shotNumber ? { ...s, voiceoverEgyptian: text } : s
     );
     set({ project: { ...project, shots } });
+  },
+
+  optimizeShotVoiceover: (shotNumber) => {
+    const project = get().project;
+    if (!project) return;
+    let feedbackMsg = `تم تنقية وتحسين نطق المشهد #${shotNumber} لمحرك Edge-TTS!`;
+    const shots = project.shots.map((s) => {
+      if (s.shotNumber !== shotNumber) return s;
+      const opt = optimizeEgyptianVoiceover(s.voiceoverEgyptian, s.vocalCue);
+      if (opt.changesApplied.length > 0) {
+        feedbackMsg = `تم تحسين المشهد #${shotNumber}: ${opt.changesApplied[0]}`;
+      }
+      return {
+        ...s,
+        voiceoverEgyptian: opt.cleanText,
+        vocalCue: opt.extractedVocalCue || s.vocalCue,
+      };
+    });
+    set({ project: { ...project, shots }, feedback: feedbackMsg });
+  },
+
+  optimizeProjectVoiceovers: () => {
+    const project = get().project;
+    if (!project || project.shots.length === 0) return;
+    let modifiedCount = 0;
+    const shots = project.shots.map((s) => {
+      const opt = optimizeEgyptianVoiceover(s.voiceoverEgyptian, s.vocalCue);
+      if (opt.changesApplied.length > 0) modifiedCount++;
+      return {
+        ...s,
+        voiceoverEgyptian: opt.cleanText,
+        vocalCue: opt.extractedVocalCue || s.vocalCue,
+      };
+    });
+    set({
+      project: { ...project, shots },
+      feedback:
+        modifiedCount > 0
+          ? `تم تنقية وتحسين ${modifiedCount} مشهد وفق معيار v15 النقي!`
+          : `جميع المشاهد (${shots.length} مشهد) متوافقة تماماً مع معيار v15 النقي!`,
+    });
   },
 
   toggleDazzlingCTA: (enabled) => {

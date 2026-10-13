@@ -170,16 +170,16 @@ export async function decodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
   return audio.decodeAudioData(data);
 }
 
-function getCatalogSoundUrl(nameEn: string): string | null {
-  const n = nameEn.toLowerCase();
-  if (n.includes("roar") || n.includes("growl") || n.includes("monster")) return `${SOUNDS_BASE}/monster_roar.wav`;
-  if (n.includes("heartbeat") || n.includes("pulse")) return `${SOUNDS_BASE}/heartbeat.wav`;
+function getCatalogSoundUrl(nameOrFile: string): string | null {
+  const n = nameOrFile.toLowerCase();
+  if (n.includes("roar") || n.includes("growl") || n.includes("monster") || n.includes("beast")) return `${SOUNDS_BASE}/monster_roar.wav`;
+  if (n.includes("heartbeat") || n.includes("pulse") || n.includes("heart")) return `${SOUNDS_BASE}/heartbeat.wav`;
   if (n.includes("laser") || n.includes("beam") || n.includes("blast")) return `${SOUNDS_BASE}/laser_beam.wav`;
-  if (n.includes("door slam") || n.includes("heavy slam") || n.includes("ground impact") || n.includes("slam") || n.includes("heavy thump")) return `${SOUNDS_BASE}/heavy_slam.wav`;
-  if (n.includes("creak") || n.includes("stone")) return `${SOUNDS_BASE}/stone_creak.wav`;
-  if (n.includes("footstep") || n.includes("steps")) return `${SOUNDS_BASE}/footsteps.wav`;
-  if (n.includes("heal") || n.includes("chime")) return `${SOUNDS_BASE}/healing_magic.wav`;
-  if (n.includes("laugh") || n.includes("chuckle")) return `${SOUNDS_BASE}/laughter.wav`;
+  if (n.includes("door slam") || n.includes("heavy slam") || n.includes("gate_slam") || n.includes("slam") || n.includes("boom") || n.includes("impact")) return `${SOUNDS_BASE}/heavy_slam.wav`;
+  if (n.includes("creak") || n.includes("stone_door") || n.includes("stone")) return `${SOUNDS_BASE}/stone_creak.wav`;
+  if (n.includes("footstep") || n.includes("steps") || n.includes("sprint") || n.includes("march")) return `${SOUNDS_BASE}/footsteps.wav`;
+  if (n.includes("heal") || n.includes("chime") || n.includes("magic") || n.includes("spell") || n.includes("rune")) return `${SOUNDS_BASE}/healing_magic.wav`;
+  if (n.includes("laugh") || n.includes("chuckle") || n.includes("tea_glass")) return `${SOUNDS_BASE}/laughter.wav`;
   return null;
 }
 
@@ -315,13 +315,13 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
   return await offline.startRendering();
 }
 
-export async function getCatalogSfxBuffer(item: { id: number; nameEn: string; categoryEn: string }): Promise<AudioBuffer> {
+export async function getCatalogSfxBuffer(item: { id: number; nameEn: string; categoryEn: string; fileName?: string }): Promise<AudioBuffer> {
   const audio = getContext();
   const cacheKey = `cat-sfx:${item.id}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
 
-  const wavUrl = getCatalogSoundUrl(item.nameEn);
+  const wavUrl = getCatalogSoundUrl(item.fileName || item.nameEn);
   if (wavUrl) {
     const loaded = await loadUrlBuffer(audio, wavUrl);
     if (loaded) {

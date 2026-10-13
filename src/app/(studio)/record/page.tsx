@@ -11,6 +11,7 @@ import { SceneThumbnail } from "@/components/studio/scene-thumbnail";
 import { audioEngine } from "@/lib/audio-engine";
 import { StoryShot } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
 
 function formatElapsed(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -41,6 +42,7 @@ export default function RecordPage() {
   const setRecordedAudio = useStudio((s) => s.setRecordedAudio);
   const assignShotAudio = useStudio((s) => s.assignShotAudio);
   const batchAssignShotsAudio = useStudio((s) => s.batchAssignShotsAudio);
+  const optimizeProjectVoiceovers = useStudio((s) => s.optimizeProjectVoiceovers);
   const showFeedback = useStudio((s) => s.showFeedback);
 
   const [recording, setRecording] = useState(false);
@@ -160,20 +162,20 @@ export default function RecordPage() {
   }
 
   function getShotText(shot: StoryShot): string {
+    let raw = "";
     if (shot.voiceoverEgyptian && shot.voiceoverEgyptian.trim()) {
-      return shot.voiceoverEgyptian.trim();
-    }
-    if (shot.textOverlay && shot.textOverlay.trim()) {
-      return shot.textOverlay.trim();
-    }
-    if (shot.dialogueLines && shot.dialogueLines.length > 0) {
+      raw = shot.voiceoverEgyptian.trim();
+    } else if (shot.textOverlay && shot.textOverlay.trim()) {
+      raw = shot.textOverlay.trim();
+    } else if (shot.dialogueLines && shot.dialogueLines.length > 0) {
       const text = shot.dialogueLines.map((d) => d.text).filter(Boolean).join(" ").trim();
-      if (text) return text;
+      if (text) raw = text;
+    } else if (shot.type && shot.type.trim()) {
+      raw = shot.type.trim();
     }
-    if (shot.type && shot.type.trim()) {
-      return shot.type.trim();
-    }
-    return "";
+    if (!raw) return "";
+    const opt = optimizeEgyptianVoiceover(raw, shot.vocalCue);
+    return opt.cleanText;
   }
 
   async function generateVoice() {
@@ -304,6 +306,16 @@ export default function RecordPage() {
             >
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
               <span>{generating ? "جارٍ التوليد…" : "توليد كل المشاهد دفعة واحدة"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={optimizeProjectVoiceovers}
+              className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-primary/50 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-black transition shrink-0"
+              title="تنقية نصوص التعليق لجميع المشاهد وضبط الوقفات والترقيم لمحرك Edge-TTS"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span>تنقية النطق (v15)</span>
             </button>
 
             <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 h-10 text-xs min-w-0 w-full sm:w-auto max-w-full">
@@ -556,5 +568,5 @@ function ShotThumbnailView({ shot }: { shot: StoryShot }) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={imageUrl} alt={`مشهد ${shot.shotNumber}`} className="h-full w-full object-cover" />;
   }
-  return <SceneThumbnail sceneType={shot.sceneType} className="h-full w-full object-cover" />;
+  return <SceneThumbnail sceneType={shot.sceneType} shot={shot} className="h-full w-full object-cover" />;
 }

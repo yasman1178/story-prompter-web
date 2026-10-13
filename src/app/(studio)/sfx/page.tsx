@@ -8,13 +8,12 @@ import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = [
-  { id: "ALL", label: "الكل", count: 100 },
-  { id: "Combat & Impacts", label: "القتال والضربات", count: 20 },
-  { id: "Horror & Suspense", label: "الرعب والتشويق", count: 20 },
-  { id: "Movement & Transitions", label: "الحركة والانتقالات", count: 15 },
-  { id: "Magic & Energy", label: "السحر والطاقة", count: 15 },
-  { id: "Humor & UI Effects", label: "كوميديا وواجهة", count: 15 },
-  { id: "Human & Environment", label: "البيئة والتفاعل", count: 15 },
+  { id: "ALL", label: "الكل" },
+  { id: "Combat & Impacts", label: "القتال والضربات" },
+  { id: "Monsters & Vocals", label: "زئير الوحوش والكائنات" },
+  { id: "Suspense & Traps", label: "التشويق والفخاخ" },
+  { id: "Magic & Energy", label: "السحر والطاقة الفانتازية" },
+  { id: "Foley & Environment", label: "الحركة والبيئة والخطوات" },
 ];
 
 export default function SfxPage() {
@@ -35,7 +34,11 @@ export default function SfxPage() {
       if (!matchCat) return false;
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
-      return item.nameAr.includes(q) || item.nameEn.toLowerCase().includes(q);
+      return (
+        item.nameAr.includes(q) ||
+        item.nameEn.toLowerCase().includes(q) ||
+        item.fileName.toLowerCase().includes(q)
+      );
     });
   }, [category, search]);
 
@@ -51,7 +54,7 @@ export default function SfxPage() {
 
   function handleAssign(item: SfxCatalogItem, shotNum: number) {
     assignShotSfx(shotNum, item.id, item.nameAr, globalVolume, 0);
-    showFeedback(`تم ربط المؤثر [${item.nameAr}] بالمشهد #${shotNum}`);
+    showFeedback(`تم ربط المؤثر [${item.nameAr}] (${item.fileName}) بالمشهد #${shotNum}`);
   }
 
   function autoAssignDefaultStory() {
@@ -59,23 +62,23 @@ export default function SfxPage() {
       showFeedback("حمّل مشروعاً أولاً من صفحة المشاهد.");
       return;
     }
-    // Auto-map iconic story sound design from prompt
+    // Auto-map iconic story sound design to MaterialFoundry library
     const mappings: Record<number, number> = {
-      1: 25, // Monster roar
-      2: 21, // Heartbeat
-      3: 72, // Whistle
-      4: 87, // Group laugh
-      5: 68, // Healing chimes
-      6: 56, // Emerald healing
-      7: 58, // Portal energy
-      8: 55, // Heavy step
-      9: 43, // Running footsteps
-      10: 63, // Rune activation
-      11: 51, // Hand raise
-      12: 45, // Stone creak
-      13: 44, // Stone door slam
-      14: 27, // Glowing eyes charge
-      15: 13, // Laser blast
+      1: 8,  // Colossal Monster Roar
+      2: 11, // Heartbeat Suspense Loop
+      3: 22, // Cairo Coffee Glass & Laugh
+      4: 10, // Hunters Group Terror Gasp
+      5: 17, // Emerald Healing Spell
+      6: 17, // Emerald Healing Spell
+      7: 19, // Blue Hunter Portal Hum
+      8: 20, // Stone Dungeon March
+      9: 21, // Hunter Fast Sprint
+      10: 18, // Double Dungeon Rune Activation
+      11: 4,  // Heavy Shield Block
+      12: 12, // Ancient Stone Door Creak
+      13: 13, // Stone Gate Slam Trap
+      14: 16, // Glowing Eyes Energy Charge
+      15: 15, // Blood-Red Laser Beam Blast
     };
     let count = 0;
     for (const [shotNumStr, sfxId] of Object.entries(mappings)) {
@@ -86,7 +89,7 @@ export default function SfxPage() {
         count++;
       }
     }
-    showFeedback(`تم تعيين المؤثرات تلقائياً لـ ${count} مشهد!`);
+    showFeedback(`تم تعيين مؤثرات MaterialFoundry الرسمية لـ ${count} مشهد!`);
   }
 
   return (
@@ -99,9 +102,11 @@ export default function SfxPage() {
               <Sparkles className="h-5 w-5 sm:h-6 sm:w-6" />
             </span>
             <div className="min-w-0 flex-1">
-              <h1 className="text-base sm:text-lg font-bold text-fg truncate">مكتبة المؤثرات الصوتية الشاملة</h1>
+              <h1 className="text-base sm:text-lg font-bold text-fg truncate">
+                مكتبة المؤثرات الصوتية الرسمية (MaterialFoundry/SoundFxLibrary)
+              </h1>
               <p className="text-xs text-muted truncate sm:whitespace-normal">
-                100 مؤثر صوتي سينمائي مأخوذ من برومبت حكاية سيف — استمع إليها وعيّنها لمشاهدك.
+                المكتبة المعتمدة وفق معيار v15 — ملفات سينمائية ومقاطع حركة جاهزة للمونتاج.
               </p>
             </div>
           </div>
@@ -187,7 +192,9 @@ export default function SfxPage() {
                   category === cat.id ? "bg-black/20 text-black" : "bg-surface text-dim"
                 )}
               >
-                {cat.count}
+                {cat.id === "ALL"
+                  ? SFX_CATALOG.length
+                  : SFX_CATALOG.filter((i) => i.categoryEn === cat.id).length}
               </span>
             </button>
           ))}
@@ -229,7 +236,10 @@ export default function SfxPage() {
                     <span className="text-[11px] text-dim">{item.volume}% قوة</span>
                   </div>
                   <h3 className="mt-0.5 truncate text-sm font-bold text-fg">{item.nameAr}</h3>
-                  <p className="truncate text-xs text-dim font-mono" dir="ltr">
+                  <p className="truncate text-xs text-primary/80 font-mono" dir="ltr">
+                    {item.fileName}
+                  </p>
+                  <p className="truncate text-[11px] text-dim" dir="ltr">
                     {item.nameEn}
                   </p>
                 </div>

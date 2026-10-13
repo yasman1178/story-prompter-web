@@ -2,7 +2,7 @@ import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { BgmTrack, StoryProject, StoryShot } from "@/lib/types";
 import { getImage } from "@/lib/db";
 import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
-import { drawSceneArtwork } from "@/lib/scene-art";
+import { drawShotProceduralArt } from "@/lib/scene-art";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { computeProjectTimeline } from "@/lib/timeline";
 
@@ -126,7 +126,7 @@ function drawSceneArt(ctx: CanvasRenderingContext2D, shot: StoryShot, scale: num
   ctx.translate(VIDEO_WIDTH / 2, VIDEO_HEIGHT / 2);
   ctx.scale(scale, scale);
   ctx.translate(-VIDEO_WIDTH / 2, -VIDEO_HEIGHT / 2);
-  drawSceneArtwork(ctx, shot.sceneType, VIDEO_WIDTH, VIDEO_HEIGHT);
+  drawShotProceduralArt(ctx, shot, VIDEO_WIDTH, VIDEO_HEIGHT);
   ctx.restore();
 }
 
@@ -303,17 +303,43 @@ export function drawFrame(
   ctx.fillStyle = sheen;
   ctx.fillRect(0, VIDEO_HEIGHT * 0.42, VIDEO_WIDTH, VIDEO_HEIGHT * 0.58);
 
-  // 6. Subtitles with stylish background plate
+  // 6. Scene Stamp Header Badge (Book / Part & Shot Number)
+  const stampText = shot.bookOrPart
+    ? `${shot.bookOrPart} · المشهد #${shot.shotNumber}`
+    : `المشهد #${shot.shotNumber}`;
+  ctx.save();
+  ctx.font = "bold 24px Cairo, sans-serif";
+  ctx.textAlign = "center";
+  const stampMetrics = ctx.measureText(stampText);
+  const badgeW = stampMetrics.width + 42;
+  const badgeH = 44;
+  const badgeX = (VIDEO_WIDTH - badgeW) / 2;
+  const badgeY = 32;
+
+  ctx.fillStyle = "rgba(10, 15, 26, 0.78)";
+  ctx.strokeStyle = "rgba(0, 229, 255, 0.45)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 22);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#00e5ff";
+  ctx.fillText(stampText, VIDEO_WIDTH / 2, badgeY + 30);
+  ctx.restore();
+
+  // 7. Dynamic Animated Subtitles with Karaoke / Word-level Highlight
   const caption = project.showSubtitlesInVideo ? shot.voiceoverEgyptian : shot.textOverlay;
   if (caption) {
     const lines = wrapText(ctx, caption, VIDEO_WIDTH - 140);
-    const boxHeight = lines.length * 60 + 34;
-    const boxY = VIDEO_HEIGHT - 220 - lines.length * 60;
+    const boxHeight = lines.length * 62 + 34;
+    const boxY = VIDEO_HEIGHT - 220 - lines.length * 62;
     const bx = 45;
     const bw = VIDEO_WIDTH - 90;
 
+    // Background Plate
     ctx.save();
-    ctx.fillStyle = "rgba(10, 15, 26, 0.86)";
+    ctx.fillStyle = "rgba(10, 15, 26, 0.88)";
     ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -321,16 +347,50 @@ export function drawFrame(
     ctx.fill();
     ctx.stroke();
 
-    ctx.textAlign = "center";
+    // Word highlighting logic based on progress through the shot
+    const totalWords = caption.split(/\s+/).filter(Boolean);
+    const shotProgress = Math.min(1, Math.max(0, localSec / Math.max(0.1, duration)));
+    const activeWordIndex = Math.min(
+      totalWords.length - 1,
+      Math.floor(shotProgress * (totalWords.length + 0.5))
+    );
+
     ctx.font = "700 38px Cairo, sans-serif";
-    ctx.fillStyle = "#ffffff";
-    let textY = boxY + 50;
+    ctx.textAlign = "center";
+    let textY = boxY + 52;
+
+    let globalWordCounter = 0;
     for (const line of lines) {
-      ctx.strokeStyle = "rgba(0,0,0,0.9)";
+      const lineWords = line.split(/\s+/).filter(Boolean);
+      const isCurrentLineActive =
+        activeWordIndex >= globalWordCounter &&
+        activeWordIndex < globalWordCounter + lineWords.length;
+
+      // Base stroke outline for contrast
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.95)";
       ctx.lineWidth = 6;
       ctx.strokeText(line, VIDEO_WIDTH / 2, textY);
-      ctx.fillText(line, VIDEO_WIDTH / 2, textY);
-      textY += 60;
+
+      if (isCurrentLineActive) {
+        // Subtle animated glow pulse on active spoken line
+        const pulseGlow = 0.85 + Math.sin(localSec * 10) * 0.15;
+        ctx.fillStyle = `rgba(0, 229, 255, ${pulseGlow})`;
+        ctx.shadowColor = "#00e5ff";
+        ctx.shadowBlur = 12;
+        ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+        ctx.shadowBlur = 0;
+      } else if (globalWordCounter + lineWords.length <= activeWordIndex) {
+        // Already spoken lines
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+      } else {
+        // Upcoming lines
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+      }
+
+      globalWordCounter += lineWords.length;
+      textY += 62;
     }
     ctx.restore();
   }

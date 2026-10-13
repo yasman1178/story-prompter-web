@@ -254,3 +254,180 @@ export function drawSceneArtwork(ctx: C, sceneType: SceneArtType, w: number, h: 
       fillBg(ctx, w, h, vgrad(ctx, h, ["#0a0d14", HOODIE_DARK_BLUE]));
   }
 }
+
+/**
+ * Procedural Chiaroscuro Dark Fantasy Artwork Generator (Engine v15)
+ *
+ * Generates unique, non-repeating vertical 9:16 cinematic illustrations
+ * for ANY shot number (1 to 100+), adapting to mood, chapter, and shot index
+ * with dynamic neon lighting, runes, silhouettes, and atmospheric vignettes.
+ */
+export function drawShotProceduralArt(
+  ctx: C,
+  shot: {
+    shotNumber: number;
+    bookOrPart?: string;
+    type?: string;
+    mood?: string;
+    colorTheme?: string;
+    textOverlay?: string;
+    sceneType?: SceneArtType | string;
+  },
+  w: number,
+  h: number
+) {
+  // If it's a legacy shot 1-15 with a known preset, use the curated artwork
+  if (
+    shot.shotNumber <= 15 &&
+    typeof shot.sceneType === "string" &&
+    SCENE_ART_TYPES_SET.has(shot.sceneType)
+  ) {
+    drawSceneArtwork(ctx, shot.sceneType as SceneArtType, w, h);
+    return;
+  }
+
+  const num = shot.shotNumber;
+  const mood = (shot.mood || "").toLowerCase();
+  const type = (shot.type || "").toLowerCase();
+
+  // Color palettes tailored to dark fantasy manhwa aesthetic
+  type Palette = { bg: [string, string, string]; neon: string; ambient: string; accent: string };
+  const palettes: Palette[] = [
+    // 0. Cyan Hunter Energy
+    { bg: ["#050811", "#0B1528", "#020408"], neon: "#00E5FF", ambient: "#0284C7", accent: "#38BDF8" },
+    // 1. Crimson Danger / Boss Battle
+    { bg: ["#150505", "#2B0B0B", "#080101"], neon: "#FF3B30", ambient: "#991B1B", accent: "#F87171" },
+    // 2. Mystic Purple / Shadow Monarch Runes
+    { bg: ["#0B0616", "#1C0F38", "#05020B"], neon: "#C084FC", ambient: "#7E22CE", accent: "#E879F9" },
+    // 3. Emerald Healing / Secret Chamber
+    { bg: ["#04120B", "#0B2B1B", "#020905"], neon: "#10B981", ambient: "#047857", accent: "#34D399" },
+    // 4. Golden Amber / Ancient Temple Statues
+    { bg: ["#130C04", "#2E1C0A", "#080401"], neon: "#F59E0B", ambient: "#B45309", accent: "#FCD34D" },
+    // 5. Obsidian Monolith / Deep Dungeon Abyss
+    { bg: ["#06090E", "#111827", "#030407"], neon: "#38BDF8", ambient: "#1E293B", accent: "#94A3B8" },
+  ];
+
+  let pIndex = (num - 1) % palettes.length;
+  if (mood.includes("رعب") || mood.includes("خطر") || type.includes("قتال") || type.includes("ليزر")) pIndex = 1;
+  else if (mood.includes("سحر") || mood.includes("غموض") || type.includes("بوابة") || type.includes("نقوش")) pIndex = 2;
+  else if (mood.includes("شفاء") || mood.includes("أمل")) pIndex = 3;
+  else if (mood.includes("معبد") || mood.includes("تمثال") || mood.includes("اكتشاف")) pIndex = 4;
+
+  const pal = palettes[pIndex];
+
+  // 1. Deep atmospheric background gradient
+  fillBg(ctx, w, h, vgrad(ctx, h, pal.bg));
+
+  // 2. Chiaroscuro Radial Ambient Rim Glow
+  const glowX = w * (0.3 + ((num * 17) % 40) / 100);
+  const glowY = h * (0.28 + ((num * 23) % 25) / 100);
+  const glowR = w * 0.75;
+  disc(ctx, glowX, glowY, glowR, rgrad(ctx, glowX, glowY, glowR, [
+    `${pal.neon}44`,
+    `${pal.ambient}22`,
+    "transparent",
+  ]));
+
+  // 3. Architectural Dark Fantasy Structures (Pillars / Archway)
+  ctx.save();
+  ctx.fillStyle = "#090E17";
+  const pillarW = w * 0.16;
+  ctx.fillRect(w * 0.04, h * 0.12, pillarW, h * 0.88);
+  ctx.fillRect(w * 0.80, h * 0.12, pillarW, h * 0.88);
+  // Stone brick grooves
+  ctx.strokeStyle = "#1A2333";
+  ctx.lineWidth = 2;
+  for (let y = h * 0.16; y < h * 0.95; y += 45) {
+    ctx.beginPath();
+    ctx.moveTo(w * 0.04, y);
+    ctx.lineTo(w * 0.20, y);
+    ctx.moveTo(w * 0.80, y);
+    ctx.lineTo(w * 0.96, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 4. Glowing Runic Magic Circles / Gate Energy
+  const runeY = h * 0.36;
+  ring(ctx, w * 0.5, runeY, w * 0.32, `${pal.neon}55`, 3);
+  ring(ctx, w * 0.5, runeY, w * 0.22, `${pal.neon}77`, 2);
+
+  // Geometric magic spikes / rays
+  ctx.save();
+  ctx.translate(w * 0.5, runeY);
+  ctx.strokeStyle = `${pal.accent}55`;
+  ctx.lineWidth = 1.5;
+  const numSpikes = 8 + (num % 6);
+  for (let s = 0; s < numSpikes; s++) {
+    const angle = (s / numSpikes) * Math.PI * 2 + (num * 0.2);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * (w * 0.22), Math.sin(angle) * (w * 0.22));
+    ctx.lineTo(Math.cos(angle) * (w * 0.35), Math.sin(angle) * (w * 0.35));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 5. Floating mana particles
+  ctx.save();
+  for (let i = 0; i < 18; i++) {
+    const px = w * 0.15 + ((i * 37 + num * 23) % (w * 0.7));
+    const py = h * 0.2 + ((i * 47 + num * 19) % (h * 0.5));
+    const pr = 2 + (i % 3);
+    disc(ctx, px, py, pr, pal.neon);
+  }
+  ctx.restore();
+
+  // 6. Hunter / Shadow Hero Silhouette
+  drawSeifSilhouette(ctx, w, h, HOODIE_DARK_BLUE);
+
+  // Glowing Eye or Weapon Accent
+  const eyeX = w * 0.48;
+  const eyeY = h * 0.39;
+  disc(ctx, eyeX, eyeY, 6, pal.neon);
+  disc(ctx, eyeX, eyeY, 2, "#FFFFFF");
+
+  // 7. Visual Scene Stamp Header
+  ctx.save();
+  // Cinematic vignette dark overlay at bottom for subtitles readability
+  const bGrad = ctx.createLinearGradient(0, h * 0.65, 0, h);
+  bGrad.addColorStop(0, "transparent");
+  bGrad.addColorStop(0.5, "rgba(2, 4, 8, 0.82)");
+  bGrad.addColorStop(1, "rgba(2, 4, 8, 0.98)");
+  ctx.fillStyle = bGrad;
+  ctx.fillRect(0, h * 0.65, w, h * 0.35);
+
+  // Top Chapter & Shot Pill
+  const topText = shot.bookOrPart
+    ? `${shot.bookOrPart} · المشهد #${num}`
+    : `المشهد #${num}`;
+  ctx.font = "bold 20px Cairo, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+  const m = ctx.measureText(topText);
+  ctx.fillRect(w * 0.5 - m.width / 2 - 16, 26, m.width + 32, 38);
+  ctx.strokeStyle = `${pal.neon}88`;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(w * 0.5 - m.width / 2 - 16, 26, m.width + 32, 38);
+
+  ctx.fillStyle = pal.neon;
+  ctx.fillText(topText, w * 0.5, 52);
+  ctx.restore();
+}
+
+const SCENE_ART_TYPES_SET = new Set([
+  "DAGGER_TREMBLING",
+  "DUNGEON_FIRMED",
+  "SEIF_COFFEE_SMILE",
+  "UNCLE_KAMAL_LAUGH",
+  "HOSPITAL_BILL_EMOTIONAL",
+  "SALMA_EMERALD_HEAL",
+  "CAPTAIN_SABER_GATE",
+  "FIRST_STEP_INTO_PORTAL",
+  "DUNGEON_MARCH",
+  "DOUBLE_DUNGEON_RUNES",
+  "THE_VOTE_HAND_UP",
+  "TEMPLE_COLOSSAL_STATUES",
+  "STONE_DOOR_SLAM_SHOCK",
+  "THRONE_STATUE_RED_EYES",
+  "SEIF_DUCK_WARNING",
+]);

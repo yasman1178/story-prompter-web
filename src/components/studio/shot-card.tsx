@@ -32,6 +32,7 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
   const assignShotAudio = useStudio((s) => s.assignShotAudio);
   const clearShotAudio = useStudio((s) => s.clearShotAudio);
   const voiceName = useStudio((s) => s.project?.voiceName ?? "ar-EG-SalmaNeural");
+  const optimizeShotVoiceover = useStudio((s) => s.optimizeShotVoiceover);
   const showFeedback = useStudio((s) => s.showFeedback);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -131,7 +132,7 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={imageUrl} alt={`مشهد ${shot.shotNumber}`} className="h-full w-full object-cover transition duration-300 group-hover/thumb:scale-105" />
               ) : (
-                <SceneThumbnail sceneType={shot.sceneType} className="h-full w-full object-cover transition duration-300 group-hover/thumb:scale-105" />
+                <SceneThumbnail sceneType={shot.sceneType} shot={shot} className="h-full w-full object-cover transition duration-300 group-hover/thumb:scale-105" />
               )}
               <span className="absolute bottom-1 right-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
                 #{shot.shotNumber}
@@ -152,8 +153,13 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
             <div className="min-w-0 flex-1 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between gap-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-primary">المشهد {shot.shotNumber}</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-primary">المشهد #{shot.shotNumber}</span>
+                    {shot.bookOrPart && (
+                      <span className="text-[10px] rounded bg-accent/15 px-1.5 py-0.5 font-semibold text-accent truncate max-w-[140px]">
+                        {shot.bookOrPart}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -166,15 +172,34 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
                       <Eye className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <span className="text-[11px] text-dim font-mono" dir="ltr">
+                  <span className="text-[11px] text-dim font-mono shrink-0" dir="ltr">
                     {shot.timeframe}
                   </span>
                 </div>
                 <h3 className="mt-0.5 truncate text-sm font-bold text-fg">{shot.type}</h3>
-                <p className="mt-0.5 line-clamp-1 text-[11px] text-muted">{shot.mood}</p>
-                <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-fg/90 bg-surface/50 p-1.5 rounded-lg border border-border/40">
-                  {shot.voiceoverEgyptian || "لا يوجد نص تعليق لهذا المشهد."}
-                </p>
+                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
+                  <span className="truncate">{shot.mood}</span>
+                  {shot.vocalCue && (
+                    <span className="text-dim font-mono truncate">[{shot.vocalCue}]</span>
+                  )}
+                </div>
+                <div className="mt-1.5 relative group/vo">
+                  <p className="line-clamp-2 text-xs leading-relaxed text-fg/90 bg-surface/50 p-1.5 rounded-lg border border-border/40">
+                    {shot.voiceoverEgyptian || "لا يوجد نص تعليق لهذا المشهد."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      optimizeShotVoiceover(shot.shotNumber);
+                    }}
+                    className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-primary/80 hover:text-primary hover:underline transition"
+                    title="تنقية النص من الأقواس والشرطات وضبط النطق لـ Edge-TTS"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span>تنقية وضبط نطق Edge-TTS</span>
+                  </button>
+                </div>
               </div>
 
               {/* Audio & Image Linking Badges */}

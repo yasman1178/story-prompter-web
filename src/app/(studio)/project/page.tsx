@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, FileUp, FolderUp, Layers, RotateCcw, Search, X } from "lucide-react";
+import { FileText, FileUp, FolderUp, Layers, RotateCcw, Search, Sparkles, X } from "lucide-react";
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { StoryShot, TRANSITION_TYPES } from "@/lib/types";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 60;
 
 interface IndexedShot {
   shot: StoryShot;
@@ -27,6 +27,7 @@ export default function ProjectPage() {
   const assignImages = useStudio((s) => s.assignImages);
   const importJson = useStudio((s) => s.importJson);
   const loadSample = useStudio((s) => s.loadSample);
+  const optimizeProjectVoiceovers = useStudio((s) => s.optimizeProjectVoiceovers);
   const showFeedback = useStudio((s) => s.showFeedback);
 
   const folderRef = useRef<HTMLInputElement>(null);
@@ -156,7 +157,19 @@ export default function ProjectPage() {
               <span>استيراد ملف JSON</span>
             </button>
 
-            {/* 2. Paste JSON modal trigger */}
+            {/* 2. Optimize Voiceover Button (One-click Edge-TTS optimizer v15) */}
+            <button
+              type="button"
+              onClick={optimizeProjectVoiceovers}
+              className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-primary/50 bg-primary/10 px-3 text-xs sm:text-sm font-semibold text-primary hover:bg-primary hover:text-black transition shrink-0"
+              title="تنقية نصوص التعليق لجميع المشاهد وضبط علامات الترقيم لمحرك Edge-TTS"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span className="hidden lg:inline">تنقية نطق Edge-TTS</span>
+              <span className="lg:hidden">تنقية النطق</span>
+            </button>
+
+            {/* 3. Paste JSON modal trigger */}
             <button
               type="button"
               onClick={() => setPasteOpen(true)}
@@ -167,7 +180,7 @@ export default function ProjectPage() {
               <span className="hidden md:inline">لصق كود JSON</span>
             </button>
 
-            {/* 3. Assign Images Button */}
+            {/* 4. Assign Images Button */}
             <button
               type="button"
               onClick={() => folderRef.current?.click()}
