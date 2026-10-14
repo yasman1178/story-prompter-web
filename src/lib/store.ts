@@ -8,6 +8,7 @@ import {
   TransitionTypeId,
   VfxPresetId,
   VfxSettings,
+  WordBoundary,
 } from "@/lib/types";
 import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
@@ -84,8 +85,8 @@ interface StudioState {
   setShotImage: (shotNumber: number, imageId: string) => void;
   assignSingleImage: (shotNumber: number, file: File) => Promise<void>;
   setRecordedAudio: (audioId: string, durationSec: number) => void;
-  assignShotAudio: (shotNumber: number, blob: Blob, durationSec: number) => Promise<void>;
-  batchAssignShotsAudio: (assignments: { shotNumber: number; blob: Blob; durationSec: number }[]) => Promise<void>;
+  assignShotAudio: (shotNumber: number, blob: Blob, durationSec: number, wordBoundaries?: WordBoundary[]) => Promise<void>;
+  batchAssignShotsAudio: (assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[]) => Promise<void>;
   clearShotAudio: (shotNumber: number) => Promise<void>;
   assignShotSfx: (shotNumber: number, sfxId: number, nameAr: string, volume: number, triggerSec?: number) => void;
   updateShotVoiceover: (shotNumber: number, text: string) => void;
@@ -301,7 +302,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({ project: { ...project, audioRecordId: audioId, audioRecordDurationSec: durationSec } });
   },
 
-  assignShotAudio: async (shotNumber, blob, durationSec) => {
+  assignShotAudio: async (shotNumber, blob, durationSec, wordBoundaries) => {
     const id = newId("aud");
     await putImage({ id, name: `shot_${shotNumber}.mp3`, type: blob.type || "audio/mpeg", blob, createdAt: Date.now() });
     const project = get().project;
@@ -310,7 +311,12 @@ export const useStudio = create<StudioState>((set, get) => ({
       ...project,
       shots: project.shots.map((s) =>
         s.shotNumber === shotNumber
-          ? { ...s, customAudioId: id, audioDurationSec: durationSec }
+          ? {
+              ...s,
+              customAudioId: id,
+              audioDurationSec: durationSec,
+              wordBoundaries: wordBoundaries ?? s.wordBoundaries,
+            }
           : s
       ),
     };
@@ -321,11 +327,11 @@ export const useStudio = create<StudioState>((set, get) => ({
   batchAssignShotsAudio: async (assignments) => {
     const project = get().project;
     if (!project || assignments.length === 0) return;
-    const shotMap = new Map<number, { id: string; durationSec: number }>();
+    const shotMap = new Map<number, { id: string; durationSec: number; wordBoundaries?: WordBoundary[] }>();
     for (const a of assignments) {
       const id = newId("aud");
       await putImage({ id, name: `shot_${a.shotNumber}.mp3`, type: a.blob.type || "audio/mpeg", blob: a.blob, createdAt: Date.now() });
-      shotMap.set(a.shotNumber, { id, durationSec: a.durationSec });
+      shotMap.set(a.shotNumber, { id, durationSec: a.durationSec, wordBoundaries: a.wordBoundaries });
     }
     const current = get().project;
     if (!current) return;
@@ -334,7 +340,12 @@ export const useStudio = create<StudioState>((set, get) => ({
       shots: current.shots.map((s) => {
         const assigned = shotMap.get(s.shotNumber);
         if (assigned) {
-          return { ...s, customAudioId: assigned.id, audioDurationSec: assigned.durationSec };
+          return {
+            ...s,
+            customAudioId: assigned.id,
+            audioDurationSec: assigned.durationSec,
+            wordBoundaries: assigned.wordBoundaries ?? s.wordBoundaries,
+          };
         }
         return s;
       }),

@@ -9,6 +9,7 @@ import {
   DialogueLine,
   VfxSettings,
   AspectRatioType,
+  VfxSpatialLayerItem,
 } from "./types";
 import { formatTimeframe, uid } from "./utils";
 import { optimizeEgyptianVoiceover } from "./tts-optimizer";
@@ -57,31 +58,55 @@ export const BGM_TRACKS: BgmTrack[] = [
 
 export function matchSfxToCatalog(sfxName: string): number | undefined {
   if (!sfxName) return undefined;
-  const lower = sfxName.toLowerCase();
+  const trimmed = sfxName.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Direct Numeric Prefix Match (e.g. "25. Giant Monster Roar", "8", "#11")
+  const numPrefixMatch = trimmed.match(/^\s*#?(\d+)[.\s_-]/) || trimmed.match(/^\s*#?(\d+)$/);
+  if (numPrefixMatch) {
+    const parsedId = parseInt(numPrefixMatch[1], 10);
+    const byId = SFX_CATALOG.find((item) => item.id === parsedId);
+    if (byId) return byId.id;
+  }
+
+  // 2. Exact or substring match in fileName, English name, or Arabic name
   for (const item of SFX_CATALOG) {
     const cleanFileName = item.fileName.toLowerCase().replace(/\.wav$/, "");
-    if (lower.includes(cleanFileName)) return item.id;
-    if (lower.includes(item.nameEn.toLowerCase())) return item.id;
-    if (sfxName.includes(item.nameAr)) return item.id;
+    if (lower === cleanFileName || lower.includes(cleanFileName)) return item.id;
+    if (lower === item.nameEn.toLowerCase() || lower.includes(item.nameEn.toLowerCase())) return item.id;
+    if (trimmed.includes(item.nameAr)) return item.id;
   }
-  if (lower.includes("sword") || sfxName.includes("سيف") || sfxName.includes("نصل")) return 1;
-  if (lower.includes("shield") || sfxName.includes("درع")) return 4;
-  if (lower.includes("punch") || sfxName.includes("لكمة") || sfxName.includes("ضربة")) return 5;
-  if (lower.includes("boom") || lower.includes("impact") || sfxName.includes("ارتطام")) return 6;
-  if (lower.includes("roar") || sfxName.includes("زئير") || sfxName.includes("وحش")) return 8;
-  if (lower.includes("growl") || sfxName.includes("زمجرة")) return 9;
-  if (lower.includes("gasp") || sfxName.includes("شهقة") || sfxName.includes("صدمة")) return 10;
-  if (lower.includes("heartbeat") || sfxName.includes("قلب") || sfxName.includes("نبض")) return 11;
-  if (lower.includes("creak") || sfxName.includes("صرير") || sfxName.includes("باب")) return 12;
-  if (lower.includes("slam") || sfxName.includes("انغلاق") || sfxName.includes("فخ")) return 13;
-  if (lower.includes("laser") || sfxName.includes("ليزر") || sfxName.includes("شعاع")) return 15;
-  if (lower.includes("charge") || sfxName.includes("شحن")) return 16;
-  if (lower.includes("heal") || sfxName.includes("شفاء") || sfxName.includes("سحر")) return 17;
-  if (lower.includes("rune") || sfxName.includes("نقوش")) return 18;
-  if (lower.includes("portal") || sfxName.includes("بوابة")) return 19;
-  if (lower.includes("footstep") || sfxName.includes("خطوات") || sfxName.includes("أقدام")) return 20;
-  if (lower.includes("sprint") || sfxName.includes("ركض") || sfxName.includes("هروب")) return 21;
-  if (lower.includes("coffee") || lower.includes("tea") || sfxName.includes("شاي") || sfxName.includes("ضحك")) return 22;
+
+  // 3. Keyword / semantic matching
+  if (lower.includes("kasaka") || lower.includes("كاساكا") || lower.includes("serpent") || lower.includes("ثعبان") || lower.includes("venom") || lower.includes("سم")) {
+    return 8; // Giant Monster / Colossal Beast
+  }
+  if (lower.includes("slash") || lower.includes("sword") || lower.includes("سيف") || lower.includes("نصل") || lower.includes("خنجر") || lower.includes("dagger") || lower.includes("طعنة")) {
+    return lower.includes("fast") || lower.includes("dagger") || lower.includes("خنجر") ? 3 : 1;
+  }
+  if (lower.includes("leap") || lower.includes("jump") || lower.includes("قفز") || lower.includes("ارتقاء")) return 21;
+  if (lower.includes("shadow") || lower.includes("aura") || lower.includes("ظلال") || lower.includes("هالة")) return 19;
+  if (lower.includes("shield") || lower.includes("درع") || lower.includes("تصدي")) return 4;
+  if (lower.includes("punch") || lower.includes("bone") || lower.includes("لكمة") || lower.includes("ضربة")) return 5;
+  if (lower.includes("boom") || lower.includes("impact") || lower.includes("ارتطام") || lower.includes("انفجار") || lower.includes("slam")) return 6;
+  if (lower.includes("roar") || lower.includes("زئير") || lower.includes("وحش") || lower.includes("beast")) return 8;
+  if (lower.includes("growl") || lower.includes("زمجرة") || lower.includes("مفترس")) return 9;
+  if (lower.includes("gasp") || lower.includes("شهقة") || lower.includes("صدمة") || lower.includes("ذعر")) return 10;
+  if (lower.includes("heartbeat") || lower.includes("heart") || lower.includes("قلب") || lower.includes("نبض")) return 11;
+  if (lower.includes("creak") || lower.includes("صرير") || lower.includes("باب")) return 12;
+  if (lower.includes("gate") || lower.includes("انغلاق") || lower.includes("فخ")) return 13;
+  if (lower.includes("wind") || lower.includes("رياح") || lower.includes("أجواء")) return 14;
+  if (lower.includes("laser") || lower.includes("ليزر") || lower.includes("شعاع") || lower.includes("beam")) return 15;
+  if (lower.includes("charge") || lower.includes("شحن") || lower.includes("طاقة")) return 16;
+  if (lower.includes("heal") || lower.includes("شفاء") || lower.includes("سحر") || lower.includes("cure")) return 17;
+  if (lower.includes("rune") || lower.includes("نقوش") || lower.includes("تعويذة")) return 18;
+  if (lower.includes("portal") || lower.includes("بوابة")) return 19;
+  if (lower.includes("footstep") || lower.includes("خطوات") || lower.includes("أقدام") || lower.includes("مسيرة")) return 20;
+  if (lower.includes("sprint") || lower.includes("ركض") || lower.includes("هروب") || lower.includes("running")) return 21;
+  if (lower.includes("coffee") || lower.includes("tea") || lower.includes("شاي") || lower.includes("ضحك") || lower.includes("laugh")) return 22;
+  if (lower.includes("debris") || lower.includes("حصى") || lower.includes("تصدع") || lower.includes("rock")) return 23;
+  if (lower.includes("stinger") || lower.includes("cliffhanger") || lower.includes("قفلة") || lower.includes("ختامية")) return 24;
+
   return undefined;
 }
 
@@ -413,6 +438,108 @@ function parsePercent(value: string | null): number | null {
   return Math.min(100, Math.max(0, parseInt(m[1], 10)));
 }
 
+function normalizeCoordinate(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return v > 1 ? v / 100 : Math.max(0, Math.min(1, v));
+  }
+  if (typeof v === "string") {
+    const cleaned = v.replace(/%/, "").trim();
+    const parsed = parseFloat(cleaned);
+    if (!Number.isNaN(parsed)) {
+      return parsed > 1 ? parsed / 100 : Math.max(0, Math.min(1, parsed));
+    }
+  }
+  return 0.5;
+}
+
+function parseVfxSpatialLayers(raw: unknown): {
+  runeCenter?: { x: number; y: number };
+  lightFocus?: { x: number; y: number };
+  layers?: VfxSpatialLayerItem[];
+} | undefined {
+  if (!raw) return undefined;
+
+  const layers: VfxSpatialLayerItem[] = [];
+  let runeCenter: { x: number; y: number } | undefined;
+  let lightFocus: { x: number; y: number } | undefined;
+
+  // Case 1: Array of layers (v17 standard)
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!isObject(item)) continue;
+      const effectType = extractString(item, ["effect_type", "type", "effect", "name"]) ?? "shadow_aura";
+      const scale = typeof item.scale === "number" ? item.scale : 1.0;
+      const colorHex = extractString(item, ["color_hex", "colorHex", "color", "hex"]) ?? "#8A2BE2";
+      const rawTrigger = item.trigger_sec ?? item.triggerSec ?? item.trigger ?? 0;
+      const triggerSec = typeof rawTrigger === "number" ? rawTrigger : parseTimecodeSec(asString(rawTrigger)) ?? 0;
+
+      let pos = { x: 0.5, y: 0.5 };
+      const rawPos = item.position ?? item.pos;
+      if (isObject(rawPos)) {
+        const xVal = rawPos.x_percent ?? rawPos.xPercent ?? rawPos.x;
+        const yVal = rawPos.y_percent ?? rawPos.yPercent ?? rawPos.y;
+        pos = {
+          x: normalizeCoordinate(xVal),
+          y: normalizeCoordinate(yVal),
+        };
+      }
+
+      layers.push({
+        effectType,
+        position: pos,
+        scale,
+        colorHex,
+        triggerSec,
+      });
+
+      // Set fallback centers if applicable
+      const lowerType = effectType.toLowerCase();
+      if (lowerType.includes("rune") || lowerType.includes("magic") || lowerType.includes("portal")) {
+        runeCenter = pos;
+      } else if (lowerType.includes("light") || lowerType.includes("slash") || lowerType.includes("hero") || lowerType.includes("aura")) {
+        lightFocus = pos;
+      }
+    }
+  } else if (isObject(raw)) {
+    // Case 2: Object with rune_center / light_focus / layers
+    const rc = raw.rune_center ?? raw.runeCenter;
+    const lf = raw.light_focus ?? raw.lightFocus;
+    if (isObject(rc)) {
+      runeCenter = {
+        x: normalizeCoordinate(rc.x_percent ?? rc.x),
+        y: normalizeCoordinate(rc.y_percent ?? rc.y),
+      };
+      layers.push({
+        effectType: "rune_circle",
+        position: runeCenter,
+        scale: 1.0,
+        colorHex: "#00E5FF",
+        triggerSec: 0,
+      });
+    }
+    if (isObject(lf)) {
+      lightFocus = {
+        x: normalizeCoordinate(lf.x_percent ?? lf.x),
+        y: normalizeCoordinate(lf.y_percent ?? lf.y),
+      };
+      layers.push({
+        effectType: "light_focus",
+        position: lightFocus,
+        scale: 1.2,
+        colorHex: "#8A2BE2",
+        triggerSec: 0,
+      });
+    }
+    if (Array.isArray(raw.layers)) {
+      const nested = parseVfxSpatialLayers(raw.layers);
+      if (nested?.layers) layers.push(...nested.layers);
+    }
+  }
+
+  if (layers.length === 0 && !runeCenter && !lightFocus) return undefined;
+  return { runeCenter, lightFocus, layers };
+}
+
 function findBestDialogueString(element: unknown): string | null {
   let best: string | null = null;
   if (isObject(element)) {
@@ -597,56 +724,63 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       let soundMusic = "";
       let soundSfx = "";
       let sfxName = "";
-      let sfxVolumePercent = 100;
+      let sfxVolumePercent = 85;
       let sfxTriggerSec = 0;
       let sfxLibrarySource = "MaterialFoundry/SoundFxLibrary";
       let soundDesign: string;
-      const sdObj = shotObj.sound_design;
+      const sdObj = shotObj.sound_design ?? shotObj.audio_design ?? shotObj.sound;
       if (isObject(sdObj)) {
-        soundMusic = extractString(sdObj, ["music", "bgm", "background_music", "score"]) ?? "";
+        // Support both sound_design.music_track (object with genre/file_ref) AND sound_design.music (string)
+        const mtObj = sdObj.music_track ?? sdObj.musicTrack ?? sdObj.track;
+        if (isObject(mtObj)) {
+          soundMusic = extractString(mtObj, ["title", "name", "file_ref", "genre", "music", "file"]) ?? "";
+        } else if (typeof mtObj === "string") {
+          soundMusic = mtObj.trim();
+        }
+        if (!soundMusic) {
+          soundMusic = extractString(sdObj, ["music", "bgm", "background_music", "score", "music_track"]) ?? "";
+        }
+
         soundSfx = extractString(sdObj, ["sfx", "effects", "sound_effects", "sfx_cue", "ambience"]) ?? "";
-        sfxName = extractString(sdObj, ["sfx_name", "sfx", "effects", "sound_effect"]) ?? soundSfx;
+        sfxName = extractString(sdObj, ["sfx_name", "sfx", "effects", "sound_effect", "name"]) ?? soundSfx;
         sfxLibrarySource =
           extractString(sdObj, ["sfx_library_source", "library_source", "source"]) ?? "MaterialFoundry/SoundFxLibrary";
         sfxVolumePercent =
-          parsePercent(extractString(sdObj, ["sfx_volume_percent", "volume", "volume_percent"])) ?? 100;
+          parsePercent(extractString(sdObj, ["sfx_volume_percent", "volume", "volume_percent"])) ?? 85;
         sfxTriggerSec =
           parseTimecodeSec(extractString(sdObj, ["sfx_trigger_sec", "trigger_sec", "trigger", "start_sec"])) ?? 0;
-        soundDesign = [soundMusic, sfxName || soundSfx].filter((s) => s).join(" + ");
+        soundDesign = [soundMusic, sfxName || soundSfx].filter(Boolean).join(" + ");
       } else {
         soundDesign =
           extractString(shotObj, ["sound_design", "sound", "sfx", "audio_cue", "audio", "music", "sfx_cue"]) ?? "";
         soundSfx = soundDesign;
         sfxName = soundDesign;
-        sfxVolumePercent = parsePercent(extractString(shotObj, ["sfx_volume_percent", "volume_percent"])) ?? 100;
+        sfxVolumePercent = parsePercent(extractString(shotObj, ["sfx_volume_percent", "volume_percent"])) ?? 85;
         sfxTriggerSec = parseTimecodeSec(extractString(shotObj, ["sfx_trigger_sec", "trigger_sec"])) ?? 0;
       }
 
       const assignedSfxId = matchSfxToCatalog(sfxName || soundSfx || soundDesign);
 
-      let vfxSpatialLayers: { runeCenter?: { x: number; y: number }; lightFocus?: { x: number; y: number } } | undefined;
+      // Resilient VFX Spatial Layers normalization (supporting v17 array and legacy object)
       const rawSpatial = shotObj.vfx_spatial_layers ?? shotObj.spatial_layers ?? shotObj.vfx;
-      if (isObject(rawSpatial)) {
-        const rc = rawSpatial.rune_center ?? rawSpatial.runeCenter;
-        const lf = rawSpatial.light_focus ?? rawSpatial.lightFocus;
-        vfxSpatialLayers = {
-          runeCenter: isObject(rc) && typeof rc.x === "number" && typeof rc.y === "number" ? { x: rc.x, y: rc.y } : undefined,
-          lightFocus: isObject(lf) && typeof lf.x === "number" && typeof lf.y === "number" ? { x: lf.x, y: lf.y } : undefined,
-        };
-      }
+      const vfxSpatialLayers = parseVfxSpatialLayers(rawSpatial);
 
       let textOverlayPos: { x: number; y: number } | undefined;
       const rawTextPos = shotObj.text_overlay_pos ?? shotObj.text_pos ?? shotObj.textOverlayPos;
-      if (isObject(rawTextPos) && typeof rawTextPos.x === "number" && typeof rawTextPos.y === "number") {
-        textOverlayPos = { x: rawTextPos.x, y: rawTextPos.y };
+      if (isObject(rawTextPos)) {
+        const xVal = rawTextPos.x_percent ?? rawTextPos.xPercent ?? rawTextPos.x;
+        const yVal = rawTextPos.y_percent ?? rawTextPos.yPercent ?? rawTextPos.y;
+        textOverlayPos = { x: normalizeCoordinate(xVal), y: normalizeCoordinate(yVal) };
       } else {
         textOverlayPos = { x: 0.5, y: 0.78 };
       }
 
       let ctaPos: { x: number; y: number } | undefined;
       const rawCtaPos = shotObj.cta_pos ?? shotObj.ctaPos;
-      if (isObject(rawCtaPos) && typeof rawCtaPos.x === "number" && typeof rawCtaPos.y === "number") {
-        ctaPos = { x: rawCtaPos.x, y: rawCtaPos.y };
+      if (isObject(rawCtaPos)) {
+        const xVal = rawCtaPos.x_percent ?? rawCtaPos.xPercent ?? rawCtaPos.x;
+        const yVal = rawCtaPos.y_percent ?? rawCtaPos.yPercent ?? rawCtaPos.y;
+        ctaPos = { x: normalizeCoordinate(xVal), y: normalizeCoordinate(yVal) };
       } else {
         ctaPos = { x: 0.5, y: 0.92 };
       }
@@ -707,6 +841,18 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       else if (rawAspect.includes("9:16")) detectedAspectRatio = "9:16";
     }
 
+    // Automatically enable background music if the project or shots define music
+    const hasMusic = shots.some((s) => Boolean(s.soundMusic && s.soundMusic.trim()));
+    let selectedBgmId = 1;
+    if (hasMusic) {
+      const firstMusic = shots.find((s) => s.soundMusic)?.soundMusic.toLowerCase() ?? "";
+      if (firstMusic.includes("battle") || firstMusic.includes("epic") || firstMusic.includes("slam")) selectedBgmId = 5;
+      else if (firstMusic.includes("dungeon") || firstMusic.includes("dark")) selectedBgmId = 2;
+      else if (firstMusic.includes("rune") || firstMusic.includes("ancient")) selectedBgmId = 3;
+      else if (firstMusic.includes("heartbeat") || firstMusic.includes("tension")) selectedBgmId = 4;
+      else selectedBgmId = 1;
+    }
+
     return {
       id: uid("proj"),
       title,
@@ -715,8 +861,8 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       totalShots: shots.length,
       language: lang,
       shots,
-      isBgmEnabled: false,
-      selectedBgmId: 1,
+      isBgmEnabled: hasMusic,
+      selectedBgmId,
       transitionType: "ZOOM_IN",
       shotDurationSec: d,
       showSubtitlesInVideo: false,
@@ -727,8 +873,8 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       vfxSettings: { ...DEFAULT_VFX_ACTION },
       defaultTextOverlayPos: { x: 0.5, y: 0.78 },
       defaultCtaPos: { x: 0.5, y: 0.92 },
-      voiceName: "ar-EG-SalmaNeural",
-      voiceNameAr: "سلمى (أنثى مصرية)",
+      voiceName: "ar-EG-ShakirNeural",
+      voiceNameAr: "شاكر (ذكر مصري)",
       generatedVoiceIds: [],
       generatedVoiceDurations: [],
       seoMetadata: seoMeta,

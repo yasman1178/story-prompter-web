@@ -90,9 +90,25 @@ export interface OverlayPosition {
   y: number; // 0.0 - 1.0 (relative height)
 }
 
+export interface VfxSpatialLayerItem {
+  effectType: string;
+  position: OverlayPosition;
+  scale: number;
+  colorHex?: string;
+  triggerSec?: number;
+}
+
+export interface WordBoundary {
+  offset: number;
+  duration: number;
+  text: string;
+}
+
 export interface DialogueLine {
   speaker: string;
   text: string;
+  pitch?: string;
+  rate?: string;
 }
 
 export interface StoryShot {
@@ -130,7 +146,9 @@ export interface StoryShot {
   vfxSpatialLayers?: {
     runeCenter?: { x: number; y: number };
     lightFocus?: { x: number; y: number };
+    layers?: VfxSpatialLayerItem[];
   };
+  wordBoundaries?: WordBoundary[];
 }
 
 export interface SeoMetadata {

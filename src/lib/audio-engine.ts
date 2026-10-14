@@ -10,13 +10,16 @@ const bufferCache = new Map<string, AudioBuffer>();
 
 function getContext(): AudioContext {
   if (!ctx) {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    ctx = new AudioCtx();
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    ctx = new AudioCtx({ sampleRate: 48000 });
     masterGain = ctx.createGain();
     masterGain.gain.value = volume;
     masterGain.connect(ctx.destination);
+
     bgmGain = ctx.createGain();
-    bgmGain.gain.value = 1;
+    bgmGain.gain.value = 1.0;
     bgmGain.connect(masterGain);
   }
   if (ctx.state === "suspended") void ctx.resume();
@@ -26,17 +29,17 @@ function getContext(): AudioContext {
 const WAVEFORMS: OscillatorType[] = ["sawtooth", "triangle", "square", "sine"];
 
 async function renderBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
-  const sampleRate = 44100;
+  const sampleRate = 48000;
   const beat = 60 / Math.max(40, track.tempoBpm);
   const bars = 8;
   const beats = bars * 4;
   const duration = beats * beat;
-  const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * duration), sampleRate);
+  const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * duration), sampleRate);
 
   const wave = WAVEFORMS[track.synthPattern % WAVEFORMS.length];
   const ratios = [1, 1.5, 1.25, 2, 1.3333];
   const bus = offline.createGain();
-  bus.gain.value = 0.28;
+  bus.gain.value = 0.3; // Default 30% background volume
   bus.connect(offline.destination);
 
   for (let b = 0; b < beats; b++) {
@@ -49,7 +52,7 @@ async function renderBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
     osc.frequency.value = freq;
     const env = offline.createGain();
     env.gain.setValueAtTime(0.0001, start);
-    env.gain.exponentialRampToValueAtTime(0.5, start + 0.02);
+    env.gain.exponentialRampToValueAtTime(0.48, start + 0.02);
     env.gain.exponentialRampToValueAtTime(0.0001, start + beat * 0.9);
     osc.connect(env);
     env.connect(bus);
@@ -62,7 +65,7 @@ async function renderBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
       bass.frequency.value = track.baseFreq / 2;
       const benv = offline.createGain();
       benv.gain.setValueAtTime(0.0001, start);
-      benv.gain.exponentialRampToValueAtTime(0.7, start + 0.03);
+      benv.gain.exponentialRampToValueAtTime(0.68, start + 0.03);
       benv.gain.exponentialRampToValueAtTime(0.0001, start + beat * 1.6);
       bass.connect(benv);
       benv.connect(bus);
@@ -89,117 +92,399 @@ export async function decodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
   return audio.decodeAudioData(data);
 }
 
-async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: string): Promise<AudioBuffer> {
-  const sampleRate = 44100;
-  const cat = categoryEn.toLowerCase();
-  const name = nameEn.toLowerCase();
+// ---------------------------------------------------------------------------
+// Realistic Multi-Layer Procedural Acoustic Synthesizer
+// ---------------------------------------------------------------------------
 
-  let dur = 0.6;
-  let wave: OscillatorType = "sine";
-  let fromFreq = 440;
-  let toFreq = 180;
-  let noiseAmt = 0.15;
-  const filterType: BiquadFilterType = "lowpass";
-  let filterFreq = 1200;
+async function fetchPublicSfxBuffer(fileName: string, audioCtx: AudioContext | OfflineAudioContext): Promise<AudioBuffer | null> {
+  if (typeof window === "undefined" || !fileName) return null;
+  const clean = fileName.replace(/^\/+/, "");
+  const paths = [`/sfx/${clean}`, `/sounds/${clean}`, `/${clean}`];
+  for (const path of paths) {
+    try {
+      const res = await fetch(path, { method: "GET" });
+      if (res.ok) {
+        const type = res.headers.get("content-type") || "";
+        if (type.includes("audio") || clean.endsWith(".wav") || clean.endsWith(".mp3") || clean.endsWith(".ogg")) {
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength > 500) {
+            return await audioCtx.decodeAudioData(buf);
+          }
+        }
+      }
+    } catch {
+      // try next path
+    }
+  }
+  return null;
+}
 
-  if (cat.includes("combat") || cat.includes("impact")) {
-    dur = name.includes("explosion") ? 1.6 : name.includes("slash") || name.includes("slice") ? 0.38 : 0.65;
-    wave = name.includes("clang") || name.includes("metal") ? "triangle" : name.includes("slash") ? "sawtooth" : "square";
-    fromFreq = name.includes("laser") ? 1800 : name.includes("slash") ? 920 : name.includes("explosion") ? 220 : 380;
-    toFreq = name.includes("laser") ? 90 : name.includes("slash") ? 140 : name.includes("explosion") ? 30 : 45;
-    noiseAmt = name.includes("explosion") ? 0.65 : name.includes("slash") ? 0.4 : 0.3;
-    filterFreq = name.includes("clang") ? 3200 : 900;
-  } else if (cat.includes("monster") || cat.includes("vocal") || cat.includes("roar")) {
-    dur = name.includes("roar") ? 1.4 : 0.95;
-    wave = "sawtooth";
-    fromFreq = name.includes("growl") ? 120 : 260;
-    toFreq = 42;
-    noiseAmt = 0.38;
-    filterFreq = 750;
-  } else if (cat.includes("suspense") || cat.includes("trap") || cat.includes("creak")) {
-    dur = name.includes("door") || name.includes("creak") ? 1.2 : name.includes("slam") ? 0.5 : 1.5;
-    wave = name.includes("slam") ? "square" : name.includes("heart") ? "sine" : "triangle";
-    fromFreq = name.includes("heart") ? 95 : name.includes("slam") ? 140 : 180;
-    toFreq = name.includes("heart") ? 45 : name.includes("slam") ? 35 : 320;
-    noiseAmt = name.includes("slam") ? 0.45 : 0.2;
-    filterFreq = 950;
-  } else if (cat.includes("magic") || cat.includes("energy")) {
-    dur = name.includes("charge") ? 1.1 : name.includes("portal") ? 1.5 : 0.8;
-    wave = "sine";
-    fromFreq = name.includes("laser") ? 1600 : name.includes("heal") ? 587 : 440;
-    toFreq = name.includes("laser") ? 120 : name.includes("heal") ? 1174 : 880;
-    noiseAmt = 0.05;
-    filterFreq = 3800;
-  } else {
-    dur = 0.5;
-    wave = "triangle";
-    fromFreq = 220;
-    toFreq = 120;
-    noiseAmt = 0.25;
-    filterFreq = 1100;
+async function renderRealisticAcousticSfxBuffer(item: {
+  id: number;
+  nameEn: string;
+  categoryEn: string;
+  fileName?: string;
+}): Promise<AudioBuffer> {
+  const sampleRate = 48000;
+  const name = (item.nameEn || "").toLowerCase();
+  const cat = (item.categoryEn || "").toLowerCase();
+  const file = (item.fileName || "").toLowerCase();
+
+  // 1. SWORD SLASH: 8ms highpass noise burst (>2kHz) + pitch sweep 1800->400Hz + inharmonic metallic ring (1.0, 2.7, 4.1)
+  if (name.includes("sword") || name.includes("slash") || name.includes("blade") || name.includes("dagger") || cat.includes("combat") && name.includes("slice")) {
+    const dur = 0.55;
+    const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
+
+    // Master bus with peak limiter ceiling (-1dB)
+    const master = offline.createGain();
+    master.gain.value = 0.88;
+    master.connect(offline.destination);
+
+    // Layer 1: Blade friction noise burst (8ms above 2kHz)
+    const noiseLen = Math.ceil(sampleRate * 0.04);
+    const nBuf = offline.createBuffer(1, noiseLen, sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) nData[i] = (Math.random() * 2 - 1);
+    const nSrc = offline.createBufferSource();
+    nSrc.buffer = nBuf;
+
+    const nFilter = offline.createBiquadFilter();
+    nFilter.type = "highpass";
+    nFilter.frequency.value = 2200;
+
+    const nEnv = offline.createGain();
+    nEnv.gain.setValueAtTime(0.0001, 0);
+    nEnv.gain.linearRampToValueAtTime(0.75, 0.003);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, 0.028);
+
+    nSrc.connect(nFilter);
+    nFilter.connect(nEnv);
+    nEnv.connect(master);
+    nSrc.start(0);
+
+    // Layer 2: Descending air cutting pitch sweep (1800Hz -> 400Hz in 120ms)
+    const sweepOsc = offline.createOscillator();
+    sweepOsc.type = "sawtooth";
+    sweepOsc.frequency.setValueAtTime(1800, 0);
+    sweepOsc.frequency.exponentialRampToValueAtTime(400, 0.12);
+
+    const sweepFilter = offline.createBiquadFilter();
+    sweepFilter.type = "lowpass";
+    sweepFilter.frequency.setValueAtTime(3200, 0);
+    sweepFilter.frequency.exponentialRampToValueAtTime(600, 0.16);
+
+    const sweepEnv = offline.createGain();
+    sweepEnv.gain.setValueAtTime(0.0001, 0);
+    sweepEnv.gain.linearRampToValueAtTime(0.65, 0.01);
+    sweepEnv.gain.exponentialRampToValueAtTime(0.0001, 0.18);
+
+    sweepOsc.connect(sweepFilter);
+    sweepFilter.connect(sweepEnv);
+    sweepEnv.connect(master);
+    sweepOsc.start(0);
+    sweepOsc.stop(0.2);
+
+    // Layer 3: Metallic Inharmonic Ring (f0=1050Hz, 2.7*f0=2835Hz, 4.1*f0=4305Hz)
+    const f0 = 1050;
+    const metallicRatios = [1.0, 2.7, 4.1];
+    metallicRatios.forEach((ratio, idx) => {
+      const ringOsc = offline.createOscillator();
+      ringOsc.type = idx === 0 ? "triangle" : "sine";
+      ringOsc.frequency.setValueAtTime(f0 * ratio + (idx * 7), 0);
+
+      const ringEnv = offline.createGain();
+      ringEnv.gain.setValueAtTime(0.0001, 0);
+      ringEnv.gain.linearRampToValueAtTime(0.28 / (idx + 1), 0.005);
+      ringEnv.gain.exponentialRampToValueAtTime(0.0001, dur * (0.6 - idx * 0.1));
+
+      ringOsc.connect(ringEnv);
+      ringEnv.connect(master);
+      ringOsc.start(0);
+      ringOsc.stop(dur);
+    });
+
+    return await offline.startRendering();
   }
 
-  const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * dur), sampleRate);
+  // 2. MONSTER / KASAKA ROAR: 3 saws (90-140Hz) + LFO vibrato + formants at 500 & 1400Hz + sub 45Hz + 1.6s cavernous reverb tail + 80ms slow attack
+  if (name.includes("roar") || name.includes("growl") || name.includes("monster") || name.includes("beast") || file.includes("kasaka") || cat.includes("monster")) {
+    const dur = 1.8;
+    const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
 
-  const filter = offline.createBiquadFilter();
-  filter.type = filterType;
-  filter.frequency.setValueAtTime(filterFreq, 0);
-  filter.frequency.exponentialRampToValueAtTime(Math.max(60, filterFreq * 0.4), dur);
-  filter.connect(offline.destination);
+    const master = offline.createGain();
+    master.gain.value = 0.88;
+    master.connect(offline.destination);
+
+    // Formant 1: 500Hz throat resonance (Q=3)
+    const f1 = offline.createBiquadFilter();
+    f1.type = "peaking";
+    f1.frequency.value = 500;
+    f1.Q.value = 3.0;
+    f1.gain.value = 9.0;
+
+    // Formant 2: 1400Hz nasal roar resonance (Q=4)
+    const f2 = offline.createBiquadFilter();
+    f2.type = "peaking";
+    f2.frequency.value = 1400;
+    f2.Q.value = 4.0;
+    f2.gain.value = 7.0;
+
+    f1.connect(f2);
+    f2.connect(master);
+
+    // 3 Detuned Sawtooth Waves around 90-140Hz with slow 80ms breath attack
+    const freqs = [92, 114, 138];
+    freqs.forEach((baseFreq) => {
+      const saw = offline.createOscillator();
+      saw.type = "sawtooth";
+      saw.frequency.setValueAtTime(baseFreq, 0);
+      saw.frequency.linearRampToValueAtTime(baseFreq * 0.88, dur);
+
+      // Vibrato LFO ~4.2Hz
+      const lfo = offline.createOscillator();
+      lfo.frequency.value = 4.2;
+      const lfoGain = offline.createGain();
+      lfoGain.gain.value = 7.5;
+      lfo.connect(saw.frequency);
+      lfo.start(0);
+      lfo.stop(dur);
+
+      const throatEnv = offline.createGain();
+      throatEnv.gain.setValueAtTime(0.0001, 0);
+      // Slow 80ms attack to simulate breath/roar dynamics
+      throatEnv.gain.linearRampToValueAtTime(0.42, 0.08);
+      throatEnv.gain.exponentialRampToValueAtTime(0.3, dur * 0.6);
+      throatEnv.gain.exponentialRampToValueAtTime(0.0001, dur);
+
+      saw.connect(throatEnv);
+      throatEnv.connect(f1);
+      saw.start(0);
+      saw.stop(dur);
+    });
+
+    // Sub-bass 45Hz chest rumble
+    const sub = offline.createOscillator();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(45, 0);
+    sub.frequency.linearRampToValueAtTime(38, dur * 0.7);
+
+    const subEnv = offline.createGain();
+    subEnv.gain.setValueAtTime(0.0001, 0);
+    subEnv.gain.linearRampToValueAtTime(0.7, 0.09);
+    subEnv.gain.exponentialRampToValueAtTime(0.0001, dur * 0.85);
+
+    sub.connect(subEnv);
+    subEnv.connect(master);
+    sub.start(0);
+    sub.stop(dur);
+
+    // Cavernous noise breath and 1.6s reverb tail
+    const nLen = Math.ceil(sampleRate * dur);
+    const nBuf = offline.createBuffer(1, nLen, sampleRate);
+    const nCh = nBuf.getChannelData(0);
+    for (let i = 0; i < nLen; i++) nCh[i] = (Math.random() * 2 - 1) * 0.28;
+
+    const nSrc = offline.createBufferSource();
+    nSrc.buffer = nBuf;
+
+    const nFilt = offline.createBiquadFilter();
+    nFilt.type = "bandpass";
+    nFilt.frequency.setValueAtTime(650, 0);
+    nFilt.frequency.linearRampToValueAtTime(350, dur);
+    nFilt.Q.value = 1.2;
+
+    const nEnv = offline.createGain();
+    nEnv.gain.setValueAtTime(0.0001, 0);
+    nEnv.gain.linearRampToValueAtTime(0.35, 0.1);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, 1.6);
+
+    nSrc.connect(nFilt);
+    nFilt.connect(nEnv);
+    nEnv.connect(master);
+    nSrc.start(0);
+
+    return await offline.startRendering();
+  }
+
+  // 3. HEAVY IMPACT / SLAM: 150->30Hz sweep in 80ms + noise under 400Hz
+  if (name.includes("impact") || name.includes("punch") || name.includes("slam") || name.includes("boom") || name.includes("block") || name.includes("crash") || name.includes("shield")) {
+    const dur = 0.75;
+    const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
+
+    const master = offline.createGain();
+    master.gain.value = 0.89;
+    master.connect(offline.destination);
+
+    // Sub exponential dive: 150Hz -> 30Hz in 80ms
+    const subOsc = offline.createOscillator();
+    subOsc.type = "sine";
+    subOsc.frequency.setValueAtTime(150, 0);
+    subOsc.frequency.exponentialRampToValueAtTime(30, 0.08);
+
+    const subEnv = offline.createGain();
+    subEnv.gain.setValueAtTime(0.0001, 0);
+    subEnv.gain.linearRampToValueAtTime(0.95, 0.006);
+    subEnv.gain.exponentialRampToValueAtTime(0.0001, 0.38);
+
+    subOsc.connect(subEnv);
+    subEnv.connect(master);
+    subOsc.start(0);
+    subOsc.stop(0.4);
+
+    // Punch noise under 400Hz
+    const nLen = Math.ceil(sampleRate * 0.25);
+    const nBuf = offline.createBuffer(1, nLen, sampleRate);
+    const nCh = nBuf.getChannelData(0);
+    for (let i = 0; i < nLen; i++) nCh[i] = (Math.random() * 2 - 1);
+    const nSrc = offline.createBufferSource();
+    nSrc.buffer = nBuf;
+
+    const nFilter = offline.createBiquadFilter();
+    nFilter.type = "lowpass";
+    nFilter.frequency.setValueAtTime(380, 0);
+    nFilter.frequency.exponentialRampToValueAtTime(90, 0.15);
+
+    const nEnv = offline.createGain();
+    nEnv.gain.setValueAtTime(0.0001, 0);
+    nEnv.gain.linearRampToValueAtTime(0.85, 0.004);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, 0.2);
+
+    nSrc.connect(nFilter);
+    nFilter.connect(nEnv);
+    nEnv.connect(master);
+    nSrc.start(0);
+
+    return await offline.startRendering();
+  }
+
+  // 4. VENOM / ACID HISS: Pulsed narrowband noise 3-6kHz
+  if (name.includes("venom") || name.includes("poison") || name.includes("acid") || file.includes("venom")) {
+    const dur = 0.95;
+    const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
+
+    const master = offline.createGain();
+    master.gain.value = 0.88;
+    master.connect(offline.destination);
+
+    const nLen = Math.ceil(sampleRate * dur);
+    const nBuf = offline.createBuffer(1, nLen, sampleRate);
+    const nCh = nBuf.getChannelData(0);
+    for (let i = 0; i < nLen; i++) nCh[i] = (Math.random() * 2 - 1);
+
+    const nSrc = offline.createBufferSource();
+    nSrc.buffer = nBuf;
+
+    const bp = offline.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 4500;
+    bp.Q.value = 3.5;
+
+    // Amplitude modulation pulse at 12Hz (sizzling hiss)
+    const lfo = offline.createOscillator();
+    lfo.frequency.value = 12;
+    const lfoGain = offline.createGain();
+    lfoGain.gain.value = 0.25;
+
+    const env = offline.createGain();
+    env.gain.setValueAtTime(0.0001, 0);
+    env.gain.linearRampToValueAtTime(0.65, 0.04);
+    env.gain.exponentialRampToValueAtTime(0.0001, dur);
+
+    lfo.connect(env.gain);
+    lfo.start(0);
+    lfo.stop(dur);
+
+    nSrc.connect(bp);
+    bp.connect(env);
+    env.connect(master);
+    nSrc.start(0);
+
+    return await offline.startRendering();
+  }
+
+  // 5. HERO LEAP / WHOOSH / SPRINT: Bandpass swept 400Hz -> 4000Hz -> 800Hz
+  if (name.includes("leap") || name.includes("whoosh") || name.includes("sprint") || name.includes("running") || name.includes("step")) {
+    const dur = 0.48;
+    const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
+
+    const master = offline.createGain();
+    master.gain.value = 0.88;
+    master.connect(offline.destination);
+
+    const nLen = Math.ceil(sampleRate * dur);
+    const nBuf = offline.createBuffer(1, nLen, sampleRate);
+    const nCh = nBuf.getChannelData(0);
+    for (let i = 0; i < nLen; i++) nCh[i] = (Math.random() * 2 - 1);
+
+    const nSrc = offline.createBufferSource();
+    nSrc.buffer = nBuf;
+
+    const bp = offline.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 1.8;
+    bp.frequency.setValueAtTime(400, 0);
+    bp.frequency.exponentialRampToValueAtTime(4000, dur * 0.45);
+    bp.frequency.exponentialRampToValueAtTime(800, dur);
+
+    const env = offline.createGain();
+    env.gain.setValueAtTime(0.0001, 0);
+    env.gain.linearRampToValueAtTime(0.72, dur * 0.4);
+    env.gain.exponentialRampToValueAtTime(0.0001, dur);
+
+    nSrc.connect(bp);
+    bp.connect(env);
+    env.connect(master);
+    nSrc.start(0);
+
+    return await offline.startRendering();
+  }
+
+  // 6. Default / Laser / Magic / Portal Fallback
+  const dur = 0.7;
+  const offline = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
+  const master = offline.createGain();
+  master.gain.value = 0.88;
+  master.connect(offline.destination);
 
   const osc = offline.createOscillator();
-  osc.type = wave;
-  osc.frequency.setValueAtTime(fromFreq, 0);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(20, toFreq), dur);
+  const isLaser = name.includes("laser") || name.includes("beam");
+  osc.type = isLaser ? "sawtooth" : "sine";
+  osc.frequency.setValueAtTime(isLaser ? 1600 : 587, 0);
+  osc.frequency.exponentialRampToValueAtTime(isLaser ? 80 : 1174, dur * 0.7);
 
   const env = offline.createGain();
   env.gain.setValueAtTime(0.0001, 0);
-  env.gain.exponentialRampToValueAtTime(0.75, Math.min(0.04, dur * 0.15));
+  env.gain.linearRampToValueAtTime(0.65, 0.02);
   env.gain.exponentialRampToValueAtTime(0.0001, dur);
+
   osc.connect(env);
-  env.connect(filter);
+  env.connect(master);
   osc.start(0);
   osc.stop(dur);
-
-  if (fromFreq < 500 && dur > 0.3) {
-    const subOsc = offline.createOscillator();
-    subOsc.type = "sine";
-    subOsc.frequency.setValueAtTime(Math.min(120, fromFreq * 0.5), 0);
-    subOsc.frequency.exponentialRampToValueAtTime(32, Math.min(0.35, dur));
-    const subEnv = offline.createGain();
-    subEnv.gain.setValueAtTime(0.0001, 0);
-    subEnv.gain.exponentialRampToValueAtTime(0.65, 0.025);
-    subEnv.gain.exponentialRampToValueAtTime(0.0001, Math.min(0.4, dur));
-    subOsc.connect(subEnv);
-    subEnv.connect(offline.destination);
-    subOsc.start(0);
-    subOsc.stop(Math.min(0.45, dur));
-  }
-
-  if (noiseAmt > 0) {
-    const len = Math.ceil(sampleRate * dur);
-    const nBuf = offline.createBuffer(1, len, sampleRate);
-    const ch = nBuf.getChannelData(0);
-    for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * noiseAmt;
-    const nSrc = offline.createBufferSource();
-    nSrc.buffer = nBuf;
-    const nEnv = offline.createGain();
-    nEnv.gain.setValueAtTime(noiseAmt, 0);
-    nEnv.gain.exponentialRampToValueAtTime(0.0001, dur);
-    nSrc.connect(nEnv);
-    nEnv.connect(filter);
-    nSrc.start(0);
-  }
 
   return await offline.startRendering();
 }
 
-export async function getCatalogSfxBuffer(item: { id: number; nameEn: string; categoryEn: string; fileName?: string }): Promise<AudioBuffer> {
-  const cacheKey = `cat-sfx:${item.id}`;
+export async function getCatalogSfxBuffer(item: {
+  id: number;
+  nameEn: string;
+  categoryEn: string;
+  fileName?: string;
+}): Promise<AudioBuffer> {
+  const cacheKey = `cat-sfx:${item.id}:${item.fileName || ""}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
 
-  const rendered = await renderCatalogSfxBuffer(item.id, item.categoryEn, item.nameEn);
+  const audio = getContext();
+  if (item.fileName) {
+    const fromDisk = await fetchPublicSfxBuffer(item.fileName, audio);
+    if (fromDisk) {
+      bufferCache.set(cacheKey, fromDisk);
+      return fromDisk;
+    }
+  }
+
+  const rendered = await renderRealisticAcousticSfxBuffer(item);
   bufferCache.set(cacheKey, rendered);
   return rendered;
 }
@@ -214,6 +499,15 @@ export const audioEngine = {
 
   get activeTrackId() {
     return activeTrackId;
+  },
+
+  // Audio Ducking: Smoothly dips BGM to 18% during voiceover narration
+  duckBgm(ducking: boolean) {
+    if (!bgmGain || !ctx) return;
+    const now = ctx.currentTime;
+    const target = ducking ? 0.22 : 1.0;
+    bgmGain.gain.cancelScheduledValues(now);
+    bgmGain.gain.setTargetAtTime(target, now, 0.12);
   },
 
   async playTrack(track: BgmTrack) {
@@ -255,6 +549,7 @@ export const audioEngine = {
       activeBlobSource.disconnect();
       activeBlobSource = null;
     }
+    this.duckBgm(false);
     activeTrackId = null;
   },
 
@@ -263,7 +558,7 @@ export const audioEngine = {
   },
 
   async playCatalogSfx(
-    item: { id: number; nameEn: string; categoryEn: string; volume?: number },
+    item: { id: number; nameEn: string; categoryEn: string; fileName?: string; volume?: number },
     customVolume?: number
   ) {
     const audio = getContext();
@@ -271,7 +566,7 @@ export const audioEngine = {
     const source = audio.createBufferSource();
     source.buffer = buffer;
     const gain = audio.createGain();
-    const effVolume = (customVolume ?? (item.volume ? item.volume / 100 : 0.8)) * 0.9;
+    const effVolume = (customVolume ?? (item.volume ? item.volume / 100 : 0.85)) * 0.9;
     gain.gain.value = Math.max(0, Math.min(1, effVolume));
     source.connect(gain);
     gain.connect(masterGain!);
@@ -312,7 +607,12 @@ export const audioEngine = {
     const source = audio.createBufferSource();
     source.buffer = buffer;
     source.connect(masterGain!);
+
+    // Automatically duck background music during narration!
+    this.duckBgm(true);
+
     source.onended = () => {
+      this.duckBgm(false);
       if (activeBlobSource === source) activeBlobSource = null;
       onEnded?.();
     };
@@ -324,6 +624,7 @@ export const audioEngine = {
       } catch {
         // ignore
       }
+      this.duckBgm(false);
       source.disconnect();
       if (activeBlobSource === source) activeBlobSource = null;
     };

@@ -16,14 +16,24 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-export async function synthesizeSpeech(text: string, voice: string, timeoutMs = 25000): Promise<TtsResult> {
+export async function synthesizeSpeech(
+  text: string,
+  voice: string,
+  options?: { rate?: string; pitch?: string },
+  timeoutMs = 25000
+): Promise<TtsResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice }),
+      body: JSON.stringify({
+        text,
+        voice,
+        rate: options?.rate,
+        pitch: options?.pitch,
+      }),
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`tts_http_${res.status}`);

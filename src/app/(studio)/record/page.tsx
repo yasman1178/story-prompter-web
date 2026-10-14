@@ -11,7 +11,7 @@ import { SceneThumbnail } from "@/components/studio/scene-thumbnail";
 import { audioEngine } from "@/lib/audio-engine";
 import { StoryShot } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
+import { optimizeEgyptianVoiceover, vocalCueToProsody } from "@/lib/tts-optimizer";
 
 function formatElapsed(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -205,10 +205,13 @@ export default function RecordPage() {
         }
 
         let blob: Blob | null = null;
+        let boundaries: { offset: number; duration: number; text: string }[] = [];
+        const prosody = vocalCueToProsody(shot.vocalCue);
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            const res = await synthesizeSpeech(text, project.voiceName);
+            const res = await synthesizeSpeech(text, project.voiceName, prosody);
             blob = res.blob;
+            boundaries = res.boundaries || [];
             break;
           } catch {
             if (attempt === 0) await new Promise((r) => setTimeout(r, 200));
@@ -218,7 +221,12 @@ export default function RecordPage() {
         if (blob) {
           buffers.push(blob);
           const dur = await blobDuration(blob);
-          assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur });
+          const wordBoundaries = boundaries.map((b) => ({
+            offset: b.offset,
+            duration: b.duration,
+            text: b.text,
+          }));
+          assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur, wordBoundaries });
           successCount++;
         } else {
           failureCount++;
@@ -264,9 +272,15 @@ export default function RecordPage() {
     }
     setSingleGenLoading(true);
     try {
-      const { blob } = await synthesizeSpeech(text, project.voiceName);
+      const prosody = vocalCueToProsody(shot.vocalCue);
+      const { blob, boundaries } = await synthesizeSpeech(text, project.voiceName, prosody);
       const dur = await blobDuration(blob);
-      await assignShotAudio(shotNumber, blob, dur);
+      const wordBoundaries = boundaries.map((b) => ({
+        offset: b.offset,
+        duration: b.duration,
+        text: b.text,
+      }));
+      await assignShotAudio(shotNumber, blob, dur, wordBoundaries);
       showFeedback(`تم توليد وربط الصوت للمشهد #${shotNumber} بنجاح (${dur.toFixed(1)} ث)!`);
     } catch {
       showFeedback("تعذّر توليد الصوت لهذا المشهد.");

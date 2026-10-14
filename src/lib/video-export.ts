@@ -5,6 +5,7 @@ import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
 import { drawShotProceduralArt } from "@/lib/scene-art";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { computeProjectTimeline } from "@/lib/timeline";
+import { matchSfxToCatalog } from "@/lib/data";
 
 export const VIDEO_WIDTH = 720;
 export const VIDEO_HEIGHT = 1280;
@@ -129,13 +130,188 @@ function drawCover(
   ctx.drawImage(bitmap, x, y, drawW, drawH);
 }
 
-function drawSceneArt(ctx: CanvasRenderingContext2D, shot: StoryShot, scale: number, targetW = VIDEO_WIDTH, targetH = VIDEO_HEIGHT) {
+function drawHeroSlashTrail(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  colorHex: string,
+  localSec: number,
+  targetW: number,
+  targetH: number
+) {
   ctx.save();
-  ctx.translate(targetW / 2, targetH / 2);
-  ctx.scale(scale, scale);
-  ctx.translate(-targetW / 2, -targetH / 2);
-  drawShotProceduralArt(ctx, shot, targetW, targetH);
+  ctx.globalCompositeOperation = "screen";
+
+  const slashProgress = Math.min(1, Math.max(0, (localSec % 1.2) / 0.45));
+  if (slashProgress < 1) {
+    const sweep = slashProgress * Math.PI * 0.85;
+    const radius = Math.min(targetW, targetH) * 0.38 * scale;
+    const startAngle = -Math.PI * 0.35 + sweep * 0.4;
+    const endAngle = startAngle + sweep;
+
+    ctx.strokeStyle = colorHex || "#8A2BE2";
+    ctx.lineWidth = 14 * (1 - slashProgress * 0.5) * scale;
+    ctx.lineCap = "round";
+    ctx.shadowColor = colorHex || "#8A2BE2";
+    ctx.shadowBlur = 24;
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, startAngle, endAngle);
+    ctx.stroke();
+
+    // Hot inner core blade
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 4 * (1 - slashProgress * 0.6) * scale;
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+
+    // Emitted spark particles
+    const sparkCount = 8;
+    for (let s = 0; s < sparkCount; s++) {
+      const spAngle = startAngle + (s / sparkCount) * sweep;
+      const spDist = radius + (Math.sin(slashProgress * 12 + s) * 25);
+      const spX = x + Math.cos(spAngle) * spDist;
+      const spY = y + Math.sin(spAngle) * spDist;
+      ctx.fillStyle = s % 2 === 0 ? "#ffffff" : colorHex || "#C084FC";
+      ctx.beginPath();
+      ctx.arc(spX, spY, 3 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   ctx.restore();
+}
+
+function drawShadowAura(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  colorHex: string,
+  localSec: number
+) {
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const numWisps = 6;
+
+  for (let i = 0; i < numWisps; i++) {
+    const speed = 0.8 + i * 0.2;
+    const phase = (localSec * speed + i * 1.5) % 2;
+    const flameH = (80 + i * 18) * scale;
+    const flameW = (28 + (i % 3) * 12) * scale;
+    const offsetX = Math.sin(localSec * 4 + i * 2) * (20 + i * 8) * scale;
+    const currentY = y - phase * 65 * scale;
+    const currentX = x + offsetX;
+    const alpha = Math.max(0, 1 - phase * 0.55);
+
+    const grad = ctx.createRadialGradient(
+      currentX, currentY, 4,
+      currentX, currentY, flameH
+    );
+    grad.addColorStop(0, `rgba(230, 200, 255, ${0.7 * alpha})`);
+    grad.addColorStop(0.3, `rgba(138, 43, 226, ${0.5 * alpha})`);
+    grad.addColorStop(0.7, `rgba(88, 28, 135, ${0.2 * alpha})`);
+    grad.addColorStop(1, "rgba(88, 28, 135, 0)");
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(currentX, currentY, flameW, flameH, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawVenomDrip(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  colorHex: string,
+  localSec: number
+) {
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const venomColor = colorHex || "#10B981";
+  const dropCount = 7;
+
+  for (let i = 0; i < dropCount; i++) {
+    const rate = 1.2 + (i % 3) * 0.4;
+    const progress = (localSec * rate + i * 0.35) % 1;
+    const dropY = y + progress * 140 * scale;
+    const dropX = x + (i - dropCount / 2) * 22 * scale;
+    const dropSize = (4 + (i % 3) * 3) * (1 - progress * 0.3) * scale;
+
+    ctx.shadowColor = venomColor;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = progress < 0.2 ? "#ffffff" : venomColor;
+
+    ctx.beginPath();
+    ctx.arc(dropX, dropY, dropSize, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (progress > 0.8) {
+      const splashR = dropSize * 2.5 * ((progress - 0.8) / 0.2);
+      ctx.strokeStyle = venomColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(dropX, dropY, splashR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawSpatialLayers(
+  ctx: CanvasRenderingContext2D,
+  shot: StoryShot,
+  localSec: number,
+  targetW: number,
+  targetH: number
+) {
+  const layers = shot.vfxSpatialLayers?.layers;
+  if (!layers || layers.length === 0) {
+    // Automatic fallback based on shot keywords
+    const lowerType = (shot.type + " " + shot.mood + " " + shot.voiceoverEgyptian).toLowerCase();
+    if (lowerType.includes("سيف") || lowerType.includes("خنجر") || lowerType.includes("قتال") || lowerType.includes("slash")) {
+      const focus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.4 };
+      drawHeroSlashTrail(ctx, focus.x * targetW, focus.y * targetH, 1.2, "#8A2BE2", localSec, targetW, targetH);
+    }
+    if (lowerType.includes("كاساكا") || lowerType.includes("سم") || lowerType.includes("ثعبان") || lowerType.includes("venom")) {
+      const focus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.6, y: 0.35 };
+      drawVenomDrip(ctx, focus.x * targetW, focus.y * targetH, 1.3, "#10B981", localSec);
+    }
+    return;
+  }
+
+  for (const layer of layers) {
+    const trigger = layer.triggerSec || 0;
+    if (localSec < trigger) continue;
+    const layerSec = localSec - trigger;
+    const x = layer.position.x * targetW;
+    const y = layer.position.y * targetH;
+    const scale = layer.scale || 1.0;
+    const color = layer.colorHex || "#8A2BE2";
+    const type = (layer.effectType || "").toLowerCase();
+
+    if (type.includes("slash") || type.includes("leap") || type.includes("trail") || type.includes("sword")) {
+      drawHeroSlashTrail(ctx, x, y, scale, color, layerSec, targetW, targetH);
+    } else if (type.includes("shadow") || type.includes("aura") || type.includes("dark")) {
+      drawShadowAura(ctx, x, y, scale, color, layerSec);
+    } else if (type.includes("venom") || type.includes("poison") || type.includes("fang") || type.includes("emerald")) {
+      drawVenomDrip(ctx, x, y, scale, color, layerSec);
+    } else if (type.includes("rune") || type.includes("circle") || type.includes("magic")) {
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 16;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, 70 * scale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 }
 
 export function drawFrame(
@@ -179,6 +355,16 @@ export function drawFrame(
     }
   }
 
+  // Initial 0.8s Impact Hook for high-energy start
+  const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
+  zoom += hookPunch;
+
+  // Word-boundary / action punch zoom every ~2.4s
+  const punchPhase = (localSec % 2.4) / 0.22;
+  if (punchPhase < 1.0) {
+    zoom += Math.sin(punchPhase * Math.PI) * 0.04;
+  }
+
   // 3D Parallax Depth displacement
   const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
 
@@ -210,6 +396,9 @@ export function drawFrame(
   } else {
     drawSceneArt(ctx, shot, zoom, targetW, targetH);
   }
+
+  // Draw Anime VFX Spatial Layers (slash trails, shadow aura, venom fangs)
+  drawSpatialLayers(ctx, shot, localSec, targetW, targetH);
 
   // 2b. Dynamic Relighting (spotlight / character aura reacting to mood)
   const relightIntensity = (vfx.dynamicRelighting ?? 85) / 100;
@@ -368,13 +557,13 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // Bottom Shadow Gradient for Text Contrast
-  const sheen = ctx.createLinearGradient(0, targetH * 0.42, 0, targetH);
+  // Localized bottom reading contrast scrim strictly behind subtitle text (preserving middle of the canvas)
+  const sheen = ctx.createLinearGradient(0, targetH * 0.78, 0, targetH);
   sheen.addColorStop(0, "rgba(0,0,0,0)");
-  sheen.addColorStop(0.5, "rgba(0,0,0,0.65)");
-  sheen.addColorStop(1, "rgba(0,0,0,0.92)");
+  sheen.addColorStop(0.5, "rgba(0,0,0,0.42)");
+  sheen.addColorStop(1, "rgba(0,0,0,0.85)");
   ctx.fillStyle = sheen;
-  ctx.fillRect(0, targetH * 0.42, targetW, targetH * 0.58);
+  ctx.fillRect(0, targetH * 0.78, targetW, targetH * 0.22);
 
   // 6. Scene Stamp Header Badge (Book / Part & Shot Number)
   const stampText = shot.bookOrPart
@@ -471,13 +660,23 @@ export function drawFrame(
       ctx.fillText(`🎙️ ${shot.vocalCue}`, bx + bw - 20, by + 24);
     }
 
-    // Word highlighting logic based on progress through the shot
+    // Word highlighting logic based on Edge-TTS word boundaries or shot progress
     const totalWords = caption.split(/\s+/).filter(Boolean);
-    const shotProgress = Math.min(1, Math.max(0, localSec / Math.max(0.1, duration)));
-    const activeWordIndex = Math.min(
-      totalWords.length - 1,
-      Math.floor(shotProgress * (totalWords.length + 0.5))
-    );
+    let activeWordIndex = -1;
+    if (shot.wordBoundaries && shot.wordBoundaries.length > 0) {
+      const currentMs = localSec * 1000;
+      const bIdx = shot.wordBoundaries.findIndex(
+        (b) => currentMs >= b.offset && currentMs <= b.offset + b.duration + 200
+      );
+      if (bIdx >= 0) activeWordIndex = bIdx;
+    }
+    if (activeWordIndex === -1) {
+      const shotProgress = Math.min(1, Math.max(0, localSec / Math.max(0.1, duration)));
+      activeWordIndex = Math.min(
+        totalWords.length - 1,
+        Math.floor(shotProgress * (totalWords.length + 0.5))
+      );
+    }
 
     ctx.font = "700 36px Cairo, sans-serif";
     ctx.textAlign = "center";
@@ -497,9 +696,9 @@ export function drawFrame(
 
       if (isCurrentLineActive) {
         const pulseGlow = 0.85 + Math.sin(localSec * 10) * 0.15;
-        ctx.fillStyle = `rgba(0, 229, 255, ${pulseGlow})`;
-        ctx.shadowColor = "#00e5ff";
-        ctx.shadowBlur = 14;
+        ctx.fillStyle = `rgba(245, 158, 11, ${pulseGlow})`;
+        ctx.shadowColor = "#f59e0b";
+        ctx.shadowBlur = 16;
         ctx.fillText(line, bx + bw / 2, textY);
         ctx.shadowBlur = 0;
       } else if (globalWordCounter + lineWords.length <= activeWordIndex) {
@@ -720,7 +919,7 @@ async function buildMixedAudio(
     }
   }
 
-  // 3. Background Music
+  // 3. Background Music with Automatic Audio Ducking under voice narration
   if (project.isBgmEnabled && bgmTrack) {
     try {
       const bgm = await getBgmBuffer(bgmTrack);
@@ -728,7 +927,27 @@ async function buildMixedAudio(
       src.buffer = bgm;
       src.loop = true;
       const gain = offline.createGain();
-      gain.gain.value = bgmVolume * 0.7;
+
+      const normalVol = bgmVolume * 0.7;
+      const duckedVol = bgmVolume * 0.22; // Smoothly ducks down while narrator speaks
+
+      if (hasShotAudio) {
+        gain.gain.setValueAtTime(normalVol, 0);
+        for (const item of timeline.items) {
+          if (item.shot.customAudioId) {
+            const startD = Math.max(0, item.startSec - 0.12);
+            gain.gain.setValueAtTime(normalVol, startD);
+            gain.gain.linearRampToValueAtTime(duckedVol, item.startSec);
+            gain.gain.setValueAtTime(duckedVol, Math.max(item.startSec, item.endSec - 0.15));
+            gain.gain.linearRampToValueAtTime(normalVol, item.endSec);
+          }
+        }
+      } else if (voiceBlob) {
+        gain.gain.setValueAtTime(duckedVol, 0);
+      } else {
+        gain.gain.setValueAtTime(normalVol, 0);
+      }
+
       src.connect(gain);
       gain.connect(offline.destination);
       src.start(0);
@@ -742,11 +961,18 @@ async function buildMixedAudio(
   for (let i = 0; i < timeline.items.length; i++) {
     const item = timeline.items[i];
     const shot = item.shot;
-    if (shot.assignedSfxId || shot.sfxName) {
+    const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
+    if (shot.assignedSfxId || rawSfxText) {
       try {
-        const sfxItem = SFX_CATALOG.find(
-          (s) => s.id === shot.assignedSfxId || s.nameAr === shot.sfxName
+        let sfxItem = SFX_CATALOG.find(
+          (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
         );
+        if (!sfxItem && rawSfxText) {
+          const matchedId = matchSfxToCatalog(rawSfxText);
+          if (matchedId) {
+            sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
+          }
+        }
         if (sfxItem) {
           const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
           const src = offline.createBufferSource();

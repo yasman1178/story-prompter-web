@@ -178,3 +178,55 @@ export const LATIN_STORY_TERMS: [RegExp, string][] = [
   [/هانتر|صياد\s*محترف/gi, "Hunter"],
   [/شورتس/gi, "Shorts"],
 ];
+
+/**
+ * Maps directorial vocal cues (e.g. "نبرة سريعة فزع", "مهيب وبطيء") to Edge-TTS prosody parameters.
+ */
+export function vocalCueToProsody(vocalCue?: string | null): { rate?: string; pitch?: string } {
+  if (!vocalCue) return {};
+  const lower = vocalCue.toLowerCase();
+  let rate: string | undefined;
+  let pitch: string | undefined;
+
+  if (
+    lower.includes("سريع") ||
+    lower.includes("فزع") ||
+    lower.includes("طاقة عالية") ||
+    lower.includes("حماس") ||
+    lower.includes("صرخة") ||
+    lower.includes("تحذير") ||
+    lower.includes("خطر")
+  ) {
+    rate = "+10%";
+  } else if (
+    lower.includes("بطيء") ||
+    lower.includes("مهيب") ||
+    lower.includes("رهبة") ||
+    lower.includes("غموض") ||
+    lower.includes("همس") ||
+    lower.includes("شجن") ||
+    lower.includes("هدوء")
+  ) {
+    rate = "-6%";
+  }
+
+  if (
+    lower.includes("صرخة") ||
+    lower.includes("فزع") ||
+    lower.includes("صدمة") ||
+    lower.includes("طاقة عالية") ||
+    lower.includes("تحذير")
+  ) {
+    pitch = "+4Hz";
+  } else if (
+    lower.includes("مهيب") ||
+    lower.includes("عميق") ||
+    lower.includes("غموض") ||
+    lower.includes("قرار حاسم") ||
+    lower.includes("رهبة")
+  ) {
+    pitch = "-4Hz";
+  }
+
+  return { rate, pitch };
+}
