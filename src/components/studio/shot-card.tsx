@@ -98,11 +98,9 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
 
   async function playShotSfx(e: React.MouseEvent) {
     e.stopPropagation();
-    const item = SFX_CATALOG.find((s) => s.id === shot.assignedSfxId || s.nameAr === shot.sfxName);
+    const item = SFX_CATALOG.find((s) => s.id === shot.assignedSfxId || s.nameAr === shot.sfxName) ?? SFX_CATALOG[0];
     if (item) {
       await audioEngine.playCatalogSfx(item, (shot.sfxVolumePercent || 80) / 100);
-    } else {
-      await audioEngine.playCatalogSfx({ id: 1, nameEn: "Sword Slash", categoryEn: "Combat & Impacts", volume: 70 });
     }
   }
 

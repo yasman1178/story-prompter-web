@@ -1,17 +1,26 @@
 import {
   BgmTrack,
   BgmCategoryId,
-  SfxEffect,
-  SfxTypeId,
   StoryProject,
   StoryShot,
   SceneArtType,
   SCENE_ART_TYPES,
   SeoMetadata,
   DialogueLine,
+  VfxSettings,
+  AspectRatioType,
 } from "./types";
 import { formatTimeframe, uid } from "./utils";
 import { optimizeEgyptianVoiceover } from "./tts-optimizer";
+import { SFX_CATALOG } from "./sfx-catalog";
+
+export const DEFAULT_VFX_ACTION: VfxSettings = {
+  parallaxDepth: 65,
+  dynamicRelighting: 85,
+  runeParticles: 75,
+  motionIntensity: 80,
+  preset: "action",
+};
 
 export const BGM_TRACKS: BgmTrack[] = [
   { id: 1, titleAr: "لحن البوابة الزرقاء (Solo Leveling)", titleEn: "Blue Portal Awakening", category: "EPIC", description: "أوركسترا حماسي بطابع السولو ليفلينج", baseFreq: 220, tempoBpm: 130, synthPattern: 1 },
@@ -46,28 +55,35 @@ export const BGM_TRACKS: BgmTrack[] = [
   { id: 30, titleAr: "نار الشورتس المشتعلة", titleEn: "Viral Shorts Fire", category: "EPIC", description: "لحن جذاب سريع مصمم للانتشار", baseFreq: 329, tempoBpm: 145, synthPattern: 10 },
 ];
 
-export const SFX_EFFECTS: SfxEffect[] = [
-  { id: 1, nameAr: "زئير وحش ضخم", nameEn: "Monster Roar", description: "زئير مرعب يهز المكان", iconName: "volume_up", type: "MONSTER_ROAR" },
-  { id: 2, nameAr: "صدى ضربات قلب", nameEn: "Heartbeat Thump", description: "دقات قلب متوترة وسريعة", iconName: "favorite", type: "HEARTBEAT" },
-  { id: 3, nameAr: "صرير باب المعبد", nameEn: "Stone Door Creak", description: "احتكاك صخري ثقيل", iconName: "meeting_room", type: "STONE_CREAK" },
-  { id: 4, nameAr: "انغلاق الباب بقوة", nameEn: "Heavy Slam Trap", description: "صوت ارتطام وانغلاق عنيف", iconName: "lock", type: "HEAVY_SLAM" },
-  { id: 5, nameAr: "إطلاق ليزر أحمر", nameEn: "Laser Beam Blast", description: "شحن وانطلاق شعاع طاقة أحمر", iconName: "flash_on", type: "LASER_BEAM" },
-  { id: 6, nameAr: "سحر الشفاء الزمردي", nameEn: "Healing Magic Sparkle", description: "رنين سحري علاجي", iconName: "auto_fix_high", type: "HEALING_MAGIC" },
-  { id: 7, nameAr: "وقع أقدام شجاعة", nameEn: "Footsteps Echo", description: "خطوات صخرية في الممر", iconName: "directions_walk", type: "FOOTSTEPS" },
-  { id: 8, nameAr: "ضحكات مكتومة", nameEn: "Crowd Laugh", description: "مزاح بين الصيادين", iconName: "sentiment_very_satisfied", type: "LAUGHTER" },
-];
-
-// Legacy file assets removed; sound effects are powered by MaterialFoundry SoundFxLibrary and procedural synthesis
-export const SFX_ASSET: Record<SfxTypeId, string> = {
-  MONSTER_ROAR: "monster_roar",
-  HEARTBEAT: "heartbeat",
-  STONE_CREAK: "stone_creak",
-  HEAVY_SLAM: "heavy_slam",
-  LASER_BEAM: "laser_beam",
-  HEALING_MAGIC: "healing_magic",
-  FOOTSTEPS: "footsteps",
-  LAUGHTER: "laughter",
-};
+export function matchSfxToCatalog(sfxName: string): number | undefined {
+  if (!sfxName) return undefined;
+  const lower = sfxName.toLowerCase();
+  for (const item of SFX_CATALOG) {
+    const cleanFileName = item.fileName.toLowerCase().replace(/\.wav$/, "");
+    if (lower.includes(cleanFileName)) return item.id;
+    if (lower.includes(item.nameEn.toLowerCase())) return item.id;
+    if (sfxName.includes(item.nameAr)) return item.id;
+  }
+  if (lower.includes("sword") || sfxName.includes("سيف") || sfxName.includes("نصل")) return 1;
+  if (lower.includes("shield") || sfxName.includes("درع")) return 4;
+  if (lower.includes("punch") || sfxName.includes("لكمة") || sfxName.includes("ضربة")) return 5;
+  if (lower.includes("boom") || lower.includes("impact") || sfxName.includes("ارتطام")) return 6;
+  if (lower.includes("roar") || sfxName.includes("زئير") || sfxName.includes("وحش")) return 8;
+  if (lower.includes("growl") || sfxName.includes("زمجرة")) return 9;
+  if (lower.includes("gasp") || sfxName.includes("شهقة") || sfxName.includes("صدمة")) return 10;
+  if (lower.includes("heartbeat") || sfxName.includes("قلب") || sfxName.includes("نبض")) return 11;
+  if (lower.includes("creak") || sfxName.includes("صرير") || sfxName.includes("باب")) return 12;
+  if (lower.includes("slam") || sfxName.includes("انغلاق") || sfxName.includes("فخ")) return 13;
+  if (lower.includes("laser") || sfxName.includes("ليزر") || sfxName.includes("شعاع")) return 15;
+  if (lower.includes("charge") || sfxName.includes("شحن")) return 16;
+  if (lower.includes("heal") || sfxName.includes("شفاء") || sfxName.includes("سحر")) return 17;
+  if (lower.includes("rune") || sfxName.includes("نقوش")) return 18;
+  if (lower.includes("portal") || sfxName.includes("بوابة")) return 19;
+  if (lower.includes("footstep") || sfxName.includes("خطوات") || sfxName.includes("أقدام")) return 20;
+  if (lower.includes("sprint") || sfxName.includes("ركض") || sfxName.includes("هروب")) return 21;
+  if (lower.includes("coffee") || lower.includes("tea") || sfxName.includes("شاي") || sfxName.includes("ضحك")) return 22;
+  return undefined;
+}
 
 export const BGM_CATEGORY_ASSET: Record<BgmCategoryId, string> = {
   EPIC: "epic_synth",
@@ -123,6 +139,9 @@ function sampleShot(
     sfxVolumePercent: 85,
     sfxTriggerSec: 0,
     dialogueLines: [],
+    vfxSettings: { ...DEFAULT_VFX_ACTION },
+    textOverlayPos: { x: 0.5, y: 0.78 },
+    ctaPos: { x: 0.5, y: 0.92 },
   };
 }
 
@@ -306,6 +325,10 @@ export function createSampleProject(): StoryProject {
     channelName: "محب أنمي",
     showChannelWatermark: true,
     showSubscribeCta: true,
+    enableDazzlingCTA: true,
+    vfxSettings: { ...DEFAULT_VFX_ACTION },
+    defaultTextOverlayPos: { x: 0.5, y: 0.78 },
+    defaultCtaPos: { x: 0.5, y: 0.92 },
     voiceName: "ar-EG-SalmaNeural",
     voiceNameAr: "سلمى (أنثى مصرية)",
     generatedVoiceIds: [],
@@ -599,6 +622,35 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         sfxTriggerSec = parseTimecodeSec(extractString(shotObj, ["sfx_trigger_sec", "trigger_sec"])) ?? 0;
       }
 
+      const assignedSfxId = matchSfxToCatalog(sfxName || soundSfx || soundDesign);
+
+      let vfxSpatialLayers: { runeCenter?: { x: number; y: number }; lightFocus?: { x: number; y: number } } | undefined;
+      const rawSpatial = shotObj.vfx_spatial_layers ?? shotObj.spatial_layers ?? shotObj.vfx;
+      if (isObject(rawSpatial)) {
+        const rc = rawSpatial.rune_center ?? rawSpatial.runeCenter;
+        const lf = rawSpatial.light_focus ?? rawSpatial.lightFocus;
+        vfxSpatialLayers = {
+          runeCenter: isObject(rc) && typeof rc.x === "number" && typeof rc.y === "number" ? { x: rc.x, y: rc.y } : undefined,
+          lightFocus: isObject(lf) && typeof lf.x === "number" && typeof lf.y === "number" ? { x: lf.x, y: lf.y } : undefined,
+        };
+      }
+
+      let textOverlayPos: { x: number; y: number } | undefined;
+      const rawTextPos = shotObj.text_overlay_pos ?? shotObj.text_pos ?? shotObj.textOverlayPos;
+      if (isObject(rawTextPos) && typeof rawTextPos.x === "number" && typeof rawTextPos.y === "number") {
+        textOverlayPos = { x: rawTextPos.x, y: rawTextPos.y };
+      } else {
+        textOverlayPos = { x: 0.5, y: 0.78 };
+      }
+
+      let ctaPos: { x: number; y: number } | undefined;
+      const rawCtaPos = shotObj.cta_pos ?? shotObj.ctaPos;
+      if (isObject(rawCtaPos) && typeof rawCtaPos.x === "number" && typeof rawCtaPos.y === "number") {
+        ctaPos = { x: rawCtaPos.x, y: rawCtaPos.y };
+      } else {
+        ctaPos = { x: 0.5, y: 0.92 };
+      }
+
       const colorTheme = extractString(shotObj, ["color_theme", "color", "palette", "theme"]) ?? "";
       const imagePromptEn =
         extractString(shotObj, ["image_prompt_en", "image_prompt", "prompt", "visual_prompt", "visual", "description", "art_prompt"]) ?? "";
@@ -630,19 +682,36 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         sceneType,
         textOverlay,
         sfxName,
+        assignedSfxId,
         sfxVolumePercent,
         sfxTriggerSec,
         dialogueLines,
+        vfxSettings: { ...DEFAULT_VFX_ACTION },
+        textOverlayPos,
+        ctaPos,
+        vfxSpatialLayers,
       });
     }
 
     if (shots.length === 0) return null;
 
+    let detectedAspectRatio: AspectRatioType = "9:16";
+    const rawAspect =
+      extractString(parsed as Json, ["aspect_ratio", "aspect", "format"]) ??
+      (isObject(parsed) && isObject(parsed.project_info)
+        ? extractString(parsed.project_info, ["aspect_ratio", "format"])
+        : null);
+    if (rawAspect) {
+      if (rawAspect.includes("16:9")) detectedAspectRatio = "16:9";
+      else if (rawAspect.includes("1:1")) detectedAspectRatio = "1:1";
+      else if (rawAspect.includes("9:16")) detectedAspectRatio = "9:16";
+    }
+
     return {
       id: uid("proj"),
       title,
       platform,
-      aspectRatio: "9:16",
+      aspectRatio: detectedAspectRatio,
       totalShots: shots.length,
       language: lang,
       shots,
@@ -654,6 +723,10 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       channelName: "محب أنمي",
       showChannelWatermark: true,
       showSubscribeCta: true,
+      enableDazzlingCTA: true,
+      vfxSettings: { ...DEFAULT_VFX_ACTION },
+      defaultTextOverlayPos: { x: 0.5, y: 0.78 },
+      defaultCtaPos: { x: 0.5, y: 0.92 },
       voiceName: "ar-EG-SalmaNeural",
       voiceNameAr: "سلمى (أنثى مصرية)",
       generatedVoiceIds: [],

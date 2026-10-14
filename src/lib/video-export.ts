@@ -11,6 +11,12 @@ export const VIDEO_HEIGHT = 1280;
 export const VIDEO_FPS = 30;
 const AUDIO_SAMPLE_RATE = 48000;
 
+export function getVideoDimensions(aspectRatio?: string): { width: number; height: number } {
+  if (aspectRatio === "16:9") return { width: 1280, height: 720 };
+  if (aspectRatio === "1:1") return { width: 1080, height: 1080 };
+  return { width: 720, height: 1280 }; // default 9:16 Shorts
+}
+
 export type CompressionPreset = "compact" | "balanced" | "high";
 
 export interface CompressionProfile {
@@ -101,32 +107,34 @@ function drawCover(
   ctx: CanvasRenderingContext2D,
   bitmap: ImageBitmap,
   scale: number,
-  offsetX = 0
+  offsetX = 0,
+  targetW = VIDEO_WIDTH,
+  targetH = VIDEO_HEIGHT
 ) {
-  const canvasRatio = VIDEO_WIDTH / VIDEO_HEIGHT;
+  const canvasRatio = targetW / targetH;
   const imageRatio = bitmap.width / bitmap.height;
   let drawW: number;
   let drawH: number;
   if (imageRatio > canvasRatio) {
-    drawH = VIDEO_HEIGHT;
+    drawH = targetH;
     drawW = drawH * imageRatio;
   } else {
-    drawW = VIDEO_WIDTH;
+    drawW = targetW;
     drawH = drawW / imageRatio;
   }
   drawW *= scale;
   drawH *= scale;
-  const x = (VIDEO_WIDTH - drawW) / 2 + offsetX;
-  const y = (VIDEO_HEIGHT - drawH) / 2;
+  const x = (targetW - drawW) / 2 + offsetX;
+  const y = (targetH - drawH) / 2;
   ctx.drawImage(bitmap, x, y, drawW, drawH);
 }
 
-function drawSceneArt(ctx: CanvasRenderingContext2D, shot: StoryShot, scale: number) {
+function drawSceneArt(ctx: CanvasRenderingContext2D, shot: StoryShot, scale: number, targetW = VIDEO_WIDTH, targetH = VIDEO_HEIGHT) {
   ctx.save();
-  ctx.translate(VIDEO_WIDTH / 2, VIDEO_HEIGHT / 2);
+  ctx.translate(targetW / 2, targetH / 2);
   ctx.scale(scale, scale);
-  ctx.translate(-VIDEO_WIDTH / 2, -VIDEO_HEIGHT / 2);
-  drawShotProceduralArt(ctx, shot, VIDEO_WIDTH, VIDEO_HEIGHT);
+  ctx.translate(-targetW / 2, -targetH / 2);
+  drawShotProceduralArt(ctx, shot, targetW, targetH);
   ctx.restore();
 }
 
@@ -136,24 +144,43 @@ export function drawFrame(
   shot: StoryShot,
   localSec: number,
   duration: number,
-  image: ShotImage | undefined
+  image: ShotImage | undefined,
+  explicitW?: number,
+  explicitH?: number
 ) {
+  const dims = getVideoDimensions(project.aspectRatio);
+  const targetW = explicitW ?? dims.width;
+  const targetH = explicitH ?? dims.height;
   const progress = Math.min(1, localSec / Math.max(1, duration));
 
-  // 1. Ken Burns Camera Motions (alternate zoom in, zoom out, pan)
+  // Retrieve VFX settings (per shot or project-level default)
+  const vfx = shot.vfxSettings || project.vfxSettings || {
+    parallaxDepth: 65,
+    dynamicRelighting: 85,
+    runeParticles: 75,
+    motionIntensity: 80,
+    preset: "action" as const,
+  };
+  const parallaxDepth = (vfx.parallaxDepth ?? 65) / 100;
+  const motionIntensity = (vfx.motionIntensity ?? 80) / 100;
+
+  // 1. Ken Burns Camera Motions with custom Motion Intensity
   const moveType = shot.shotNumber % 3;
-  let zoom = 1 + progress * 0.14;
+  let zoom = 1 + progress * 0.14 * (0.4 + motionIntensity * 0.7);
   let panX = 0;
   if (project.enableKenBurns !== false) {
     if (moveType === 0) {
-      zoom = 1.0 + progress * 0.16; // smooth push in
+      zoom = 1.0 + progress * 0.16 * motionIntensity;
     } else if (moveType === 1) {
-      zoom = 1.15 - progress * 0.13; // smooth pull out
+      zoom = Math.max(1.0, (1.0 + 0.15 * motionIntensity) - progress * 0.13 * motionIntensity);
     } else {
-      zoom = 1.08;
-      panX = (progress - 0.5) * 36; // slow lateral pan
+      zoom = 1.0 + 0.08 * motionIntensity;
+      panX = (progress - 0.5) * 36 * motionIntensity;
     }
   }
+
+  // 3D Parallax Depth displacement
+  const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
 
   // 2. Camera Screen Shake on impacts / lasers
   const isImpact =
@@ -175,16 +202,46 @@ export function drawFrame(
   ctx.translate(shakeX, shakeY);
 
   ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+  ctx.fillRect(0, 0, targetW, targetH);
 
-  // Draw visual artwork
+  // Draw visual artwork with smart cover and parallax
   if (image) {
-    drawCover(ctx, image.bitmap, zoom, panX);
+    drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
   } else {
-    drawSceneArt(ctx, shot, zoom);
+    drawSceneArt(ctx, shot, zoom, targetW, targetH);
   }
 
-  // 2b. Manga / Anime Dynamic Action Speedlines
+  // 2b. Dynamic Relighting (spotlight / character aura reacting to mood)
+  const relightIntensity = (vfx.dynamicRelighting ?? 85) / 100;
+  if (relightIntensity > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const lightFocus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.42 };
+    const lx = lightFocus.x * targetW;
+    const ly = lightFocus.y * targetH;
+    const pulse = 0.85 + Math.sin(localSec * 5) * 0.15;
+    const rad = Math.min(targetW, targetH) * 0.52 * pulse;
+
+    const lightGrad = ctx.createRadialGradient(lx, ly, 15, lx, ly, rad);
+    const isGold = shot.colorTheme.includes("gold") || shot.mood.includes("حماس") || shot.type.includes("تحول");
+    if (isGold) {
+      lightGrad.addColorStop(0, `rgba(255, 225, 130, ${0.45 * relightIntensity})`);
+      lightGrad.addColorStop(0.4, `rgba(245, 158, 11, ${0.2 * relightIntensity})`);
+      lightGrad.addColorStop(1, "rgba(245, 158, 11, 0)");
+    } else {
+      lightGrad.addColorStop(0, `rgba(0, 229, 255, ${0.42 * relightIntensity})`);
+      lightGrad.addColorStop(0.4, `rgba(14, 165, 233, ${0.18 * relightIntensity})`);
+      lightGrad.addColorStop(1, "rgba(14, 165, 233, 0)");
+    }
+
+    ctx.fillStyle = lightGrad;
+    ctx.beginPath();
+    ctx.arc(lx, ly, rad, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 2c. Manga / Anime Dynamic Action Speedlines
   const isActionMoment =
     isImpact ||
     shot.type.includes("قتال") ||
@@ -195,14 +252,14 @@ export function drawFrame(
     ctx.save();
     ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
     ctx.lineWidth = 2.5;
-    const cx = VIDEO_WIDTH / 2;
-    const cy = VIDEO_HEIGHT * 0.46;
+    const cx = targetW / 2;
+    const cy = targetH * 0.46;
     const numLines = 26;
     const seed = Math.floor(localSec * 14);
     for (let i = 0; i < numLines; i++) {
       const angle = (i / numLines) * Math.PI * 2 + ((seed + i * 7) % 11) * 0.04;
-      const innerR = 210 + (((seed * 17 + i * 31) % 70));
-      const outerR = Math.max(VIDEO_WIDTH, VIDEO_HEIGHT);
+      const innerR = Math.min(targetW, targetH) * 0.28 + (((seed * 17 + i * 31) % 60));
+      const outerR = Math.max(targetW, targetH);
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
       ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
@@ -211,35 +268,35 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // 2c. Tension Glitch / Shockwave slice
+  // 2d. Tension Glitch / Shockwave slice
   const isTenseMoment =
     shot.mood.includes("رعب") || shot.mood.includes("توتر") || shot.type.includes("صدمة");
   if ((project.enableVFXGlitch || isTenseMoment) && project.enableVFXGlitch !== false && localSec < 0.22) {
     ctx.save();
     const glitchH = 28;
-    const glitchY = VIDEO_HEIGHT * 0.35 + (localSec * 350) % (VIDEO_HEIGHT * 0.3);
+    const glitchY = targetH * 0.35 + (localSec * 350) % (targetH * 0.3);
     ctx.fillStyle = "rgba(0, 229, 255, 0.18)";
-    ctx.fillRect(0, glitchY, VIDEO_WIDTH, glitchH);
+    ctx.fillRect(0, glitchY, targetW, glitchH);
     ctx.fillStyle = "rgba(239, 68, 68, 0.15)";
-    ctx.fillRect(0, glitchY + 6, VIDEO_WIDTH, glitchH * 0.6);
+    ctx.fillRect(0, glitchY + 6, targetW, glitchH * 0.6);
     ctx.restore();
   }
 
   // 3. Cinematic Vignette (darkened edges for focus)
   if (project.enableVFXVignette !== false) {
     const vig = ctx.createRadialGradient(
-      VIDEO_WIDTH / 2,
-      VIDEO_HEIGHT / 2,
-      VIDEO_WIDTH * 0.35,
-      VIDEO_WIDTH / 2,
-      VIDEO_HEIGHT / 2,
-      VIDEO_HEIGHT * 0.75
+      targetW / 2,
+      targetH / 2,
+      targetW * 0.32,
+      targetW / 2,
+      targetH / 2,
+      Math.max(targetW, targetH) * 0.68
     );
     vig.addColorStop(0, "rgba(0,0,0,0)");
     vig.addColorStop(0.65, "rgba(0,0,0,0.35)");
     vig.addColorStop(1, "rgba(0,0,0,0.85)");
     ctx.fillStyle = vig;
-    ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+    ctx.fillRect(0, 0, targetW, targetH);
   }
 
   // 4. Red Eye Laser Glow Flares for thrilling moments
@@ -249,9 +306,9 @@ export function drawFrame(
     shot.voiceoverEgyptian.includes("ليزر") ||
     shot.voiceoverEgyptian.includes("أحمر");
   if (hasRedEyes && project.enableVFXLaserFlare !== false) {
-    const eyeY = VIDEO_HEIGHT * 0.42;
-    const eyeLeftX = VIDEO_WIDTH * 0.42;
-    const eyeRightX = VIDEO_WIDTH * 0.58;
+    const eyeY = targetH * 0.42;
+    const eyeLeftX = targetW * 0.42;
+    const eyeRightX = targetW * 0.58;
     const flarePulse = 0.85 + Math.sin(localSec * 14) * 0.15;
 
     ctx.save();
@@ -278,30 +335,46 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // 5. Atmospheric Floating Particles (Embers & Magic)
-  if (project.enableVFXParticles !== false) {
+  // 5. Rune Particles (الجسيمات السحرية المرتبطة بالرموز) & Embers
+  const runeIntensity = (vfx.runeParticles ?? 75) / 100;
+  if (runeIntensity > 0 && project.enableVFXParticles !== false) {
     ctx.save();
-    for (let p = 0; p < 22; p++) {
+    const runeGlyphs = ["ᚱ", "ᛟ", "ᚦ", "ᚲ", "✦", "✧", "⚡", "ᛉ", "✦"];
+    const runeCenter = shot.vfxSpatialLayers?.runeCenter ?? { x: 0.5, y: 0.5 };
+    const rcX = runeCenter.x * targetW;
+    const rcY = runeCenter.y * targetH;
+    const particleCount = Math.floor(18 + runeIntensity * 16);
+
+    ctx.font = "bold 18px 'Segoe UI Symbol', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (let p = 0; p < particleCount; p++) {
       const seed = p * 137.5;
-      const px = ((Math.sin(seed) * 0.5 + 0.5) * VIDEO_WIDTH + Math.sin(localSec * 0.8 + p) * 25) % VIDEO_WIDTH;
-      const py = VIDEO_HEIGHT - ((localSec * 70 + seed * 9) % VIDEO_HEIGHT);
-      const size = (p % 3) + 2.5;
-      const alpha = 0.25 + (Math.sin(localSec * 3 + p) * 0.5 + 0.5) * 0.65;
+      const speed = 35 + (p % 4) * 12;
+      const angle = (p / particleCount) * Math.PI * 2 + localSec * 0.35;
+      const dist = 30 + ((seed * 11 + localSec * speed) % (targetW * 0.48));
+      const px = (rcX + Math.cos(angle) * dist + targetW) % targetW;
+      const py = (rcY + Math.sin(angle) * (dist * 0.65) - ((localSec * 45 + seed) % targetH) + targetH) % targetH;
+
+      const alpha = (0.2 + (Math.sin(localSec * 4 + p) * 0.5 + 0.5) * 0.7) * runeIntensity;
+      const glyph = runeGlyphs[p % runeGlyphs.length];
+
+      ctx.shadowColor = p % 2 === 0 ? "#00e5ff" : "#f59e0b";
+      ctx.shadowBlur = 9;
       ctx.fillStyle = p % 2 === 0 ? `rgba(0, 229, 255, ${alpha})` : `rgba(245, 158, 11, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(px, py, size, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillText(glyph, px, py);
     }
     ctx.restore();
   }
 
   // Bottom Shadow Gradient for Text Contrast
-  const sheen = ctx.createLinearGradient(0, VIDEO_HEIGHT * 0.42, 0, VIDEO_HEIGHT);
+  const sheen = ctx.createLinearGradient(0, targetH * 0.42, 0, targetH);
   sheen.addColorStop(0, "rgba(0,0,0,0)");
   sheen.addColorStop(0.5, "rgba(0,0,0,0.65)");
   sheen.addColorStop(1, "rgba(0,0,0,0.92)");
   ctx.fillStyle = sheen;
-  ctx.fillRect(0, VIDEO_HEIGHT * 0.42, VIDEO_WIDTH, VIDEO_HEIGHT * 0.58);
+  ctx.fillRect(0, targetH * 0.42, targetW, targetH * 0.58);
 
   // 6. Scene Stamp Header Badge (Book / Part & Shot Number)
   const stampText = shot.bookOrPart
@@ -313,7 +386,7 @@ export function drawFrame(
   const stampMetrics = ctx.measureText(stampText);
   const badgeW = stampMetrics.width + 42;
   const badgeH = 44;
-  const badgeX = (VIDEO_WIDTH - badgeW) / 2;
+  const badgeX = (targetW - badgeW) / 2;
   const badgeY = 32;
 
   ctx.fillStyle = "rgba(10, 15, 26, 0.78)";
@@ -325,27 +398,78 @@ export function drawFrame(
   ctx.stroke();
 
   ctx.fillStyle = "#00e5ff";
-  ctx.fillText(stampText, VIDEO_WIDTH / 2, badgeY + 30);
+  ctx.fillText(stampText, targetW / 2, badgeY + 30);
   ctx.restore();
 
-  // 7. Dynamic Animated Subtitles with Karaoke / Word-level Highlight
+  // 7. RPG Translucent Scroll Text Overlay (Custom Coordinate & Anime Styling)
   const caption = project.showSubtitlesInVideo ? shot.voiceoverEgyptian : shot.textOverlay;
   if (caption) {
-    const lines = wrapText(ctx, caption, VIDEO_WIDTH - 140);
-    const boxHeight = lines.length * 62 + 34;
-    const boxY = VIDEO_HEIGHT - 220 - lines.length * 62;
-    const bx = 45;
-    const bw = VIDEO_WIDTH - 90;
+    const textPos = shot.textOverlayPos || project.defaultTextOverlayPos || { x: 0.5, y: 0.78 };
+    const maxTextWidth = Math.min(targetW - 90, 620);
+    const lines = wrapText(ctx, caption, maxTextWidth);
+    const lineHeight = 58;
+    const boxHeight = lines.length * lineHeight + (shot.vocalCue ? 48 : 34);
+    const bw = Math.min(targetW - 60, 640);
 
-    // Background Plate
+    const centerX = textPos.x * targetW;
+    const centerY = textPos.y * targetH;
+    const bx = Math.max(16, Math.min(targetW - bw - 16, centerX - bw / 2));
+    const by = Math.max(45, Math.min(targetH - boxHeight - 20, centerY - boxHeight / 2));
+
     ctx.save();
-    ctx.fillStyle = "rgba(10, 15, 26, 0.88)";
-    ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
+    // Translucent RPG Scroll Background with outer cyan glow
+    ctx.shadowColor = "#00e5ff";
+    ctx.shadowBlur = 18;
+    const scrollGrad = ctx.createLinearGradient(bx, by, bx, by + boxHeight);
+    scrollGrad.addColorStop(0, "rgba(8, 14, 26, 0.92)");
+    scrollGrad.addColorStop(0.5, "rgba(15, 23, 42, 0.88)");
+    scrollGrad.addColorStop(1, "rgba(7, 12, 22, 0.94)");
+    ctx.fillStyle = scrollGrad;
+
+    ctx.strokeStyle = "rgba(0, 229, 255, 0.55)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(bx, boxY, bw, boxHeight, 18);
+    ctx.roundRect(bx, by, bw, boxHeight, 16);
     ctx.fill();
     ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Corner RPG Notches in Gold Accent
+    const notch = 10;
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 2.5;
+    // Top-left
+    ctx.beginPath();
+    ctx.moveTo(bx + 4, by + 4 + notch);
+    ctx.lineTo(bx + 4, by + 4);
+    ctx.lineTo(bx + 4 + notch, by + 4);
+    ctx.stroke();
+    // Top-right
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - 4 - notch, by + 4);
+    ctx.lineTo(bx + bw - 4, by + 4);
+    ctx.lineTo(bx + bw - 4, by + 4 + notch);
+    ctx.stroke();
+    // Bottom-left
+    ctx.beginPath();
+    ctx.moveTo(bx + 4, by + boxHeight - 4 - notch);
+    ctx.lineTo(bx + 4, by + boxHeight - 4);
+    ctx.lineTo(bx + 4 + notch, by + boxHeight - 4);
+    ctx.stroke();
+    // Bottom-right
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - 4 - notch, by + boxHeight - 4);
+    ctx.lineTo(bx + bw - 4, by + boxHeight - 4);
+    ctx.lineTo(bx + bw - 4, by + boxHeight - 4 - notch);
+    ctx.stroke();
+
+    // Vocal Cue Tag if present
+    if (shot.vocalCue) {
+      ctx.font = "bold 15px Cairo, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillText(`🎙️ ${shot.vocalCue}`, bx + bw - 20, by + 24);
+    }
 
     // Word highlighting logic based on progress through the shot
     const totalWords = caption.split(/\s+/).filter(Boolean);
@@ -355,9 +479,9 @@ export function drawFrame(
       Math.floor(shotProgress * (totalWords.length + 0.5))
     );
 
-    ctx.font = "700 38px Cairo, sans-serif";
+    ctx.font = "700 36px Cairo, sans-serif";
     ctx.textAlign = "center";
-    let textY = boxY + 52;
+    let textY = by + (shot.vocalCue ? 62 : 52);
 
     let globalWordCounter = 0;
     for (const line of lines) {
@@ -366,31 +490,28 @@ export function drawFrame(
         activeWordIndex >= globalWordCounter &&
         activeWordIndex < globalWordCounter + lineWords.length;
 
-      // Base stroke outline for contrast
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.95)";
+      // Base dark stroke for high-contrast anime typography
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.98)";
       ctx.lineWidth = 6;
-      ctx.strokeText(line, VIDEO_WIDTH / 2, textY);
+      ctx.strokeText(line, bx + bw / 2, textY);
 
       if (isCurrentLineActive) {
-        // Subtle animated glow pulse on active spoken line
         const pulseGlow = 0.85 + Math.sin(localSec * 10) * 0.15;
         ctx.fillStyle = `rgba(0, 229, 255, ${pulseGlow})`;
         ctx.shadowColor = "#00e5ff";
-        ctx.shadowBlur = 12;
-        ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+        ctx.shadowBlur = 14;
+        ctx.fillText(line, bx + bw / 2, textY);
         ctx.shadowBlur = 0;
       } else if (globalWordCounter + lineWords.length <= activeWordIndex) {
-        // Already spoken lines
         ctx.fillStyle = "#ffffff";
-        ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+        ctx.fillText(line, bx + bw / 2, textY);
       } else {
-        // Upcoming lines
         ctx.fillStyle = "#94a3b8";
-        ctx.fillText(line, VIDEO_WIDTH / 2, textY);
+        ctx.fillText(line, bx + bw / 2, textY);
       }
 
       globalWordCounter += lineWords.length;
-      textY += 62;
+      textY += lineHeight;
     }
     ctx.restore();
   }
@@ -400,32 +521,35 @@ export function drawFrame(
     ctx.textAlign = "right";
     ctx.font = "700 26px Cairo, sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillText(project.channelName, VIDEO_WIDTH - 36, 58);
+    ctx.fillText(project.channelName, targetW - 36, 58);
   }
 
-  // 7. Dazzling Animated Like & Subscribe CTA Overlay
+  // 8. Anime-themed Like & Subscribe CTA Overlay with custom positioning
   if (project.showSubscribeCta || project.enableDazzlingCTA !== false) {
     ctx.save();
-    const ctaW = 460;
+    const ctaPos = shot.ctaPos || project.defaultCtaPos || { x: 0.5, y: 0.92 };
+    const ctaW = Math.min(targetW - 60, 460);
     const ctaH = 74;
-    const ctaX = (VIDEO_WIDTH - ctaW) / 2;
-    const ctaY = VIDEO_HEIGHT - 98;
+    const ctaCenterX = ctaPos.x * targetW;
+    const ctaCenterY = ctaPos.y * targetH;
+    const ctaX = Math.max(16, Math.min(targetW - ctaW - 16, ctaCenterX - ctaW / 2));
+    const ctaY = Math.max(60, Math.min(targetH - ctaH - 16, ctaCenterY - ctaH / 2));
     const pulse = 1 + Math.sin(localSec * 5) * 0.02;
 
-    ctx.translate(VIDEO_WIDTH / 2, ctaY + ctaH / 2);
+    ctx.translate(ctaCenterX, ctaCenterY);
     ctx.scale(pulse, pulse);
-    ctx.translate(-VIDEO_WIDTH / 2, -(ctaY + ctaH / 2));
+    ctx.translate(-ctaCenterX, -ctaCenterY);
 
     // Glow aura
     const aura = ctx.createRadialGradient(
-      VIDEO_WIDTH / 2,
-      ctaY + ctaH / 2,
+      ctaCenterX,
+      ctaCenterY,
       ctaW * 0.15,
-      VIDEO_WIDTH / 2,
-      ctaY + ctaH / 2,
+      ctaCenterX,
+      ctaCenterY,
       ctaW * 0.6
     );
-    aura.addColorStop(0, "rgba(0, 229, 255, 0.32)");
+    aura.addColorStop(0, "rgba(0, 229, 255, 0.35)");
     aura.addColorStop(1, "rgba(0, 229, 255, 0)");
     ctx.fillStyle = aura;
     ctx.fillRect(ctaX - 35, ctaY - 25, ctaW + 70, ctaH + 50);
@@ -512,10 +636,10 @@ export function drawFrame(
   // Transitions
   if (project.transitionType === "FLASH_CUT" && localSec < 0.12) {
     ctx.fillStyle = `rgba(255,255,255,${1 - localSec / 0.12})`;
-    ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+    ctx.fillRect(0, 0, targetW, targetH);
   } else if (project.transitionType === "SMOOTH_FADE" && localSec < 0.45) {
     ctx.fillStyle = `rgba(0,0,0,${1 - localSec / 0.45})`;
-    ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+    ctx.fillRect(0, 0, targetW, targetH);
   }
 
   ctx.restore();
@@ -649,7 +773,7 @@ async function decodeInContext(blob: Blob, offline: OfflineAudioContext): Promis
   return offline.decodeAudioData(data.slice(0));
 }
 
-function pickVideoCodec(): Promise<string | null> {
+function pickVideoCodec(targetW = VIDEO_WIDTH, targetH = VIDEO_HEIGHT): Promise<string | null> {
   const candidates = ["avc1.640028", "avc1.4d0028", "avc1.42002a", "avc1.42001f"];
   return (async () => {
     if (typeof VideoEncoder === "undefined") return null;
@@ -657,8 +781,8 @@ function pickVideoCodec(): Promise<string | null> {
       try {
         const support = await VideoEncoder.isConfigSupported({
           codec,
-          width: VIDEO_WIDTH,
-          height: VIDEO_HEIGHT,
+          width: targetW,
+          height: targetH,
           bitrate: 3_500_000,
           framerate: VIDEO_FPS,
         });
@@ -690,7 +814,12 @@ async function exportWithWebCodecs(
   input: ExportInput,
   images: Map<number, ShotImage>
 ): Promise<ExportResult | null> {
-  const codec = await pickVideoCodec();
+  const { project, onProgress, signal } = input;
+  const dims = getVideoDimensions(project.aspectRatio);
+  const targetW = dims.width;
+  const targetH = dims.height;
+
+  const codec = await pickVideoCodec(targetW, targetH);
   if (!codec) return null;
 
   const preset = input.compressionPreset ?? "balanced";
@@ -698,7 +827,6 @@ async function exportWithWebCodecs(
   const videoBitrate = profile.videoBitrate;
   const audioBitrate = profile.audioBitrate;
 
-  const { project, onProgress, signal } = input;
   const timeline = computeProjectTimeline(project);
   const totalSec = timeline.totalDurationSec;
   const totalFrames = Math.max(1, Math.round(totalSec * VIDEO_FPS));
@@ -709,15 +837,15 @@ async function exportWithWebCodecs(
   const audioOk = hasAudio ? await supportsAac() : false;
 
   const canvas = document.createElement("canvas");
-  canvas.width = VIDEO_WIDTH;
-  canvas.height = VIDEO_HEIGHT;
+  canvas.width = targetW;
+  canvas.height = targetH;
   const ctx = canvas.getContext("2d", { willReadFrequently: false });
   if (!ctx) return null;
 
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
-    video: { codec: "avc", width: VIDEO_WIDTH, height: VIDEO_HEIGHT, frameRate: VIDEO_FPS },
+    video: { codec: "avc", width: targetW, height: targetH, frameRate: VIDEO_FPS },
     audio:
       hasAudio && audioOk
         ? { codec: "aac", numberOfChannels: 2, sampleRate: AUDIO_SAMPLE_RATE }
@@ -734,8 +862,8 @@ async function exportWithWebCodecs(
   });
   videoEncoder.configure({
     codec,
-    width: VIDEO_WIDTH,
-    height: VIDEO_HEIGHT,
+    width: targetW,
+    height: targetH,
     bitrate: videoBitrate,
     framerate: VIDEO_FPS,
   });
@@ -848,9 +976,13 @@ async function exportWithMediaRecorder(
   const timeline = computeProjectTimeline(project);
   const totalSec = timeline.totalDurationSec;
 
+  const dims = getVideoDimensions(project.aspectRatio);
+  const targetW = dims.width;
+  const targetH = dims.height;
+
   const canvas = document.createElement("canvas");
-  canvas.width = VIDEO_WIDTH;
-  canvas.height = VIDEO_HEIGHT;
+  canvas.width = targetW;
+  canvas.height = targetH;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas_unavailable");
 

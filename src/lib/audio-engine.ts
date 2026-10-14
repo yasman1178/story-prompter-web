@@ -1,4 +1,4 @@
-import type { BgmTrack, SfxTypeId } from "@/lib/types";
+import type { BgmTrack } from "@/lib/types";
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -10,7 +10,8 @@ const bufferCache = new Map<string, AudioBuffer>();
 
 function getContext(): AudioContext {
   if (!ctx) {
-    ctx = new AudioContext();
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    ctx = new AudioCtx();
     masterGain = ctx.createGain();
     masterGain.gain.value = volume;
     masterGain.connect(ctx.destination);
@@ -73,67 +74,11 @@ async function renderBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
   return await offline.startRendering();
 }
 
-const SFX_RECIPES: Record<SfxTypeId, { type: OscillatorType; from: number; to: number; dur: number; noise: number }> = {
-  MONSTER_ROAR: { type: "sawtooth", from: 180, to: 55, dur: 1.1, noise: 0.25 },
-  HEARTBEAT: { type: "sine", from: 90, to: 45, dur: 0.28, noise: 0.05 },
-  STONE_CREAK: { type: "triangle", from: 220, to: 320, dur: 0.9, noise: 0.3 },
-  HEAVY_SLAM: { type: "square", from: 120, to: 40, dur: 0.4, noise: 0.4 },
-  LASER_BEAM: { type: "square", from: 1400, to: 200, dur: 0.35, noise: 0.05 },
-  HEALING_MAGIC: { type: "sine", from: 520, to: 1040, dur: 0.7, noise: 0.02 },
-  FOOTSTEPS: { type: "triangle", from: 140, to: 90, dur: 0.18, noise: 0.35 },
-  LAUGHTER: { type: "square", from: 300, to: 480, dur: 0.5, noise: 0.1 },
-};
-
-async function renderSfxBuffer(type: SfxTypeId): Promise<AudioBuffer> {
-  const sampleRate = 44100;
-  const recipe = SFX_RECIPES[type];
-  const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * recipe.dur), sampleRate);
-
-  const osc = offline.createOscillator();
-  osc.type = recipe.type;
-  osc.frequency.setValueAtTime(recipe.from, 0);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(20, recipe.to), recipe.dur);
-  const env = offline.createGain();
-  env.gain.setValueAtTime(0.0001, 0);
-  env.gain.exponentialRampToValueAtTime(0.8, Math.min(0.05, recipe.dur * 0.2));
-  env.gain.exponentialRampToValueAtTime(0.0001, recipe.dur);
-  osc.connect(env);
-  env.connect(offline.destination);
-  osc.start(0);
-  osc.stop(recipe.dur);
-
-  if (recipe.noise > 0) {
-    const noiseLen = Math.ceil(sampleRate * recipe.dur);
-    const noiseBuffer = offline.createBuffer(1, noiseLen, sampleRate);
-    const channel = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < noiseLen; i++) channel[i] = (Math.random() * 2 - 1) * recipe.noise;
-    const noise = offline.createBufferSource();
-    noise.buffer = noiseBuffer;
-    const nenv = offline.createGain();
-    nenv.gain.setValueAtTime(recipe.noise, 0);
-    nenv.gain.exponentialRampToValueAtTime(0.0001, recipe.dur);
-    noise.connect(nenv);
-    nenv.connect(offline.destination);
-    noise.start(0);
-  }
-
-  return await offline.startRendering();
-}
-
 export async function getBgmBuffer(track: BgmTrack): Promise<AudioBuffer> {
   const cacheKey = `synth:${track.id}`;
   const cached = bufferCache.get(cacheKey);
   if (cached) return cached;
   const rendered = await renderBgmBuffer(track);
-  bufferCache.set(cacheKey, rendered);
-  return rendered;
-}
-
-export async function getSfxBuffer(type: SfxTypeId): Promise<AudioBuffer> {
-  const cacheKey = `sfx:${type}`;
-  const cached = bufferCache.get(cacheKey);
-  if (cached) return cached;
-  const rendered = await renderSfxBuffer(type);
   bufferCache.set(cacheKey, rendered);
   return rendered;
 }
@@ -164,53 +109,44 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
     toFreq = name.includes("laser") ? 90 : name.includes("slash") ? 140 : name.includes("explosion") ? 30 : 45;
     noiseAmt = name.includes("explosion") ? 0.65 : name.includes("slash") ? 0.4 : 0.3;
     filterFreq = name.includes("clang") ? 3200 : 900;
-  } else if (cat.includes("horror") || cat.includes("suspense")) {
-    dur = name.includes("drone") || name.includes("whisper") ? 1.8 : 0.95;
-    wave = name.includes("roar") ? "sawtooth" : name.includes("sub") ? "sine" : "triangle";
-    fromFreq = name.includes("riser") ? 95 : name.includes("roar") ? 240 : 80;
-    toFreq = name.includes("riser") ? 720 : 35;
-    noiseAmt = name.includes("whisper") || name.includes("wind") ? 0.5 : 0.2;
-    filterFreq = 650;
-  } else if (cat.includes("movement") || cat.includes("transition")) {
-    dur = name.includes("whoosh") || name.includes("swoosh") ? 0.42 : name.includes("door") ? 1.0 : 0.5;
-    wave = name.includes("door") ? "sawtooth" : "sine";
-    fromFreq = name.includes("whoosh") ? 650 : 160;
-    toFreq = name.includes("whoosh") ? 90 : 45;
-    noiseAmt = name.includes("whoosh") ? 0.55 : 0.25;
-    filterFreq = 1400;
+  } else if (cat.includes("monster") || cat.includes("vocal") || cat.includes("roar")) {
+    dur = name.includes("roar") ? 1.4 : 0.95;
+    wave = "sawtooth";
+    fromFreq = name.includes("growl") ? 120 : 260;
+    toFreq = 42;
+    noiseAmt = 0.38;
+    filterFreq = 750;
+  } else if (cat.includes("suspense") || cat.includes("trap") || cat.includes("creak")) {
+    dur = name.includes("door") || name.includes("creak") ? 1.2 : name.includes("slam") ? 0.5 : 1.5;
+    wave = name.includes("slam") ? "square" : name.includes("heart") ? "sine" : "triangle";
+    fromFreq = name.includes("heart") ? 95 : name.includes("slam") ? 140 : 180;
+    toFreq = name.includes("heart") ? 45 : name.includes("slam") ? 35 : 320;
+    noiseAmt = name.includes("slam") ? 0.45 : 0.2;
+    filterFreq = 950;
   } else if (cat.includes("magic") || cat.includes("energy")) {
-    dur = name.includes("aura") || name.includes("surge") ? 1.3 : 0.75;
+    dur = name.includes("charge") ? 1.1 : name.includes("portal") ? 1.5 : 0.8;
     wave = "sine";
-    fromFreq = name.includes("heal") || name.includes("chime") ? 587 : 440;
-    toFreq = name.includes("heal") || name.includes("sparkle") ? 1200 : 880;
-    noiseAmt = 0.04;
-    filterFreq = 4000;
-  } else if (cat.includes("humor") || cat.includes("ui")) {
-    dur = name.includes("horn") ? 0.85 : name.includes("click") ? 0.12 : 0.45;
-    wave = name.includes("boing") ? "triangle" : name.includes("pop") ? "sine" : "square";
-    fromFreq = name.includes("boing") ? 220 : name.includes("pop") ? 640 : 420;
-    toFreq = name.includes("boing") ? 920 : name.includes("pop") ? 140 : 520;
-    noiseAmt = name.includes("scratch") ? 0.6 : 0.02;
-    filterFreq = 2200;
+    fromFreq = name.includes("laser") ? 1600 : name.includes("heal") ? 587 : 440;
+    toFreq = name.includes("laser") ? 120 : name.includes("heal") ? 1174 : 880;
+    noiseAmt = 0.05;
+    filterFreq = 3800;
   } else {
-    dur = 0.6;
+    dur = 0.5;
     wave = "triangle";
-    fromFreq = 260;
-    toFreq = 160;
-    noiseAmt = 0.2;
+    fromFreq = 220;
+    toFreq = 120;
+    noiseAmt = 0.25;
     filterFreq = 1100;
   }
 
   const offline = new OfflineAudioContext(1, Math.ceil(sampleRate * dur), sampleRate);
 
-  // Filter stage for cinematic richness
   const filter = offline.createBiquadFilter();
   filter.type = filterType;
   filter.frequency.setValueAtTime(filterFreq, 0);
   filter.frequency.exponentialRampToValueAtTime(Math.max(60, filterFreq * 0.4), dur);
   filter.connect(offline.destination);
 
-  // Primary body oscillator
   const osc = offline.createOscillator();
   osc.type = wave;
   osc.frequency.setValueAtTime(fromFreq, 0);
@@ -218,14 +154,13 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
 
   const env = offline.createGain();
   env.gain.setValueAtTime(0.0001, 0);
-  env.gain.exponentialRampToValueAtTime(0.7, Math.min(0.04, dur * 0.15));
+  env.gain.exponentialRampToValueAtTime(0.75, Math.min(0.04, dur * 0.15));
   env.gain.exponentialRampToValueAtTime(0.0001, dur);
   osc.connect(env);
   env.connect(filter);
   osc.start(0);
   osc.stop(dur);
 
-  // Sub-bass punch layer for high impact realism
   if (fromFreq < 500 && dur > 0.3) {
     const subOsc = offline.createOscillator();
     subOsc.type = "sine";
@@ -241,23 +176,6 @@ async function renderCatalogSfxBuffer(id: number, categoryEn: string, nameEn: st
     subOsc.stop(Math.min(0.45, dur));
   }
 
-  // Harmonic shimmer overtone for magic or clangs
-  if (cat.includes("magic") || name.includes("clang") || name.includes("metal")) {
-    const highOsc = offline.createOscillator();
-    highOsc.type = "sine";
-    highOsc.frequency.setValueAtTime(fromFreq * 2.02, 0);
-    highOsc.frequency.exponentialRampToValueAtTime(toFreq * 1.5, dur);
-    const highEnv = offline.createGain();
-    highEnv.gain.setValueAtTime(0.0001, 0);
-    highEnv.gain.exponentialRampToValueAtTime(0.25, 0.03);
-    highEnv.gain.exponentialRampToValueAtTime(0.0001, dur * 0.7);
-    highOsc.connect(highEnv);
-    highEnv.connect(filter);
-    highOsc.start(0);
-    highOsc.stop(dur);
-  }
-
-  // Filtered shaped noise for realism (swishes, explosions, air friction)
   if (noiseAmt > 0) {
     const len = Math.ceil(sampleRate * dur);
     const nBuf = offline.createBuffer(1, len, sampleRate);
@@ -344,23 +262,6 @@ export const audioEngine = {
     return activeTrackId === trackId;
   },
 
-  async playSfx(type: SfxTypeId, sfxVolume = 0.8) {
-    const audio = getContext();
-    const cacheKey = `sfx:${type}`;
-    let buffer = bufferCache.get(cacheKey);
-    if (!buffer) {
-      buffer = await renderSfxBuffer(type);
-      bufferCache.set(cacheKey, buffer);
-    }
-    const source = audio.createBufferSource();
-    source.buffer = buffer;
-    const gain = audio.createGain();
-    gain.gain.value = Math.max(0, Math.min(1, sfxVolume));
-    source.connect(gain);
-    gain.connect(masterGain!);
-    source.start();
-  },
-
   async playCatalogSfx(
     item: { id: number; nameEn: string; categoryEn: string; volume?: number },
     customVolume?: number
@@ -380,7 +281,6 @@ export const audioEngine = {
   playLikeSubscribeChime() {
     const audio = getContext();
     const now = audio.currentTime;
-    // Pleasant dual harmonic chime (E5 -> G#5 -> B5 -> E6)
     const notes = [659.25, 830.61, 987.77, 1318.51];
     notes.forEach((freq, idx) => {
       const osc = audio.createOscillator();

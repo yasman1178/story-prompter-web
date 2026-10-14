@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Bell, Check, Heart, Sparkles, ThumbsUp } from "lucide-react";
 import { audioEngine } from "@/lib/audio-engine";
+import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { cn } from "@/lib/utils";
 
 interface LikeSubscribeCtaProps {
@@ -34,7 +35,10 @@ export function LikeSubscribeCta({
   function handleLike(e: React.MouseEvent) {
     e.stopPropagation();
     if (!interactive) return;
-    audioEngine.playCatalogSfx({ id: 83, nameEn: "Success Chime", categoryEn: "Humor & UI Effects", volume: 70 });
+    const magicChime = SFX_CATALOG.find((s) => s.id === 17);
+    if (magicChime) {
+      void audioEngine.playCatalogSfx(magicChime, 0.7);
+    }
     setLiked((l) => {
       const next = !l;
       setLikeCount((c) => (next ? c + 1 : c - 1));

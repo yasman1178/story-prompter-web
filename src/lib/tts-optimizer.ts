@@ -1,5 +1,5 @@
 /**
- * Egyptian Edge-TTS Optimization Engine (Pure Clean Text Standard v15)
+ * Egyptian Edge-TTS Optimization Engine (Pure Clean Text Standard V16)
  *
  * Implements the master rules for Egyptian voiceover narration:
  * 1. Pure clean narration free from brackets [...], (parentheses), or directorial notes.
@@ -8,6 +8,7 @@
  * 4. Punctuation distribution for natural pacing (commas for breath, periods for cadence, exclamation for power).
  * 5. Elimination of banned clichés ("يا جدع", "تخيل يا صاحبي").
  * 6. Purification of religious/inappropriate terms into clean fantasy/heroic alternatives.
+ * 7. Stripping of code/markdown syntax tokens (#, *, _, ~, `, @) to prevent Edge-TTS reading symbols.
  */
 
 export interface OptimizedVoiceoverResult {
@@ -25,23 +26,30 @@ const CLICHE_REPLACEMENTS: [RegExp, string][] = [
   [/يا\s+راجل[,،\s]*/gi, ""],
 ];
 
-// Religious/taboo terms to purify into heroic fantasy language
+// Religious/taboo terms to purify into heroic fantasy language according to V16 Master Standards
 const RELIGIOUS_PURIFICATIONS: [RegExp, string][] = [
+  [/معبد\s+الآلهة/g, "معبد التماثيل الأثرية"],
+  [/تمثال\s+الإله/g, "تمثال المعبد الضخم"],
+  [/آلهة/g, "قوى المعبد الأثرية"],
+  [/إله/g, "كيان جبار"],
   [/جهنم/g, "الهاوية المظلمة"],
   [/العرش/g, "كرسي الحكم الحجري"],
   [/عرش/g, "منصة الحكم"],
   [/شيطان/g, "وحش كاسر"],
   [/شياطين/g, "وحوش الظلام"],
+  [/ملائكة/g, "حراس النور"],
+  [/ملاك/g, "حارس النور"],
   [/لعنة\s+الله/g, "غضب الطبيعة"],
   [/والله\s+العظيم/g, "بكل تأكيد"],
   [/والله/g, "فعلاً"],
-  [/يا\s+رب/g, "يا لطيف"],
+  [/يا\s+رب/g, "يا ساتر"],
+  [/ربنا/g, "القدر"],
   [/حرام/g, "ظلم كبير"],
   [/حلال/g, "حق أصيل"],
 ];
 
 /**
- * Optimizes an Egyptian Arabic voiceover string for Edge-TTS playback.
+ * Optimizes an Egyptian Arabic voiceover string for Edge-TTS playback according to V16 standards.
  */
 export function optimizeEgyptianVoiceover(
   rawText: string,
@@ -55,12 +63,12 @@ export function optimizeEgyptianVoiceover(
   let text = rawText.trim();
   let vocalCue = existingCue?.trim() || "";
 
-  // 1. Extract bracketed directorial cues like [بنبرة حماسية] or [وقفة تشويقية]
-  const bracketMatches = text.match(/\[(.*?)\]|\((.*?)\)/g);
+  // 1. Extract bracketed directorial cues like [بنبرة حماسية], (وقفة تشويقية), {همس}, <صوت عميق>
+  const bracketMatches = text.match(/\[(.*?)\]|\((.*?)\)|\{(.*?)\}|\<(.*?)\>/g);
   if (bracketMatches) {
     const extracted: string[] = [];
     for (const match of bracketMatches) {
-      const inner = match.replace(/^[\[\(]|[\]\)]$/g, "").trim();
+      const inner = match.replace(/^[\[\(\{<]|[\]\)\}>]$/g, "").trim();
       if (
         inner &&
         (inner.includes("نبرة") ||
@@ -71,31 +79,39 @@ export function optimizeEgyptianVoiceover(
           inner.includes("صرخة") ||
           inner.includes("غموض") ||
           inner.includes("شجن") ||
-          inner.includes("تحدي"))
+          inner.includes("تحدي") ||
+          inner.includes("رعب") ||
+          inner.includes("هدوء"))
       ) {
         extracted.push(inner);
       }
     }
     if (extracted.length > 0) {
       vocalCue = vocalCue ? `${vocalCue} - ${extracted.join(" ")}` : extracted.join(" - ");
-      changes.push(`استخراج توجيه النبرة (${extracted.join("، ")}) إلى حقل التوجيه الإخراجي`);
+      changes.push(`استخراج توجيه النبرة (${extracted.join("، ")}) إلى حقل التوجيه الإخراجي V16`);
     }
     // Remove all brackets from the narration
-    text = text.replace(/\[.*?\]|\(.*?\)/g, " ");
-    changes.push("إزالة الأقواس التوجيهية من نص التعليق");
+    text = text.replace(/\[.*?\]|\(.*?\)|<.*?>|\{.*?\}/g, " ");
+    changes.push("إزالة الأقواس والتوجيهات من نص التعليق (قاعدة النص الصافي 100%)");
   }
 
-  // 2. Remove all dashes and hyphens (-- / — / -) to prevent TTS pronouncing "شرطة شرطة"
+  // 2. Remove all dashes and hyphens (-- / — / – / -) to prevent TTS pronouncing "شرطة شرطة"
   if (/--|—|–|-{2,}/.test(text)) {
-    text = text.replace(/--+|—|–/g, ", ");
+    text = text.replace(/--+|—|–/g, "، ");
     changes.push("استبدال الشرطات (--) بفاصلة صوتية لمنع نطق 'شرطة شرطة'");
   }
   // Standalone single hyphen surrounded by spaces
   if (/\s-\s/.test(text)) {
-    text = text.replace(/\s-\s/g, ", ");
+    text = text.replace(/\s-\s/g, "، ");
   }
 
-  // 3. Remove banned cliches
+  // 3. Remove markdown syntax characters that Edge-TTS might articulate aloud
+  if (/[#*_~`@/\\|^]/.test(text)) {
+    text = text.replace(/[#*_~`@/\\|^]/g, " ");
+    changes.push("تنظيف رموز الماركداون والأسلاك التقنية");
+  }
+
+  // 4. Remove banned cliches
   for (const [regex, replacement] of CLICHE_REPLACEMENTS) {
     if (regex.test(text)) {
       text = text.replace(regex, replacement);
@@ -103,7 +119,7 @@ export function optimizeEgyptianVoiceover(
     }
   }
 
-  // 4. Religious and taboo purifications
+  // 5. Religious and metaphorical purifications according to V16
   for (const [regex, replacement] of RELIGIOUS_PURIFICATIONS) {
     if (regex.test(text)) {
       text = text.replace(regex, replacement);
@@ -111,9 +127,9 @@ export function optimizeEgyptianVoiceover(
     }
   }
 
-  // 5. Punctuation and breath pacing distribution
-  // Normalize Arabic comma and English comma to clean comma with single trailing space
-  text = text.replace(/([،,])+/g, ", ");
+  // 6. Punctuation and breath pacing distribution
+  // Normalize commas to clean Arabic comma with single space
+  text = text.replace(/([،,])+/g, "، ");
   // Ensure period has clean spacing
   text = text.replace(/\.+/g, ". ");
   // Ensure exclamation and question marks have clean spacing
@@ -130,11 +146,11 @@ export function optimizeEgyptianVoiceover(
     for (let i = 0; i < words.length; i++) {
       pacedWords.push(words[i]);
       if ((i + 1) % 7 === 0 && i < words.length - 2) {
-        pacedWords[pacedWords.length - 1] += ",";
+        pacedWords[pacedWords.length - 1] += "،";
       }
     }
     text = pacedWords.join(" ") + "!";
-    changes.push("توزيع علامات الترقيم (فواصل ونقاط) لمنع السرعة الزائدة وموازنة النفس");
+    changes.push("توزيع علامات الترقيم (فواصل ونقاط) لوقفات تنفسية مريحة");
   }
 
   // Ensure sentence ends with an expressive punctuation mark

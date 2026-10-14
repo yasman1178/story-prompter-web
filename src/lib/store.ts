@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import { BGM_TRACKS, createSampleProject, parseStoryJson } from "@/lib/data";
-import { StoryProject, StoryShot, TransitionTypeId } from "@/lib/types";
+import {
+  AspectRatioType,
+  OverlayPosition,
+  StoryProject,
+  StoryShot,
+  TransitionTypeId,
+  VfxPresetId,
+  VfxSettings,
+} from "@/lib/types";
 import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
 import { syncProjectShotTimeframes } from "@/lib/timeline";
@@ -8,6 +16,37 @@ import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
 
 const PROJECT_KEY = "project";
 const SETTINGS_KEY = "settings";
+
+export const VFX_PRESETS: Record<VfxPresetId, VfxSettings> = {
+  action: {
+    parallaxDepth: 70,
+    dynamicRelighting: 85,
+    runeParticles: 75,
+    motionIntensity: 85,
+    preset: "action",
+  },
+  mystery: {
+    parallaxDepth: 90,
+    dynamicRelighting: 45,
+    runeParticles: 60,
+    motionIntensity: 50,
+    preset: "mystery",
+  },
+  subtle: {
+    parallaxDepth: 35,
+    dynamicRelighting: 25,
+    runeParticles: 15,
+    motionIntensity: 30,
+    preset: "subtle",
+  },
+  custom: {
+    parallaxDepth: 50,
+    dynamicRelighting: 50,
+    runeParticles: 50,
+    motionIntensity: 50,
+    preset: "custom",
+  },
+};
 
 interface Settings {
   voiceVolume: number;
@@ -33,6 +72,7 @@ interface StudioState {
   loadSample: () => void;
   importJson: (json: string) => boolean;
 
+  setAspectRatio: (ratio: AspectRatioType) => void;
   setShotDuration: (seconds: number) => void;
   toggleSubtitles: (show: boolean) => void;
   setTransitionType: (type: TransitionTypeId) => void;
@@ -52,6 +92,13 @@ interface StudioState {
   optimizeShotVoiceover: (shotNumber: number) => void;
   optimizeProjectVoiceovers: () => void;
   toggleDazzlingCTA: (enabled: boolean) => void;
+  setShotVfxSettings: (shotNumber: number, settings: Partial<VfxSettings>) => void;
+  setProjectVfxSettings: (settings: Partial<VfxSettings>) => void;
+  applyVfxPreset: (preset: VfxPresetId, shotNumber?: number) => void;
+  setShotTextOverlayPos: (shotNumber: number, pos: OverlayPosition) => void;
+  setShotCtaPos: (shotNumber: number, pos: OverlayPosition) => void;
+  setDefaultTextOverlayPos: (pos: OverlayPosition) => void;
+  setDefaultCtaPos: (pos: OverlayPosition) => void;
   toggleVFX: (
     key:
       | "enableVFXParticles"
@@ -161,6 +208,15 @@ export const useStudio = create<StudioState>((set, get) => ({
     }
     set({ project: parsed, activeShotIndex: 0, feedback: `تم استيراد ${parsed.shots.length} مشهد بنجاح.` });
     return true;
+  },
+
+  setAspectRatio: (ratio) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: { ...project, aspectRatio: ratio },
+      feedback: `تم تحويل أبعاد الفيديو إلى ${ratio === "9:16" ? "9:16 (شورتس/تيك توك)" : ratio === "16:9" ? "16:9 (عرضي)" : "1:1 (مربع)"}`,
+    });
   },
 
   setShotDuration: (seconds) => {
@@ -377,6 +433,78 @@ export const useStudio = create<StudioState>((set, get) => ({
       project: { ...project, enableDazzlingCTA: enabled },
       feedback: enabled ? "تم تفعيل زر الإعجاب والاشتراك المبهر 🔔" : "تم إخفاء زر الإعجاب والاشتراك",
     });
+  },
+
+  setShotVfxSettings: (shotNumber, settings) => {
+    const project = get().project;
+    if (!project) return;
+    const currentProjVfx = project.vfxSettings ?? VFX_PRESETS.action;
+    const shots = project.shots.map((s) => {
+      if (s.shotNumber !== shotNumber) return s;
+      const current = s.vfxSettings ?? currentProjVfx;
+      return {
+        ...s,
+        vfxSettings: { ...current, ...settings, preset: "custom" as const },
+      };
+    });
+    set({ project: { ...project, shots } });
+  },
+
+  setProjectVfxSettings: (settings) => {
+    const project = get().project;
+    if (!project) return;
+    const current = project.vfxSettings ?? VFX_PRESETS.action;
+    const updated: VfxSettings = { ...current, ...settings, preset: "custom" };
+    const shots = project.shots.map((s) => ({
+      ...s,
+      vfxSettings: s.vfxSettings ? { ...s.vfxSettings, ...settings, preset: "custom" as const } : updated,
+    }));
+    set({ project: { ...project, vfxSettings: updated, shots } });
+  },
+
+  applyVfxPreset: (presetId, shotNumber) => {
+    const project = get().project;
+    if (!project) return;
+    const preset = VFX_PRESETS[presetId] ?? VFX_PRESETS.action;
+    const labelAr = presetId === "action" ? "أكشن وحماس" : presetId === "mystery" ? "غموض وسحر" : "سينمائي هادئ";
+    if (typeof shotNumber === "number") {
+      const shots = project.shots.map((s) =>
+        s.shotNumber === shotNumber ? { ...s, vfxSettings: { ...preset } } : s
+      );
+      set({ project: { ...project, shots }, feedback: `تم تطبيق قالب [${labelAr}] للمشهد #${shotNumber}` });
+    } else {
+      const shots = project.shots.map((s) => ({ ...s, vfxSettings: { ...preset } }));
+      set({
+        project: { ...project, vfxSettings: { ...preset }, shots },
+        feedback: `تم تطبيق قالب [${labelAr}] على جميع مشاهد المشروع بنجاح ✨`,
+      });
+    }
+  },
+
+  setShotTextOverlayPos: (shotNumber, pos) => {
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) => (s.shotNumber === shotNumber ? { ...s, textOverlayPos: pos } : s));
+    set({ project: { ...project, shots } });
+  },
+
+  setShotCtaPos: (shotNumber, pos) => {
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) => (s.shotNumber === shotNumber ? { ...s, ctaPos: pos } : s));
+    set({ project: { ...project, shots } });
+  },
+
+  setDefaultTextOverlayPos: (pos) => {
+    const project = get().project;
+    if (!project) return;
+    set({ project: { ...project, defaultTextOverlayPos: pos } });
+  },
+
+  setDefaultCtaPos: (pos) => {
+    const project = get().project;
+    if (!project) return;
+    set({ project: { ...project, defaultCtaPos: pos } });
   },
 
   toggleVFX: (key, value) => {

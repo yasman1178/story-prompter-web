@@ -73,23 +73,21 @@ export interface BgmTrack {
   assetFileName?: string;
 }
 
-export type SfxTypeId =
-  | "MONSTER_ROAR"
-  | "HEARTBEAT"
-  | "STONE_CREAK"
-  | "HEAVY_SLAM"
-  | "LASER_BEAM"
-  | "HEALING_MAGIC"
-  | "FOOTSTEPS"
-  | "LAUGHTER";
+export type AspectRatioType = "9:16" | "16:9" | "1:1";
 
-export interface SfxEffect {
-  id: number;
-  nameAr: string;
-  nameEn: string;
-  description: string;
-  iconName: string;
-  type: SfxTypeId;
+export type VfxPresetId = "action" | "mystery" | "subtle" | "custom";
+
+export interface VfxSettings {
+  parallaxDepth: number;     // 0 - 100
+  dynamicRelighting: number; // 0 - 100
+  runeParticles: number;     // 0 - 100
+  motionIntensity: number;   // 0 - 100
+  preset: VfxPresetId;
+}
+
+export interface OverlayPosition {
+  x: number; // 0.0 - 1.0 (relative width)
+  y: number; // 0.0 - 1.0 (relative height)
 }
 
 export interface DialogueLine {
@@ -126,6 +124,13 @@ export interface StoryShot {
   sfxVolumePercent: number;
   sfxTriggerSec: number;
   dialogueLines: DialogueLine[];
+  vfxSettings?: VfxSettings;
+  textOverlayPos?: OverlayPosition;
+  ctaPos?: OverlayPosition;
+  vfxSpatialLayers?: {
+    runeCenter?: { x: number; y: number };
+    lightFocus?: { x: number; y: number };
+  };
 }
 
 export interface SeoMetadata {
@@ -146,7 +151,7 @@ export interface StoryProject {
   id: string;
   title: string;
   platform: string;
-  aspectRatio: string;
+  aspectRatio: AspectRatioType | string;
   totalShots: number;
   language: string;
   shots: StoryShot[];
@@ -163,6 +168,9 @@ export interface StoryProject {
   showChannelWatermark: boolean;
   showSubscribeCta: boolean;
   enableDazzlingCTA?: boolean;
+  vfxSettings?: VfxSettings;
+  defaultTextOverlayPos?: OverlayPosition;
+  defaultCtaPos?: OverlayPosition;
   enableVFXParticles?: boolean;
   enableVFXVignette?: boolean;
   enableVFXLaserFlare?: boolean;
