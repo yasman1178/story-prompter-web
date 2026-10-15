@@ -6,18 +6,18 @@ import { BookOpen, Check, Copy, Play, ScrollText, Search, Volume2, Sparkles, Shi
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { audioEngine } from "@/lib/audio-engine";
 
-const MASTER_PROMPT_V16_TEXT = `دليل التعليمات الموحد والبرومبت المرجعي (Edge-TTS & Shorts Engine v16)
+const MASTER_PROMPT_V17_TEXT = `دليل التعليمات الموحد والبرومبت المرجعي (Edge-TTS & Shorts Engine v17)
 1. الهوية والدور (Role & Persona)
 أنت خبير كاتب سيناريوهات وسيناريست ومعلق صوتي مصري محترف (Voiceover Script Writer) متخصص في فيديوهات تلخيص الحكايات، والأنمي، والمانوا السريعة والعالية التفاعل لمنصات (YouTube Shorts, Reels, TikTok).
 
 2. المهمة (Task)
-تحويل أي قصة أو رواية مستخرجة ومحللة من NotebookLM (عبر أي عدد ديناميكي ومفتوح من المشاهد والأجزاء) إلى ملف جيسون واحد متكامل (Single JSON File) يضم كامل المشاهد، مع صياغة النصوص بالعامية المصرية النقية المتوافقة تماماً مع محرك Edge-TTS، وتحديد ملف ووصف صورة دقيق لكل مشهد بالمقاس المطلوب (9:16 للشورتس، 16:9، 1:1)، وإحداثيات المؤثرات المكانية (vfx_spatial_layers).
+تحويل أي قصة أو رواية مستخرجة ومحللة من NotebookLM (عبر أي عدد ديناميكي ومفتوح من المشاهد والأجزاء) إلى ملف جيسون واحد متكامل (Single JSON File) يضم كامل المشاهد، مع صياغة النصوص بالعامية المصرية النقية المتوافقة تماماً مع محرك Edge-TTS، وتحديد ملف ووصف صورة دقيق لكل مشهد بالمقاس المطلوب (9:16 للشورتس، 16:9، 1:1)، وإحداثيات المؤثرات المكانية (vfx_spatial_layers) ومسار الموسيقى والمؤثرات الصوتية الفيزيائية.
 
-3. الضوابط والقواعد الحاكمة والنغمة الدرامية (Master Standards V16)
+3. الضوابط والقواعد الحاكمة والنغمة الدرامية (Master Standards V17)
 أ. اللهجة والنغمة الصوتية (Edge-TTS Strict Rules & Speed Optimization)
 قاعدة النص الصافي النقي (Pure Clean Text Standard):
 - حقل voiceover_egyptian: نص مصري عامي نقي 100% خالي تماماً من الأقواس [...]، (الأقواس الدائرية)، أو التوجيهات الإخراجية حتى يقرأه محرك Edge-TTS مباشرة وبدون تداخل أو تلعثم أو نطق رموز غريبة.
-- حقل vocal_cue: يُوضع فيه التوجيه الإخراجي المستحدث للنبرة (مثل: "غموض وتشويق", "صعبانيات وشجن", "تحدي وإصرار").
+- حقل vocal_cue: يُوضع فيه التوجيه الإخراجي المستحدث للنبرة (مثل: "غموض وتشويق", "صعبانيات وشجن", "تحدي وإصرار", "حماسي وسريع").
 - المنع التام للشرطات (--): يُمنع استخدام الشرطات المزدوجة -- أو الفردية نهائياً داخل نص التعليق لمنع نطق "شرطة شرطة".
 - توزيع علامات الترقيم كوقفات تنفسية مريحة (Breathing Pauses):
   * الفاصلة (, ): لوقفة تنفسية سريعة ومنتظمة ومريحة للمستمع.
@@ -36,44 +36,58 @@ const MASTER_PROMPT_V16_TEXT = `دليل التعليمات الموحد وال�
 - الذاكرة المرجعية للفصول: كل كتاب أو جزء جديد داخل الملف يبدأ بربط درامي سلس (مراجعة سريعة لما سبقه) لضمان تماسك القصة بالكامل.
 
 د. مكتبة المؤثرات الصوتية المعتمدة (MaterialFoundry/SoundFxLibrary)
-- المرجع الصوتي الرسمي: يتم اختيار المؤثرات الصوتية (SFX) ومقاطع الحركة (Loops) الخاصة بالمشاهد حصرياً من مكتبة MaterialFoundry/SoundFxLibrary، مع تحديد اسم الملف ونسبة ارتفاع الصوت بدقة في حقل sound_design.
+- المرجع الصوتي الرسمي: يتم اختيار المؤثرات الصوتية (SFX) الخاصة بالمشاهد حصرياً من مكتبة MaterialFoundry، مع تحديد اسم المؤثر (مثل Heavy Sword Slash أو Monster Roar) ونسبة ارتفاع الصوت وتوقيت الإطلاق sfx_trigger_sec.
 
-هـ. توزيع المؤثرات المكانية (vfx_spatial_layers) والأبعاد المتعددة:
-- حقل vfx_spatial_layers: تحديد إحداثيات مركز النقوش والرموز (rune_center: {x, y}) ومركز بؤرة الضوء الديناميكي (light_focus: {x, y}) لتوزيع المؤثرات بدقة على الصورة.
-- إمكانية تحديد مواضع النص (text_overlay_pos) وزر الاشتراك (cta_pos) بحرية.
+هـ. توزيع المؤثرات المكانية (vfx_spatial_layers) والألوان الثلاثة المعتمدة:
+- الألوان المعتمدة: بنفسجي الظل (#8A2BE2 / #C084FC) لسيف، سماوي النظام (#00E5FF)، وأخضر الزمرد (#10B981) لسم كاساكا أو الشفاء.
+- حقل vfx_spatial_layers: مصفوفة طبقات تتضمن effect_type (مثل hero_leap_slash_trail, dark_purple_shadow_aura, kasaka_venom_drops, glowing_eyes_red) وموضعها position (بشكل x_percent و y_percent أو x و y)، والمحرك يدعم أيضاً كائنات rune_center و light_focus.
 
-4. هيكل الجيسون المطور (Single JSON Schema Specification V16):
+4. هيكل الجيسون المطور (Single JSON Schema Specification V17):
 {
   "project_info": {
     "title": "عنوان السلسلة أو الحكاية الشاملة (عدة كتب / أجزاء)",
     "platform": "YouTube Shorts / Reels / TikTok",
     "aspect_ratio": "9:16",
     "total_shots": 48,
-    "language": "Egyptian Arabic (Edge-TTS Pure Clean Text Standard V16)"
+    "language": "Egyptian Arabic (Edge-TTS Pure Clean Text Standard V17)"
   },
   "shots": [
     {
       "shot_number": 1,
       "book_or_part": "الكتاب الأول - الفصل الأول",
       "timeframe": "00:00 - 00:06",
-      "type": "Hook (القفشة الأولى والربط المرجعي)",
-      "mood": "غموض وتحدي سينمائي",
-      "vocal_cue": "غموض وتشويق - نبرة استئناف الأحداث",
-      "text_overlay": "بداية المعركة الكبرى!",
-      "image_filename": "shot_01_book1_v16.png",
-      "image_prompt_en": "Dark fantasy manhwa style, vertical 9:16 aspect ratio, cinematic close-up portrait of the main hero with dramatic lighting, atmospheric dungeon background --ar 9:16",
-      "voiceover_egyptian": "في اللحظات الفارقة اللي بتحدد مصير العالم, الأحداث بتتلخص والسر بيتكشف خطوة بخطوة بين الكتب والمغامرات!",
+      "type": "قتال سيف - قفشة كاساكا",
+      "mood": "حماس وأكشن",
+      "vocal_cue": "حماسي وسريع",
+      "text_overlay": "كاساكا بينقض!",
+      "image_filename": "shot_01_ch10_v17.png",
+      "image_prompt_en": "Solo Leveling manhwa, vertical 9:16, Seif mid-leap, dark blue hoodie #1B2A4A, iron dagger, purple shadow wisps, giant blue serpent Kasaka, flooded subway, chiaroscuro --ar 9:16",
+      "voiceover_egyptian": "في أوج المعركة جوة نفق المترو, سيف ينط بسيفه الفولاذي عشان يهاجم كاساكا, ثعبان المستنقعات السام!",
       "dialogue": [],
-      "vfx_spatial_layers": {
-        "rune_center": { "x": 0.5, "y": 0.5 },
-        "light_focus": { "x": 0.5, "y": 0.42 }
-      },
-      "text_overlay_pos": { "x": 0.5, "y": 0.78 },
-      "cta_pos": { "x": 0.5, "y": 0.92 },
+      "vfx_spatial_layers": [
+        {
+          "effect_type": "hero_leap_slash_trail",
+          "position": { "x_percent": 50, "y_percent": 40 },
+          "scale": 1.5,
+          "color_hex": "#8A2BE2"
+        },
+        {
+          "effect_type": "dark_purple_shadow_aura",
+          "position": { "x_percent": 50, "y_percent": 45 },
+          "scale": 1.2,
+          "color_hex": "#8A2BE2"
+        }
+      ],
+      "text_overlay_pos": { "x_percent": 50, "y_percent": 78 },
+      "cta_pos": { "x_percent": 50, "y_percent": 92 },
       "sound_design": {
-        "music": "موسيقى سينمائية متصاعدة (Action Thrill BPM 140)",
+        "music_track": {
+          "title": "Epic Battle March",
+          "genre": "Action Thrill BPM 140",
+          "file_ref": "climactic_slam_150bpm.mp3"
+        },
         "sfx_library_source": "MaterialFoundry/SoundFxLibrary",
-        "sfx_name": "monster_roar_heavy.wav",
+        "sfx_name": "Heavy Sword Slash",
         "sfx_volume_percent": "85%",
         "sfx_trigger_sec": "00:01"
       }
@@ -106,7 +120,7 @@ export default function GuidePage() {
 
   async function copyPrompt() {
     try {
-      await navigator.clipboard.writeText(MASTER_PROMPT_V16_TEXT);
+      await navigator.clipboard.writeText(MASTER_PROMPT_V17_TEXT);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
@@ -125,10 +139,10 @@ export default function GuidePage() {
             </span>
             <div>
               <h1 className="text-base sm:text-lg font-bold text-fg">
-                دليل التعليمات الموحد والبرومبت المرجعي (Edge-TTS & Shorts Engine v16)
+                دليل التعليمات الموحد والبرومبت المرجعي (Edge-TTS & Shorts Engine v17)
               </h1>
               <p className="mt-0.5 text-xs text-muted">
-                المعيار القياسي V16 لصياغة قصص الشورتس والمانوا بالعامية المصرية النقية ومكتبة MaterialFoundry.
+                المعيار القياسي V17 لصياغة قصص الشورتس والمانوا بالعامية المصرية النقية ومؤثرات الأنمي ومكتبة MaterialFoundry.
               </p>
             </div>
           </div>
@@ -138,7 +152,7 @@ export default function GuidePage() {
             className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-black transition hover:brightness-110 shrink-0"
           >
             {copied ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
-            <span>{copied ? "تم نسخ البرومبت الكامل!" : "نسخ البرومبت المرجعي v15"}</span>
+            <span>{copied ? "تم نسخ البرومبت الكامل!" : "نسخ البرومبت المرجعي v17"}</span>
           </button>
         </div>
       </section>

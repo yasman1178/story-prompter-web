@@ -388,13 +388,13 @@ export function drawShotProceduralArt(
 
   // 7. Visual Scene Stamp Header
   ctx.save();
-  // Cinematic vignette dark overlay at bottom for subtitles readability
-  const bGrad = ctx.createLinearGradient(0, h * 0.65, 0, h);
+  // Subtle reading scrim strictly at bottom for subtitle legibility
+  const bGrad = ctx.createLinearGradient(0, h * 0.82, 0, h);
   bGrad.addColorStop(0, "transparent");
-  bGrad.addColorStop(0.5, "rgba(2, 4, 8, 0.82)");
-  bGrad.addColorStop(1, "rgba(2, 4, 8, 0.98)");
+  bGrad.addColorStop(0.6, "rgba(2, 4, 8, 0.32)");
+  bGrad.addColorStop(1, "rgba(2, 4, 8, 0.60)");
   ctx.fillStyle = bGrad;
-  ctx.fillRect(0, h * 0.65, w, h * 0.35);
+  ctx.fillRect(0, h * 0.82, w, h * 0.18);
 
   // Top Chapter & Shot Pill
   const topText = shot.bookOrPart
@@ -414,7 +414,7 @@ export function drawShotProceduralArt(
   ctx.restore();
 }
 
-const SCENE_ART_TYPES_SET = new Set([
+const SCENE_ART_TYPES_SET = new Set<string>([
   "DAGGER_TREMBLING",
   "DUNGEON_FIRMED",
   "SEIF_COFFEE_SMILE",
@@ -431,3 +431,28 @@ const SCENE_ART_TYPES_SET = new Set([
   "THRONE_STATUE_RED_EYES",
   "SEIF_DUCK_WARNING",
 ]);
+
+export function drawSceneArt(
+  ctx: CanvasRenderingContext2D,
+  shot: {
+    shotNumber: number;
+    bookOrPart?: string;
+    type?: string;
+    mood?: string;
+    colorTheme?: string;
+    textOverlay?: string;
+    sceneType?: SceneArtType | string;
+  },
+  zoom = 1,
+  w = 720,
+  h = 1280
+) {
+  ctx.save();
+  if (zoom !== 1) {
+    ctx.translate(w * 0.5, h * 0.5);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-w * 0.5, -h * 0.5);
+  }
+  drawShotProceduralArt(ctx, shot, w, h);
+  ctx.restore();
+}

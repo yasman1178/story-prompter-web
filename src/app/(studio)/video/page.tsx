@@ -36,6 +36,8 @@ import {
 import { cn, formatTimecode } from "@/lib/utils";
 import { computeProjectTimeline } from "@/lib/timeline";
 import { AspectRatioType, VfxPresetId, VfxSettings } from "@/lib/types";
+import { SFX_CATALOG } from "@/lib/sfx-catalog";
+import { matchSfxToCatalog } from "@/lib/data";
 import { LikeSubscribeCta } from "@/components/studio/like-subscribe-cta";
 
 export default function VideoPage() {
@@ -58,6 +60,8 @@ export default function VideoPage() {
   const rafRef = useRef<number | null>(null);
 
   const [playing, setPlaying] = useState(false);
+  const playedSfxShotsRef = useRef<Set<number>>(new Set());
+  const activeVoiceShotRef = useRef<number | null>(null);
   const [displayTime, setDisplayTime] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -152,6 +156,8 @@ export default function VideoPage() {
   useEffect(() => {
     if (!playing) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      playedSfxShotsRef.current.clear();
+      activeVoiceShotRef.current = null;
       return;
     }
     const startAt = performance.now() - timeRef.current * 1000;
@@ -162,18 +168,55 @@ export default function VideoPage() {
         timeRef.current = totalSec;
         setDisplayTime(totalSec);
         setPlaying(false);
+        playedSfxShotsRef.current.clear();
+        activeVoiceShotRef.current = null;
         paint();
         return;
       }
       setDisplayTime(t);
       paint();
+
+      // Synchronize live audio & physical SFX triggers with automatic ducking
+      if (timeline) {
+        const item = timeline.getShotAtTime(t);
+        const shot = item?.shot;
+        if (shot) {
+          // 1. Trigger shot custom voiceover with automatic BGM ducking
+          if (shot.customAudioId && activeVoiceShotRef.current !== shot.shotNumber) {
+            activeVoiceShotRef.current = shot.shotNumber;
+            void getAsset(shot.customAudioId).then((asset) => {
+              if (asset?.blob) {
+                void audioEngine.playBlobAudio(asset.blob);
+              }
+            });
+          }
+
+          // 2. Trigger realistic acoustic SFX at shot.sfxTriggerSec
+          const sfxTriggerTime = shot.startTimeSec + (shot.sfxTriggerSec || 0);
+          if (t >= sfxTriggerTime && !playedSfxShotsRef.current.has(shot.shotNumber)) {
+            playedSfxShotsRef.current.add(shot.shotNumber);
+            const rawSfx = shot.sfxName || shot.soundSfx || shot.soundDesign;
+            let sfxItem = SFX_CATALOG.find(
+              (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
+            );
+            if (!sfxItem && rawSfx) {
+              const matchedId = matchSfxToCatalog(rawSfx);
+              if (matchedId) sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
+            }
+            if (sfxItem) {
+              void audioEngine.playCatalogSfx(sfxItem, (shot.sfxVolumePercent || 85) / 100);
+            }
+          }
+        }
+      }
+
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [playing, totalSec, paint]);
+  }, [playing, totalSec, paint, timeline]);
 
   useEffect(() => {
     if (!playing) paint();
@@ -193,7 +236,11 @@ export default function VideoPage() {
   }, [playing, project?.isBgmEnabled, project?.selectedBgmId, bgmVolume]);
 
   const togglePlay = useCallback(() => {
-    if (!playing && timeRef.current >= totalSec) timeRef.current = 0;
+    if (!playing && timeRef.current >= totalSec) {
+      timeRef.current = 0;
+      playedSfxShotsRef.current.clear();
+      activeVoiceShotRef.current = null;
+    }
     setPlaying((p) => !p);
   }, [playing, totalSec]);
 
@@ -216,6 +263,9 @@ export default function VideoPage() {
     setPlaying(false);
     timeRef.current = 0;
     setDisplayTime(0);
+    playedSfxShotsRef.current.clear();
+    activeVoiceShotRef.current = null;
+    audioEngine.stop();
     paint();
   }
 

@@ -2,7 +2,7 @@ import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { BgmTrack, StoryProject, StoryShot } from "@/lib/types";
 import { getImage } from "@/lib/db";
 import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
-import { drawShotProceduralArt } from "@/lib/scene-art";
+import { drawSceneArt } from "@/lib/scene-art";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { computeProjectTimeline } from "@/lib/timeline";
 import { matchSfxToCatalog } from "@/lib/data";
@@ -261,6 +261,37 @@ function drawVenomDrip(
   ctx.restore();
 }
 
+function drawLaserEyes(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  colorHex: string,
+  localSec: number
+) {
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  const eyeColor = colorHex || "#FF3B30";
+  const pulse = 0.9 + Math.sin(localSec * 15) * 0.15;
+  const flareW = 280 * scale * pulse;
+  const flareH = 14 * scale;
+
+  const grad = ctx.createLinearGradient(x - flareW / 2, y, x + flareW / 2, y);
+  grad.addColorStop(0, "rgba(255, 59, 48, 0)");
+  grad.addColorStop(0.5, eyeColor);
+  grad.addColorStop(1, "rgba(255, 59, 48, 0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(x - flareW / 2, y - flareH / 2, flareW, flareH);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowColor = eyeColor;
+  ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.arc(x, y, 6 * scale, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawSpatialLayers(
   ctx: CanvasRenderingContext2D,
   shot: StoryShot,
@@ -268,17 +299,33 @@ function drawSpatialLayers(
   targetW: number,
   targetH: number
 ) {
-  const layers = shot.vfxSpatialLayers?.layers;
+  const layers =
+    shot.spatialLayers && shot.spatialLayers.length > 0
+      ? shot.spatialLayers
+      : shot.vfxSpatialLayers?.layers;
+
   if (!layers || layers.length === 0) {
     // Automatic fallback based on shot keywords
     const lowerType = (shot.type + " " + shot.mood + " " + shot.voiceoverEgyptian).toLowerCase();
-    if (lowerType.includes("سيف") || lowerType.includes("خنجر") || lowerType.includes("قتال") || lowerType.includes("slash")) {
+    if (
+      lowerType.includes("سيف") ||
+      lowerType.includes("خنجر") ||
+      lowerType.includes("قتال") ||
+      lowerType.includes("slash") ||
+      lowerType.includes("leap")
+    ) {
       const focus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.4 };
-      drawHeroSlashTrail(ctx, focus.x * targetW, focus.y * targetH, 1.2, "#8A2BE2", localSec, targetW, targetH);
+      drawHeroSlashTrail(ctx, focus.x * targetW, focus.y * targetH, 1.3, "#8A2BE2", localSec, targetW, targetH);
+      drawShadowAura(ctx, focus.x * targetW, focus.y * targetH, 1.1, "#8A2BE2", localSec);
     }
-    if (lowerType.includes("كاساكا") || lowerType.includes("سم") || lowerType.includes("ثعبان") || lowerType.includes("venom")) {
-      const focus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.6, y: 0.35 };
-      drawVenomDrip(ctx, focus.x * targetW, focus.y * targetH, 1.3, "#10B981", localSec);
+    if (
+      lowerType.includes("كاساكا") ||
+      lowerType.includes("سم") ||
+      lowerType.includes("ثعبان") ||
+      lowerType.includes("venom")
+    ) {
+      const focus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.62, y: 0.35 };
+      drawVenomDrip(ctx, focus.x * targetW, focus.y * targetH, 1.4, "#10B981", localSec);
     }
     return;
   }
@@ -293,21 +340,34 @@ function drawSpatialLayers(
     const color = layer.colorHex || "#8A2BE2";
     const type = (layer.effectType || "").toLowerCase();
 
-    if (type.includes("slash") || type.includes("leap") || type.includes("trail") || type.includes("sword")) {
+    if (
+      type.includes("slash") ||
+      type.includes("leap") ||
+      type.includes("trail") ||
+      type.includes("sword")
+    ) {
       drawHeroSlashTrail(ctx, x, y, scale, color, layerSec, targetW, targetH);
+      drawShadowAura(ctx, x, y, scale * 0.85, color, layerSec);
     } else if (type.includes("shadow") || type.includes("aura") || type.includes("dark")) {
       drawShadowAura(ctx, x, y, scale, color, layerSec);
-    } else if (type.includes("venom") || type.includes("poison") || type.includes("fang") || type.includes("emerald")) {
+    } else if (
+      type.includes("venom") ||
+      type.includes("poison") ||
+      type.includes("fang") ||
+      type.includes("emerald")
+    ) {
       drawVenomDrip(ctx, x, y, scale, color, layerSec);
+    } else if (type.includes("laser") || type.includes("eye") || type.includes("flare")) {
+      drawLaserEyes(ctx, x, y, scale, color, layerSec);
     } else if (type.includes("rune") || type.includes("circle") || type.includes("magic")) {
       ctx.save();
       ctx.globalCompositeOperation = "screen";
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 16;
-      ctx.lineWidth = 3;
+      ctx.shadowBlur = 18;
+      ctx.lineWidth = 3.5;
       ctx.beginPath();
-      ctx.arc(x, y, 70 * scale, 0, Math.PI * 2);
+      ctx.arc(x, y, 75 * scale, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -558,12 +618,12 @@ export function drawFrame(
   }
 
   // Localized bottom reading contrast scrim strictly behind subtitle text (preserving middle of the canvas)
-  const sheen = ctx.createLinearGradient(0, targetH * 0.78, 0, targetH);
+  const sheen = ctx.createLinearGradient(0, targetH * 0.80, 0, targetH);
   sheen.addColorStop(0, "rgba(0,0,0,0)");
-  sheen.addColorStop(0.5, "rgba(0,0,0,0.42)");
-  sheen.addColorStop(1, "rgba(0,0,0,0.85)");
+  sheen.addColorStop(0.5, "rgba(0,0,0,0.28)");
+  sheen.addColorStop(1, "rgba(0,0,0,0.60)");
   ctx.fillStyle = sheen;
-  ctx.fillRect(0, targetH * 0.78, targetW, targetH * 0.22);
+  ctx.fillRect(0, targetH * 0.80, targetW, targetH * 0.20);
 
   // 6. Scene Stamp Header Badge (Book / Part & Shot Number)
   const stampText = shot.bookOrPart
@@ -660,6 +720,49 @@ export function drawFrame(
       ctx.fillText(`🎙️ ${shot.vocalCue}`, bx + bw - 20, by + 24);
     }
 
+    // Determine anime aesthetic theme color for text highlighting
+    const shotTheme = (shot.colorTheme + " " + shot.mood + " " + shot.type + " " + shot.voiceoverEgyptian).toLowerCase();
+    let themeHighlightColor = "#00e5ff"; // default cyan
+    let themeShadowColor = "#00e5ff";
+    if (
+      shotTheme.includes("سيف") ||
+      shotTheme.includes("ظل") ||
+      shotTheme.includes("خنجر") ||
+      shotTheme.includes("shadow") ||
+      shotTheme.includes("purple") ||
+      shotTheme.includes("بنفسج")
+    ) {
+      themeHighlightColor = "#c084fc"; // purple shadow monarch
+      themeShadowColor = "#9333ea";
+    } else if (
+      shotTheme.includes("كاساكا") ||
+      shotTheme.includes("سم") ||
+      shotTheme.includes("شفاء") ||
+      shotTheme.includes("زمرد") ||
+      shotTheme.includes("venom") ||
+      shotTheme.includes("emerald")
+    ) {
+      themeHighlightColor = "#34d399"; // emerald venom
+      themeShadowColor = "#10b981";
+    } else if (
+      shotTheme.includes("أحمر") ||
+      shotTheme.includes("ليزر") ||
+      shotTheme.includes("غضب") ||
+      shotTheme.includes("danger") ||
+      shotTheme.includes("دم")
+    ) {
+      themeHighlightColor = "#f87171"; // crimson danger
+      themeShadowColor = "#ef4444";
+    } else if (
+      shotTheme.includes("حماس") ||
+      shotTheme.includes("ذهب") ||
+      shotTheme.includes("شمس") ||
+      shotTheme.includes("أمل")
+    ) {
+      themeHighlightColor = "#fbbf24"; // amber gold
+      themeShadowColor = "#f59e0b";
+    }
+
     // Word highlighting logic based on Edge-TTS word boundaries or shot progress
     const totalWords = caption.split(/\s+/).filter(Boolean);
     let activeWordIndex = -1;
@@ -695,10 +798,10 @@ export function drawFrame(
       ctx.strokeText(line, bx + bw / 2, textY);
 
       if (isCurrentLineActive) {
-        const pulseGlow = 0.85 + Math.sin(localSec * 10) * 0.15;
-        ctx.fillStyle = `rgba(245, 158, 11, ${pulseGlow})`;
-        ctx.shadowColor = "#f59e0b";
-        ctx.shadowBlur = 16;
+        const pulseGlow = 0.88 + Math.sin(localSec * 12) * 0.12;
+        ctx.fillStyle = themeHighlightColor;
+        ctx.shadowColor = themeShadowColor;
+        ctx.shadowBlur = Math.round(20 * pulseGlow);
         ctx.fillText(line, bx + bw / 2, textY);
         ctx.shadowBlur = 0;
       } else if (globalWordCounter + lineWords.length <= activeWordIndex) {

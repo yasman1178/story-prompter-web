@@ -148,6 +148,7 @@ export interface StoryShot {
     lightFocus?: { x: number; y: number };
     layers?: VfxSpatialLayerItem[];
   };
+  spatialLayers?: VfxSpatialLayerItem[];
   wordBoundaries?: WordBoundary[];
 }
 

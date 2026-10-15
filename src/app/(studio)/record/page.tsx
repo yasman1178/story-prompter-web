@@ -9,7 +9,7 @@ import { uid } from "@/lib/utils";
 import { useImageUrl } from "@/lib/use-image";
 import { SceneThumbnail } from "@/components/studio/scene-thumbnail";
 import { audioEngine } from "@/lib/audio-engine";
-import { StoryShot } from "@/lib/types";
+import { StoryShot, WordBoundary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { optimizeEgyptianVoiceover, vocalCueToProsody } from "@/lib/tts-optimizer";
 
@@ -184,7 +184,7 @@ export default function RecordPage() {
     setBatchProgress({ current: 0, total: project.shots.length, shotNumber: 1, percent: 0 });
 
     try {
-      const assignments: { shotNumber: number; blob: Blob; durationSec: number }[] = [];
+      const assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[] = [];
       const buffers: Blob[] = [];
       let successCount = 0;
       let failureCount = 0;

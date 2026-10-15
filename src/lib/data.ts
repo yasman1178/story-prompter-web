@@ -824,6 +824,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         textOverlayPos,
         ctaPos,
         vfxSpatialLayers,
+        spatialLayers: vfxSpatialLayers?.layers ?? [],
       });
     }
 
@@ -841,9 +842,9 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       else if (rawAspect.includes("9:16")) detectedAspectRatio = "9:16";
     }
 
-    // Automatically enable background music if the project or shots define music
+    // Automatically enable background music if the project or shots define music or by default
     const hasMusic = shots.some((s) => Boolean(s.soundMusic && s.soundMusic.trim()));
-    let selectedBgmId = 1;
+    let selectedBgmId = 5; // Epic battle / action default
     if (hasMusic) {
       const firstMusic = shots.find((s) => s.soundMusic)?.soundMusic.toLowerCase() ?? "";
       if (firstMusic.includes("battle") || firstMusic.includes("epic") || firstMusic.includes("slam")) selectedBgmId = 5;
@@ -861,7 +862,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       totalShots: shots.length,
       language: lang,
       shots,
-      isBgmEnabled: hasMusic,
+      isBgmEnabled: true,
       selectedBgmId,
       transitionType: "ZOOM_IN",
       shotDurationSec: d,
