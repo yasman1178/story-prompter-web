@@ -4,8 +4,8 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Auth endpoints manage their own cookies/redirects.
-  if (pathname.startsWith("/api/auth")) return NextResponse.next();
+  // Auth and TTS endpoints manage their own state/synthesis.
+  if (pathname.startsWith("/api/auth") || pathname === "/api/tts") return NextResponse.next();
 
   const session = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
 

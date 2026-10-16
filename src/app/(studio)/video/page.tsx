@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Clock,
   Download,
   Film,
   Flame,
@@ -13,6 +14,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Scissors,
   Sliders,
   Sparkles,
   Smartphone,
@@ -34,7 +36,7 @@ import {
   loadShotImages,
 } from "@/lib/video-export";
 import { cn, formatTimecode } from "@/lib/utils";
-import { computeProjectTimeline } from "@/lib/timeline";
+import { computeProjectTimeline, sliceProjectRange } from "@/lib/timeline";
 import { AspectRatioType, VfxPresetId, VfxSettings } from "@/lib/types";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { matchSfxToCatalog } from "@/lib/data";
@@ -72,17 +74,57 @@ export default function VideoPage() {
   // VFX scope: current shot or all shots
   const [applyScope, setApplyScope] = useState<"shot" | "all">("all");
 
+  // Shorts Clip Range state
+  const [rangeStart, setRangeStart] = useState<number>(1);
+  const [rangeEnd, setRangeEnd] = useState<number>(5);
+  const [useRange, setUseRange] = useState<boolean>(true);
+
+  const totalShotsCount = project?.shots.length ?? 0;
+  const actualRangeStart = Math.max(1, Math.min(rangeStart, totalShotsCount || 1));
+  const actualRangeEnd = Math.max(actualRangeStart, Math.min(rangeEnd, totalShotsCount || 5));
+
   // Canvas Drag & Drop state
   const [draggingTarget, setDraggingTarget] = useState<"text" | "cta" | null>(null);
   const [dragHover, setDragHover] = useState<"text" | "cta" | null>(null);
   const isDraggingRef = useRef(false);
 
-  const timeline = useMemo(() => (project ? computeProjectTimeline(project) : null), [project]);
+  // Sliced project according to range selection
+  const effectiveProject = useMemo(() => {
+    if (!project) return null;
+    if (!useRange) return project;
+    return sliceProjectRange(project, actualRangeStart, actualRangeEnd);
+  }, [project, useRange, actualRangeStart, actualRangeEnd]);
+
+  const timeline = useMemo(
+    () => (effectiveProject ? computeProjectTimeline(effectiveProject) : null),
+    [effectiveProject]
+  );
   const totalSec = timeline?.totalDurationSec ?? 0;
   const estimatedMB = useMemo(
     () => estimateVideoSizeMB(totalSec, compressionPreset),
     [totalSec, compressionPreset]
   );
+
+  // Quick Part presets computed from project shots
+  const partPresets = useMemo(() => {
+    if (!project || project.shots.length === 0) return [];
+    const total = project.shots.length;
+    const chunkSize = 5;
+    const list: { label: string; start: number; end: number; durationSec: number }[] = [];
+    for (let i = 0; i < total; i += chunkSize) {
+      const s = i + 1;
+      const e = Math.min(i + chunkSize, total);
+      const sub = sliceProjectRange(project, s, e);
+      const tl = computeProjectTimeline(sub);
+      list.push({
+        label: `جزء ${Math.floor(i / chunkSize) + 1} (${s}-${e})`,
+        start: s,
+        end: e,
+        durationSec: Math.round(tl.totalDurationSec * 10) / 10,
+      });
+    }
+    return list;
+  }, [project]);
 
   // Active shot at current playhead
   const currentItem = useMemo(() => {
@@ -90,7 +132,7 @@ export default function VideoPage() {
     return timeline.getShotAtTime(Math.min(displayTime, Math.max(0, totalSec - 0.001)));
   }, [timeline, displayTime, totalSec]);
 
-  const activeShot = currentItem?.shot ?? project?.shots[0];
+  const activeShot = currentItem?.shot ?? effectiveProject?.shots[0] ?? project?.shots[0];
 
   const currentVfx: VfxSettings = useMemo(() => {
     if (!project) {
@@ -124,12 +166,12 @@ export default function VideoPage() {
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx || !project || !timeline || project.shots.length === 0) return;
+    if (!canvas || !ctx || !effectiveProject || !timeline || effectiveProject.shots.length === 0) return;
     const t = Math.min(timeRef.current, Math.max(0, totalSec - 0.0001));
     const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
     drawFrame(
       ctx,
-      project,
+      effectiveProject,
       shot,
       localSec,
       durationSec,
@@ -137,7 +179,7 @@ export default function VideoPage() {
       videoDims.width,
       videoDims.height
     );
-  }, [project, timeline, totalSec, videoDims]);
+  }, [effectiveProject, timeline, totalSec, videoDims]);
 
   useEffect(() => {
     let cancelled = false;
@@ -369,6 +411,18 @@ export default function VideoPage() {
     paint();
   }
 
+  function selectPresetRange(start: number, end: number) {
+    setUseRange(true);
+    setRangeStart(start);
+    setRangeEnd(end);
+    setPlaying(false);
+    timeRef.current = 0;
+    setDisplayTime(0);
+    playedSfxShotsRef.current.clear();
+    activeVoiceShotRef.current = null;
+    audioEngine.stop();
+  }
+
   async function handleExport() {
     if (!project || exporting) return;
     setExporting(true);
@@ -386,6 +440,7 @@ export default function VideoPage() {
       const bgmTrack = project.isBgmEnabled ? findBgm(project.selectedBgmId) : null;
       const out = await exportStoryVideo({
         project,
+        shotRange: useRange ? { startShot: actualRangeStart, endShot: actualRangeEnd } : undefined,
         voiceBlob,
         bgmTrack,
         voiceVolume,
@@ -397,10 +452,13 @@ export default function VideoPage() {
         },
       });
       const url = URL.createObjectURL(out.blob);
-      setResult({ url, name: `${project.title}.${out.extension}`, size: out.blob.size });
-      showFeedback("تم إنشاء الفيديو بنجاح.");
+      const name = useRange
+        ? `${project.title}_شورت_مشاهد_${actualRangeStart}-${actualRangeEnd}.${out.extension}`
+        : `${project.title}.${out.extension}`;
+      setResult({ url, name, size: out.blob.size });
+      showFeedback(`تم إنشاء وتحميل الفيديو بنجاح (${out.extension.toUpperCase()})!`);
     } catch {
-      showFeedback("تعذّر إنشاء الفيديو. جرّب متصفح Chrome أحدث إصدار.");
+      showFeedback("تعذّر إنشاء الفيديو. تحقق من توافق المتصفح.");
     } finally {
       setExporting(false);
       setStage("");
@@ -413,6 +471,189 @@ export default function VideoPage() {
     <div className="grid gap-6 lg:grid-cols-[400px_1fr] min-w-0 w-full max-w-full">
       {/* Left Control Column */}
       <section className="space-y-4 min-w-0 w-full">
+        {/* Shorts Clip Range Selector Card */}
+        <div className="rounded-2xl sm:rounded-3xl border border-primary/40 bg-surface/75 p-4 sm:p-5 shadow-lg space-y-3 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/20 text-primary shrink-0">
+                <Scissors className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-fg truncate">نطاق مشاهد الشورت (Clip Range)</h2>
+                <p className="text-[11px] text-muted">تحديد مشاهد البداية والنهاية للرندر</p>
+              </div>
+            </div>
+
+            {/* Range vs Full Toggle */}
+            <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs shrink-0">
+              <button
+                type="button"
+                onClick={() => setUseRange(true)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md transition font-semibold",
+                  useRange ? "bg-primary text-black shadow-sm" : "text-muted hover:text-fg"
+                )}
+              >
+                شورت مخصص
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseRange(false);
+                  timeRef.current = 0;
+                  setDisplayTime(0);
+                }}
+                className={cn(
+                  "px-2.5 py-1 rounded-md transition font-semibold",
+                  !useRange ? "bg-primary text-black shadow-sm" : "text-muted hover:text-fg"
+                )}
+              >
+                الكل
+              </button>
+            </div>
+          </div>
+
+          {useRange ? (
+            <div className="space-y-3 pt-1 border-t border-border/50">
+              {/* Range Inputs */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="rounded-xl border border-border bg-card p-2.5 space-y-1">
+                  <label className="text-[11px] text-dim font-medium block">من المشهد رقم:</label>
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(1, actualRangeStart - 1);
+                        setRangeStart(next);
+                        timeRef.current = 0;
+                        setDisplayTime(0);
+                      }}
+                      className="h-8 w-8 rounded-lg bg-surface hover:bg-primary/20 border border-border text-fg font-bold"
+                    >
+                      -
+                    </button>
+                    <span className="font-mono text-base font-bold text-primary tabular-nums">
+                      #{actualRangeStart}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.min(actualRangeEnd, actualRangeStart + 1);
+                        setRangeStart(next);
+                        timeRef.current = 0;
+                        setDisplayTime(0);
+                      }}
+                      className="h-8 w-8 rounded-lg bg-surface hover:bg-primary/20 border border-border text-fg font-bold"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-2.5 space-y-1">
+                  <label className="text-[11px] text-dim font-medium block">إلى المشهد رقم:</label>
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(actualRangeStart, actualRangeEnd - 1);
+                        setRangeEnd(next);
+                        timeRef.current = 0;
+                        setDisplayTime(0);
+                      }}
+                      className="h-8 w-8 rounded-lg bg-surface hover:bg-primary/20 border border-border text-fg font-bold"
+                    >
+                      -
+                    </button>
+                    <span className="font-mono text-base font-bold text-primary tabular-nums">
+                      #{actualRangeEnd}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.min(totalShotsCount, actualRangeEnd + 1);
+                        setRangeEnd(next);
+                        timeRef.current = 0;
+                        setDisplayTime(0);
+                      }}
+                      className="h-8 w-8 rounded-lg bg-surface hover:bg-primary/20 border border-border text-fg font-bold"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Part Quick Presets */}
+              {partPresets.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] text-dim font-medium block">اقتراحات الأجزاء السريعة:</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    {partPresets.map((p) => {
+                      const isSelected = useRange && actualRangeStart === p.start && actualRangeEnd === p.end;
+                      return (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => selectPresetRange(p.start, p.end)}
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs whitespace-nowrap shrink-0 transition font-medium",
+                            isSelected
+                              ? "bg-primary text-black border-primary font-bold shadow-sm"
+                              : "bg-card text-muted border-border hover:border-primary/40 hover:text-fg"
+                          )}
+                        >
+                          <span>{p.label}</span>
+                          <span
+                            className={cn(
+                              "text-[10px] font-mono px-1 rounded",
+                              isSelected ? "bg-black/20 text-black font-bold" : "bg-surface text-dim"
+                            )}
+                          >
+                            {p.durationSec}s
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Duration and Shorts Optimization Info Banner */}
+              <div className="rounded-xl border border-border/80 bg-card/60 p-2.5 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-muted">المدة المحسوبة:</span>
+                  <span className="font-mono font-bold text-primary tabular-nums">
+                    {totalSec.toFixed(1)} ثانية
+                  </span>
+                  <span className="text-dim">({effectiveProject?.shots.length} مشاهد)</span>
+                </div>
+                {totalSec >= 15 && totalSec <= 60 ? (
+                  <span className="text-[10px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-full">
+                    توقيت شورتس مثالي ✓
+                  </span>
+                ) : totalSec > 60 ? (
+                  <span className="text-[10px] font-bold text-gold bg-gold/10 px-2 py-0.5 rounded-full">
+                    أطول من دقيقة
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-muted bg-surface px-2 py-0.5 rounded-full">
+                    أقل من 15 ث
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/80 bg-card/60 p-2.5 flex items-center justify-between text-xs">
+              <span className="text-muted">كامل مشاهد السيناريو:</span>
+              <span className="font-mono font-bold text-primary">
+                {project.shots.length} مشهد ({formatTimecode(totalSec)})
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Aspect Ratio Quick Switcher Card */}
         <div className="rounded-2xl sm:rounded-3xl border border-border bg-surface/75 p-4 sm:p-5 shadow-lg space-y-3">
           <div className="flex items-center justify-between">
@@ -668,7 +909,11 @@ export default function VideoPage() {
             <h1 className="text-base font-bold text-fg">تصدير الفيديو النهائي</h1>
           </div>
           <p className="mt-1 text-xs text-muted">
-            مدة {formatTimecode(totalSec)} · {project.shots.length} مشهد · دقة {videoDims.width}×{videoDims.height}
+            مدة {formatTimecode(totalSec)} ·{" "}
+            {useRange
+              ? `${effectiveProject?.shots.length ?? 0} مشهد (شورت محدد #${rangeStart} إلى #${rangeEnd})`
+              : `${project.shots.length} مشهد (كامل السيناريو)`}{" "}
+            · دقة {videoDims.width}×{videoDims.height}
           </p>
 
           {/* Compression preset */}
@@ -711,8 +956,16 @@ export default function VideoPage() {
             disabled={exporting}
             className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-bold text-black transition hover:brightness-110 shadow-lg disabled:opacity-60"
           >
-            {exporting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-            {exporting ? "جارٍ الإنشاء والترميز…" : `إنشاء وتحميل الفيديو (${currentRatio})`}
+            {exporting ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Download className="h-5 w-5" />
+            )}
+            {exporting
+              ? "جارٍ الإنشاء والترميز…"
+              : useRange
+              ? `إنشاء شورت المشاهد (${rangeStart} إلى ${rangeEnd}) - ${currentRatio}`
+              : `إنشاء كامل المشروع (${project.shots.length} مشهد) - ${currentRatio}`}
           </button>
 
           {exporting && (
@@ -906,11 +1159,17 @@ export default function VideoPage() {
                 type="button"
                 onClick={() => {
                   if (!timeline || !activeShot) return;
-                  const prevIdx = Math.max(0, activeShot.shotNumber - 2);
-                  const prevItem = timeline.items[prevIdx];
-                  if (prevItem) seekToShot(prevItem.startSec);
+                  const currentIdx = timeline.items.findIndex(
+                    (item) => item.shot.shotNumber === activeShot.shotNumber
+                  );
+                  if (currentIdx > 0) {
+                    seekToShot(timeline.items[currentIdx - 1].startSec);
+                  }
                 }}
-                disabled={activeShot?.shotNumber === 1}
+                disabled={
+                  !timeline ||
+                  timeline.items.findIndex((i) => i.shot.shotNumber === activeShot?.shotNumber) <= 0
+                }
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs text-fg disabled:opacity-40 hover:border-primary/40"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -921,11 +1180,18 @@ export default function VideoPage() {
                 type="button"
                 onClick={() => {
                   if (!timeline || !activeShot) return;
-                  const nextIdx = Math.min(timeline.items.length - 1, activeShot.shotNumber);
-                  const nextItem = timeline.items[nextIdx];
-                  if (nextItem) seekToShot(nextItem.startSec);
+                  const currentIdx = timeline.items.findIndex(
+                    (item) => item.shot.shotNumber === activeShot.shotNumber
+                  );
+                  if (currentIdx >= 0 && currentIdx < timeline.items.length - 1) {
+                    seekToShot(timeline.items[currentIdx + 1].startSec);
+                  }
                 }}
-                disabled={activeShot?.shotNumber === (timeline?.items.length ?? 1)}
+                disabled={
+                  !timeline ||
+                  timeline.items.findIndex((i) => i.shot.shotNumber === activeShot?.shotNumber) >=
+                    timeline.items.length - 1
+                }
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs text-fg disabled:opacity-40 hover:border-primary/40"
               >
                 <span className="hidden sm:inline">المشهد التالي</span>

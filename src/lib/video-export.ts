@@ -1,10 +1,10 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
-import { BgmTrack, StoryProject, StoryShot } from "@/lib/types";
+import { BgmTrack, ShotRange, StoryProject, StoryShot } from "@/lib/types";
 import { getImage } from "@/lib/db";
 import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
 import { drawSceneArt } from "@/lib/scene-art";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
-import { computeProjectTimeline } from "@/lib/timeline";
+import { computeProjectTimeline, sliceProjectRange } from "@/lib/timeline";
 import { matchSfxToCatalog } from "@/lib/data";
 
 export const VIDEO_WIDTH = 720;
@@ -65,6 +65,7 @@ export function estimateVideoSizeMB(durationSec: number, preset: CompressionPres
 
 export interface ExportInput {
   project: StoryProject;
+  shotRange?: ShotRange;
   voiceBlob?: Blob | null;
   bgmTrack?: BgmTrack | null;
   voiceVolume: number;
@@ -1246,7 +1247,22 @@ async function buildMixedAudio(
 
 async function decodeInContext(blob: Blob, offline: OfflineAudioContext): Promise<AudioBuffer> {
   const data = await blob.arrayBuffer();
-  return offline.decodeAudioData(data.slice(0));
+  try {
+    return await offline.decodeAudioData(data.slice(0));
+  } catch {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioCtx) {
+      const fallbackCtx = new AudioCtx();
+      try {
+        return await fallbackCtx.decodeAudioData(data.slice(0));
+      } finally {
+        void fallbackCtx.close();
+      }
+    }
+    throw new Error("audio_decode_failed");
+  }
 }
 
 function pickVideoCodec(targetW = VIDEO_WIDTH, targetH = VIDEO_HEIGHT): Promise<string | null> {
@@ -1311,6 +1327,12 @@ async function exportWithWebCodecs(
     project.isBgmEnabled ||
     project.shots.some((s) => Boolean(s.customAudioId || s.assignedSfxId));
   const audioOk = hasAudio ? await supportsAac() : false;
+
+  // If the video has audio but browser cannot encode AAC audio for MP4 via WebCodecs,
+  // return null so it falls back to MediaRecorder (which supports audio)!
+  if (hasAudio && !audioOk) {
+    return null;
+  }
 
   const canvas = document.createElement("canvas");
   canvas.width = targetW;
@@ -1521,18 +1543,27 @@ async function exportWithMediaRecorder(
 }
 
 export async function exportStoryVideo(input: ExportInput): Promise<ExportResult> {
-  const images = await loadShotImages(input.project.shots);
-  input.onProgress?.(0.02, "تحضير المشاهد…");
+  const effectiveProject = input.shotRange
+    ? sliceProjectRange(input.project, input.shotRange.startShot, input.shotRange.endShot)
+    : input.project;
+
+  const effectiveInput: ExportInput = {
+    ...input,
+    project: effectiveProject,
+  };
+
+  const images = await loadShotImages(effectiveProject.shots);
+  effectiveInput.onProgress?.(0.02, "تحضير المشاهد…");
 
   try {
-    const result = await exportWithWebCodecs(input, images);
+    const result = await exportWithWebCodecs(effectiveInput, images);
     if (result) return result;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
-    // fall through to MediaRecorder
+    console.warn("WebCodecs export failed, falling back to MediaRecorder:", err);
   }
 
-  return exportWithMediaRecorder(input, images);
+  return exportWithMediaRecorder(effectiveInput, images);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

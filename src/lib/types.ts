@@ -251,3 +251,8 @@ export interface StoryProject {
   generatedVoiceDurations: number[];
   seoMetadata?: SeoMetadata;
 }
+
+export interface ShotRange {
+  startShot: number;
+  endShot: number;
+}

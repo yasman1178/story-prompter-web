@@ -20,9 +20,9 @@ export async function POST(request: Request) {
   }
 
   const text = typeof body.text === "string" ? body.text.trim() : "";
-  const voice = typeof body.voice === "string" && body.voice ? body.voice : "ar-EG-SalmaNeural";
-  const rate = typeof body.rate === "string" && body.rate ? body.rate : undefined;
-  const pitch = typeof body.pitch === "string" && body.pitch ? body.pitch : undefined;
+  const voice = typeof body.voice === "string" && body.voice ? body.voice.trim() : "ar-EG-ShakirNeural";
+  const rate = typeof body.rate === "string" && body.rate ? body.rate.trim() : undefined;
+  const pitch = typeof body.pitch === "string" && body.pitch ? body.pitch.trim() : undefined;
 
   if (!text) return Response.json({ error: "empty_text" }, { status: 400 });
   if (text.length > MAX_CHARS) return Response.json({ error: "text_too_long" }, { status: 413 });

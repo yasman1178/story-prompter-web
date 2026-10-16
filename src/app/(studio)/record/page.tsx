@@ -57,6 +57,7 @@ export default function RecordPage() {
   } | null>(null);
   const [selectedShotNumber, setSelectedShotNumber] = useState<number>(1);
   const [singleGenLoading, setSingleGenLoading] = useState(false);
+  const [failedShots, setFailedShots] = useState<number[]>([]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -178,26 +179,31 @@ export default function RecordPage() {
     return opt.cleanText;
   }
 
-  async function generateVoice() {
+  async function generateVoice(targetShots?: StoryShot[]) {
     if (!project || generating) return;
+    const shotsToProcess = targetShots ?? project.shots;
+    if (shotsToProcess.length === 0) return;
+
     setGenerating(true);
-    setBatchProgress({ current: 0, total: project.shots.length, shotNumber: 1, percent: 0 });
+    setFailedShots([]);
+    setBatchProgress({ current: 0, total: shotsToProcess.length, shotNumber: shotsToProcess[0]?.shotNumber ?? 1, percent: 0 });
 
     try {
       const assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[] = [];
       const buffers: Blob[] = [];
       let successCount = 0;
-      let failureCount = 0;
+      const newlyFailed: number[] = [];
+      const voiceToUse = project.voiceName || "ar-EG-ShakirNeural";
 
-      for (let i = 0; i < project.shots.length; i++) {
-        const shot = project.shots[i];
+      for (let i = 0; i < shotsToProcess.length; i++) {
+        const shot = shotsToProcess[i];
         const text = getShotText(shot);
 
         setBatchProgress({
           current: i + 1,
-          total: project.shots.length,
+          total: shotsToProcess.length,
           shotNumber: shot.shotNumber,
-          percent: Math.round(((i + 1) / project.shots.length) * 100),
+          percent: Math.round(((i + 1) / shotsToProcess.length) * 100),
         });
 
         if (!text) {
@@ -207,14 +213,16 @@ export default function RecordPage() {
         let blob: Blob | null = null;
         let boundaries: { offset: number; duration: number; text: string }[] = [];
         const prosody = vocalCueToProsody(shot.vocalCue);
-        for (let attempt = 0; attempt < 2; attempt++) {
+
+        // 3 retry attempts with exponential delay
+        for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const res = await synthesizeSpeech(text, project.voiceName, prosody);
+            const res = await synthesizeSpeech(text, voiceToUse, prosody);
             blob = res.blob;
             boundaries = res.boundaries || [];
             break;
           } catch {
-            if (attempt === 0) await new Promise((r) => setTimeout(r, 200));
+            if (attempt < 2) await new Promise((r) => setTimeout(r, (attempt + 1) * 350));
           }
         }
 
@@ -229,19 +237,21 @@ export default function RecordPage() {
           assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur, wordBoundaries });
           successCount++;
         } else {
-          failureCount++;
+          newlyFailed.push(shot.shotNumber);
         }
 
-        // Pacing delay to avoid WebSocket rate-limiting
-        await new Promise((r) => setTimeout(r, 120));
+        // Pacing delay to avoid WebSocket burst rate-limiting
+        await new Promise((r) => setTimeout(r, 160));
       }
 
       if (assignments.length > 0) {
         await batchAssignShotsAudio(assignments);
       }
 
+      setFailedShots(newlyFailed);
+
       if (buffers.length === 0) {
-        showFeedback("تعذّر توليد الصوت. تحقق من الاتصال بالإنترنت ومحتوى النصوص.");
+        showFeedback("تعذّر توليد الصوت. تحقق من اتصال الإنترنت ومحتوى النصوص.");
         return;
       }
 
@@ -251,14 +261,20 @@ export default function RecordPage() {
       const duration = await blobDuration(combined);
       setRecordedAudio(id, duration);
 
-      const note = failureCount > 0 ? ` (تعذّر ${failureCount} مشهد)` : "";
-      showFeedback(`تم توليد وربط الصوت لجميع المشاهد (${successCount} مشهد بنجاح، إجمالي ${Math.round(duration)} ث) ومزامنة توقيت الانتقالات مع الصور!${note}`);
+      const note = newlyFailed.length > 0 ? ` (تعذّر ${newlyFailed.length} مشهد - يمكنك إعادة محاولتها)` : "";
+      showFeedback(`تم توليد وربط الصوت بنجاح (${successCount} مشهد، مدة ${Math.round(duration)} ثوانٍ)!${note}`);
     } catch {
       showFeedback("حدث خطأ أثناء توليد الصوت.");
     } finally {
       setGenerating(false);
       setBatchProgress(null);
     }
+  }
+
+  async function retryFailed() {
+    if (!project || failedShots.length === 0) return;
+    const target = project.shots.filter((s) => failedShots.includes(s.shotNumber));
+    await generateVoice(target);
   }
 
   async function generateVoiceForShot(shotNumber: number) {
@@ -368,6 +384,28 @@ export default function RecordPage() {
             <p className="text-[11px] text-muted">
               يتم حفظ الصوت لكل مشهد وتحديث توقيت ظهور الصورة في ملف المشروع تلقائياً.
             </p>
+          </div>
+        )}
+
+        {/* Failed shots retry banner */}
+        {failedShots.length > 0 && !generating && (
+          <div className="mt-3 rounded-2xl border border-danger/40 bg-danger/10 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm min-w-0">
+            <div className="text-xs">
+              <p className="font-bold text-danger">
+                تعذّر توليد الصوت مؤقتاً لـ {failedShots.length} مشهد: {failedShots.map((n) => `#${n}`).join(", ")}
+              </p>
+              <p className="text-muted text-[11px] mt-0.5">
+                يمكنك إعادة محاولة توليد هذه المشاهد المتعثرة بنقرة واحدة دون تكرار باقي المشاهد.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={retryFailed}
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-danger px-3 text-xs font-bold text-white transition hover:brightness-110 shrink-0"
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+              <span>إعادة محاولة المتعثرة ({failedShots.length})</span>
+            </button>
           </div>
         )}
 
