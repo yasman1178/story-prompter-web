@@ -80,6 +80,9 @@ interface StudioState {
   toggleBgm: (enabled: boolean) => void;
   selectBgm: (id: number) => void;
   setCustomBgm: (imageId: string, title: string) => void;
+  setCustomAudioBed: (assetId: string, title: string, volume?: number) => void;
+  clearCustomAudioBed: () => void;
+  setCustomAudioBedVolume: (volume: number) => void;
   setVoice: (shortName: string, labelAr: string) => void;
   selectShot: (index: number) => void;
   setShotImage: (shotNumber: number, imageId: string) => void;
@@ -267,7 +270,45 @@ export const useStudio = create<StudioState>((set, get) => ({
     if (!project) return;
     set({
       project: { ...project, customBgmId: imageId, customBgmTitle: title, isBgmEnabled: true },
-      feedback: `تم تحديد الملف الصوتي: ${title}`,
+      feedback: `تم تحديد الملف الصوتي للموسيقى: ${title}`,
+    });
+  },
+
+  setCustomAudioBed: (assetId, title, volume = 0.25) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        customAudioBedId: assetId,
+        customAudioBedTitle: title,
+        customAudioBedVolume: volume,
+      },
+      feedback: `تمت إضافة طبقة الصوت المدمجة تحت التعليق: ${title}`,
+    });
+  },
+
+  clearCustomAudioBed: () => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        customAudioBedId: undefined,
+        customAudioBedTitle: undefined,
+      },
+      feedback: "تمت إزالة طبقة الصوت المدمجة.",
+    });
+  },
+
+  setCustomAudioBedVolume: (volume) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        customAudioBedVolume: Math.max(0, Math.min(1, volume)),
+      },
     });
   },
 

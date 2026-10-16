@@ -8,11 +8,12 @@ import {
   Flame,
   Layers,
   Loader2,
-  Mic,
   Pause,
   Play,
   RotateCcw,
   Sparkles,
+  Subtitles,
+  Zap,
 } from "lucide-react";
 import { useStudio, findBgm } from "@/lib/store";
 import { audioEngine } from "@/lib/audio-engine";
@@ -27,25 +28,12 @@ import {
   exportStoryVideo,
   loadShotImages,
 } from "@/lib/video-export";
-import { StoryProject, StoryShot } from "@/lib/types";
+import { StoryProject } from "@/lib/types";
+import { sliceProjectRange, computeProjectTimeline } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { synthesizeSpeech, speakWithBrowser } from "@/lib/tts-client";
 
-export default function HookStudioPage() {
-  const project = useStudio((s) => s.project);
-  const hydrated = useStudio((s) => s.hydrated);
-  const showFeedback = useStudio((s) => s.showFeedback);
-  const bgmVolume = useStudio((s) => s.bgmVolume);
-  const updateShotVoiceover = useStudio((s) => s.updateShotVoiceover);
-  const assignShotSfx = useStudio((s) => s.assignShotSfx);
-  const toggleVFX = useStudio((s) => s.toggleVFX);
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imagesRef = useRef<Map<number, ShotImage>>(new Map());
-  const timeRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
-
-  async function getBlobDuration(blob: Blob): Promise<number> {
+async function getBlobDuration(blob: Blob): Promise<number> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -60,7 +48,31 @@ export default function HookStudioPage() {
     };
   });
 }
-  const [selectedHookShotCount, setSelectedHookShotCount] = useState<number>(2);
+
+export default function HookStudioPage() {
+  const project = useStudio((s) => s.project);
+  const hydrated = useStudio((s) => s.hydrated);
+  const showFeedback = useStudio((s) => s.showFeedback);
+  const bgmVolume = useStudio((s) => s.bgmVolume);
+  const updateShotVoiceover = useStudio((s) => s.updateShotVoiceover);
+  const assignShotSfx = useStudio((s) => s.assignShotSfx);
+  const toggleSubtitles = useStudio((s) => s.toggleSubtitles);
+  const toggleVFX = useStudio((s) => s.toggleVFX);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imagesRef = useRef<Map<number, ShotImage>>(new Map());
+  const timeRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  const totalProjectShots = project?.shots.length || 0;
+
+  // Range selection state (e.g. from shot 3 to shot 5)
+  const [startShot, setStartShot] = useState<number>(1);
+  const [endShot, setEndShot] = useState<number>(3);
+
+  const actualStart = Math.max(1, Math.min(startShot, totalProjectShots || 1));
+  const actualEnd = Math.max(actualStart, Math.min(endShot, totalProjectShots || 3));
+
   const [playing, setPlaying] = useState(false);
   const [displayTime, setDisplayTime] = useState(0);
   const [exporting, setExporting] = useState(false);
@@ -69,68 +81,68 @@ export default function HookStudioPage() {
   const [result, setResult] = useState<{ url: string; name: string; size: number } | null>(null);
   const [compressionPreset, setCompressionPreset] = useState<CompressionPreset>("compact");
   const [generatingVoice, setGeneratingVoice] = useState(false);
+  const [voiceProgress, setVoiceProgress] = useState<string>("");
 
-  // Synthesize a specialized mini-project representing ONLY the hook
+  // Sliced project strictly representing the chosen range (e.g. shots 3 to 5)
   const hookProject = useMemo<StoryProject | null>(() => {
     if (!project || project.shots.length === 0) return null;
-    const hookShots = project.shots.slice(0, Math.min(selectedHookShotCount, project.shots.length));
-    
-    // Normalize timeframes for the hook
-    let cursor = 0;
-    const remappedShots: StoryShot[] = hookShots.map((shot, idx) => {
-      const dur = shot.audioDurationSec && shot.audioDurationSec > 0 
-        ? shot.audioDurationSec 
-        : (shot.endTimeSec - shot.startTimeSec > 0 ? shot.endTimeSec - shot.startTimeSec : 4.5);
-      const start = cursor;
-      const end = cursor + dur;
-      cursor = end;
-      return {
-        ...shot,
-        shotNumber: idx + 1,
-        startTimeSec: start,
-        endTimeSec: end,
-        timeframe: `00:${String(Math.floor(start)).padStart(2, "0")} - 00:${String(Math.floor(end)).padStart(2, "0")}`,
-      };
-    });
+    return sliceProjectRange(project, actualStart, actualEnd);
+  }, [project, actualStart, actualEnd]);
 
-    return {
-      ...project,
-      title: `${project.title} - خطاف الفيديو (Hook)`,
-      totalShots: remappedShots.length,
-      shots: remappedShots,
-    };
-  }, [project, selectedHookShotCount]);
-
-  const totalDuration = useMemo(() => {
-    if (!hookProject || hookProject.shots.length === 0) return 0;
-    const last = hookProject.shots[hookProject.shots.length - 1];
-    return last.endTimeSec;
+  const timeline = useMemo(() => {
+    if (!hookProject) return null;
+    return computeProjectTimeline(hookProject);
   }, [hookProject]);
+
+  const totalDuration = timeline?.totalDurationSec ?? 0;
 
   const estimatedMB = useMemo(
     () => estimateVideoSizeMB(totalDuration, compressionPreset),
     [totalDuration, compressionPreset]
   );
 
+  // Quick preset shortcuts (1-3, 3-5, 1-5, 6-10, full project)
+  const presetRanges = useMemo(() => {
+    if (!project || project.shots.length === 0) return [];
+    const total = project.shots.length;
+    const presets: { label: string; start: number; end: number }[] = [];
+
+    if (total >= 3) presets.push({ label: "المشاهد 1 - 3", start: 1, end: 3 });
+    if (total >= 5) presets.push({ label: "المشاهد 3 - 5", start: 3, end: 5 });
+    if (total >= 5) presets.push({ label: "أول 5 مشاهد (1 - 5)", start: 1, end: 5 });
+    if (total >= 10) presets.push({ label: "المشاهد 6 - 10", start: 6, end: 10 });
+    if (total >= 15) presets.push({ label: "المشاهد 11 - 15", start: 11, end: 15 });
+    presets.push({ label: `كامل المشروع (1 - ${total})`, start: 1, end: total });
+
+    return presets;
+  }, [project]);
+
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx || !hookProject || hookProject.shots.length === 0) return;
+    if (!canvas || !ctx || !hookProject || !timeline || hookProject.shots.length === 0) return;
 
-    const t = Math.min(timeRef.current, totalDuration - 0.0001);
-    const activeShot = hookProject.shots.find((s) => t >= s.startTimeSec && t < s.endTimeSec) ?? hookProject.shots[0];
-    const localSec = Math.max(0, t - activeShot.startTimeSec);
-    const durationSec = activeShot.endTimeSec - activeShot.startTimeSec;
+    const t = Math.min(timeRef.current, Math.max(0, totalDuration - 0.0001));
+    const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
 
-    drawFrame(ctx, hookProject, activeShot, localSec, durationSec, imagesRef.current.get(activeShot.shotNumber));
-  }, [hookProject, totalDuration]);
+    drawFrame(
+      ctx,
+      hookProject,
+      shot,
+      localSec,
+      durationSec,
+      imagesRef.current.get(shot.shotNumber),
+      VIDEO_WIDTH,
+      VIDEO_HEIGHT
+    );
+  }, [hookProject, timeline, totalDuration]);
 
-  // Load images
+  // Load images whenever project changes
   useEffect(() => {
     let cancelled = false;
-    if (!hookProject) return;
+    if (!project) return;
     void (async () => {
-      const map = await loadShotImages(hookProject.shots);
+      const map = await loadShotImages(project.shots);
       if (cancelled) return;
       imagesRef.current = map;
       paint();
@@ -138,7 +150,7 @@ export default function HookStudioPage() {
     return () => {
       cancelled = true;
     };
-  }, [hookProject, paint]);
+  }, [project, paint]);
 
   // Animation loop
   useEffect(() => {
@@ -185,6 +197,36 @@ export default function HookStudioPage() {
     };
   }, [playing, hookProject?.isBgmEnabled, hookProject?.selectedBgmId, bgmVolume]);
 
+  // Ambient audio bed preview sync
+  const bedAudioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    let audio = bedAudioRef.current;
+    if (playing && hookProject?.customAudioBedId) {
+      void (async () => {
+        const { getAsset } = await import("@/lib/db");
+        const asset = await getAsset(hookProject.customAudioBedId!);
+        if (!asset) return;
+        const url = URL.createObjectURL(asset.blob);
+        audio = new Audio(url);
+        audio.loop = true;
+        audio.volume = hookProject.customAudioBedVolume ?? 0.25;
+        bedAudioRef.current = audio;
+        await audio.play().catch(() => {});
+      })();
+    } else {
+      if (audio) {
+        audio.pause();
+        bedAudioRef.current = null;
+      }
+    }
+    return () => {
+      if (audio) {
+        audio.pause();
+        bedAudioRef.current = null;
+      }
+    };
+  }, [playing, hookProject?.customAudioBedId, hookProject?.customAudioBedVolume]);
+
   if (!hydrated) return <p className="py-20 text-center text-muted">جارٍ التحميل…</p>;
   if (!project || !hookProject) {
     return (
@@ -212,26 +254,36 @@ export default function HookStudioPage() {
     paint();
   }
 
-  async function handleBatchVoiceForHook() {
-    if (!project || !hookProject) return;
+  // Single-click batch audio generator for selected segment
+  async function handleBatchVoiceForSegment() {
+    if (!project || !hookProject || generatingVoice) return;
     setGeneratingVoice(true);
-    showFeedback("جارٍ توليد الصوت الاحترافي لمشاهد الخطاف…");
+    setVoiceProgress(`بدء توليد أصوات المشاهد #${actualStart} إلى #${actualEnd}…`);
+    showFeedback(`جارٍ توليد الصوت الاحترافي للمشاهد (${actualStart} إلى ${actualEnd})…`);
+
     try {
       const { assignShotAudio } = useStudio.getState();
-      for (const shot of hookProject.shots) {
+      const shotsToProcess = hookProject.shots;
+
+      for (let i = 0; i < shotsToProcess.length; i++) {
+        const shot = shotsToProcess[i];
+        setVoiceProgress(`توليد مشهد #${shot.shotNumber} (${i + 1}/${shotsToProcess.length})…`);
         try {
           const res = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
           const dur = await getBlobDuration(res.blob);
-          await assignShotAudio(shot.shotNumber, res.blob, dur);
+          await assignShotAudio(shot.shotNumber, res.blob, dur, res.boundaries);
         } catch {
           await speakWithBrowser(shot.voiceoverEgyptian);
         }
       }
-      showFeedback("تم توليد ومزامنة أصوات الخطاف بنجاح! 🎙️");
+
+      showFeedback(`تم بنجاح توليد ومزامنة أصوات المشاهد (${actualStart} إلى ${actualEnd})! 🎙️`);
+      reset();
     } catch {
       showFeedback("حدث خطأ أثناء توليد الصوت.");
     } finally {
       setGeneratingVoice(false);
+      setVoiceProgress("");
     }
   }
 
@@ -260,8 +312,9 @@ export default function HookStudioPage() {
       });
 
       const url = URL.createObjectURL(out.blob);
-      setResult({ url, name: `${hookProject.title}.${out.extension}`, size: out.blob.size });
-      showFeedback("تم تصدير فيديو الخطاف بنجاح! 🚀");
+      const fileName = `${project?.title || "Shorts"} - مقطع (${actualStart}-${actualEnd}).${out.extension}`;
+      setResult({ url, name: fileName, size: out.blob.size });
+      showFeedback(`تم تصدير مقطع الشورتس (${actualStart}-${actualEnd}) بنجاح! 🚀`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "فشل التصدير.";
       showFeedback(`خطأ: ${msg}`);
@@ -281,54 +334,128 @@ export default function HookStudioPage() {
             </span>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-bold text-fg truncate">استوديو فيديو الخطاف (Hook Studio v18)</h1>
-                <span className="rounded-md bg-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-400 border border-red-500/40">
-                  حل حاجز الـ 9 ثوانٍ
+                <h1 className="text-base sm:text-lg font-bold text-fg truncate">
+                  استوديو توليد مقطع الشورتس (Shorts Segment Studio)
+                </h1>
+                <span className="rounded-md bg-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-400 border border-red-500/40 shrink-0">
+                  نطاق مخصص
                 </span>
               </div>
               <p className="text-xs text-muted truncate">
-                معاينة وتصدير الثواني الأولى كخطاف فوري بصدمة بصرية واهتزاز كاميرا لمنع المشاهد من التخطي فوراً.
+                اختر أي مشاهد تريدها (مثلاً 3 إلى 5)، وقم بتوليد أصواتها ومعاينتها وتصديرها كفيديو شورتس مستقل.
               </p>
             </div>
           </div>
 
-          {/* Quick Actions */}
+          {/* Unified Single Action: Generate Audio for selected range */}
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               disabled={generatingVoice}
-              onClick={handleBatchVoiceForHook}
-              className="flex h-10 items-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3.5 text-xs font-bold text-primary transition hover:bg-primary hover:text-black disabled:opacity-50"
+              onClick={handleBatchVoiceForSegment}
+              className="flex h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-accent px-4 text-xs sm:text-sm font-bold text-black shadow-md transition hover:brightness-110 disabled:opacity-50 active:scale-95 shrink-0"
+              title="توليد أصوات المشاهد المحددة في النطاق بنقرة واحدة"
             >
-              {generatingVoice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
-              <span>توليد صوت الخطاف</span>
+              {generatingVoice ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{voiceProgress || "جارٍ التوليد…"}</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4" />
+                  <span>توليد أصوات المقطع المختار (#{actualStart} إلى #{actualEnd})</span>
+                </>
+              )}
             </button>
           </div>
         </div>
 
-        {/* Channel Retention Diagnostics Banner */}
-        <div className="mt-3.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="space-y-1">
-            <p className="font-bold text-red-400 flex items-center gap-1.5">
-              <span>⚠️ تشخيص أداء القناة: متوسط المشاهدة الحالي 9 ثوانٍ فقط</span>
-            </p>
-            <p className="text-muted leading-relaxed">
-              المشاهد يتخذ قرار التخطي في أول 3 ثوانٍ! لذلك يطلق هذا الاستوديو ضربة <strong>Sub Boom Impact</strong> فورية عند 00:00.0 مع اهتزاز صدمة فوري وجملة صوتية خاطفة دون أي تمهيد بطيء.
-            </p>
+        {/* Range Selector Bar: From shot X to shot Y */}
+        <div className="mt-4 rounded-2xl border border-primary/40 bg-card/90 p-4 space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs font-bold text-primary flex items-center gap-1.5">
+                <Layers className="h-4 w-4" />
+                <span>تحديد نطاق مشاهد الشورت:</span>
+              </span>
+
+              {/* Numeric Input: Start Shot */}
+              <div className="flex items-center gap-1.5 bg-surface border border-border rounded-xl px-3 h-10">
+                <span className="text-xs text-dim">من مشهد:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalProjectShots || 1}
+                  value={startShot}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setStartShot(val);
+                    if (val > endShot) setEndShot(val);
+                  }}
+                  className="w-14 bg-transparent text-center font-bold font-mono text-primary outline-none text-sm"
+                />
+              </div>
+
+              {/* Numeric Input: End Shot */}
+              <div className="flex items-center gap-1.5 bg-surface border border-border rounded-xl px-3 h-10">
+                <span className="text-xs text-dim">إلى مشهد:</span>
+                <input
+                  type="number"
+                  min={startShot}
+                  max={totalProjectShots || 1}
+                  value={endShot}
+                  onChange={(e) => setEndShot(Number(e.target.value))}
+                  className="w-14 bg-transparent text-center font-bold font-mono text-primary outline-none text-sm"
+                />
+              </div>
+
+              {/* Dynamic Duration Badge */}
+              <div className="flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/30 px-3 h-10 text-xs">
+                <span className="text-dim">المدة المحسوبة:</span>
+                <span className="font-bold font-mono text-primary">{Math.round(totalDuration * 10) / 10} ث</span>
+                <span className="text-muted">({actualEnd - actualStart + 1} مشاهد)</span>
+              </div>
+            </div>
+
+            {/* Subtitles Quick Toggle */}
+            <label className="flex items-center gap-2 text-xs font-semibold text-fg cursor-pointer bg-surface border border-border rounded-xl px-3.5 h-10 hover:border-primary/50 transition">
+              <Subtitles className="h-4 w-4 text-primary" />
+              <span>ترجمة الكلام على الشاشة</span>
+              <input
+                type="checkbox"
+                checked={project.showSubtitlesInVideo !== false}
+                onChange={(e) => toggleSubtitles(e.target.checked)}
+                className="h-4 w-4 accent-[#00e5ff]"
+              />
+            </label>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (project && project.shots.length > 0) {
-                assignShotSfx(1, 6, "Sub Boom Impact", 95, 0);
-                showFeedback("تم تفعيل Sub Boom Impact عند الثانية 00:00.0 للمشهد الأول!");
-              }
-            }}
-            className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 font-bold text-black hover:brightness-110 shrink-0 shadow-sm transition"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>تثبيت Sub Boom فوراً</span>
-          </button>
+
+          {/* Quick Preset Buttons */}
+          <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40">
+            <span className="text-[11px] text-muted">اختصارات سريعة:</span>
+            {presetRanges.map((preset) => {
+              const active = actualStart === preset.start && actualEnd === preset.end;
+              return (
+                <button
+                  key={`${preset.start}-${preset.end}`}
+                  type="button"
+                  onClick={() => {
+                    setStartShot(preset.start);
+                    setEndShot(preset.end);
+                  }}
+                  className={cn(
+                    "h-8 rounded-lg px-3 text-xs font-semibold transition border",
+                    active
+                      ? "bg-primary text-black border-primary shadow-sm"
+                      : "bg-surface text-fg border-border/70 hover:border-primary/50"
+                  )}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -348,96 +475,86 @@ export default function HookStudioPage() {
             <button
               type="button"
               onClick={togglePlay}
-              className="absolute inset-0 grid place-items-center bg-black/25 opacity-0 transition hover:opacity-100"
+              className="absolute inset-0 grid place-items-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity"
               aria-label={playing ? "إيقاف" : "تشغيل"}
             >
-              <span className="grid h-14 w-14 place-items-center rounded-full bg-primary/90 text-black shadow-lg">
-                {playing ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 fill-current translate-x-0.5" />}
+              <span className="grid h-16 w-16 place-items-center rounded-full bg-black/75 text-primary backdrop-blur-md shadow-2xl border border-primary/40">
+                {playing ? <Pause className="h-8 w-8" /> : <Play className="h-8 w-8 translate-x-0.5" />}
               </span>
             </button>
-
-            {/* Badge */}
-            <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-lg bg-black/75 px-2.5 py-1 text-[11px] font-bold text-orange-400 border border-orange-500/40 backdrop-blur-md">
-              <Flame className="h-3.5 w-3.5" />
-              <span>Hook {totalDuration.toFixed(1)}s</span>
-            </div>
           </div>
 
-          {/* Player Bar */}
-          <div className="flex w-full items-center justify-between gap-2 px-1">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={togglePlay}
-                className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-black transition hover:bg-primary/90"
-              >
-                {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-current translate-x-0.5" />}
-              </button>
+          {/* Time & Playback Controls */}
+          <div className="w-full space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono text-dim px-1">
+              <span className="text-primary font-bold">{displayTime.toFixed(1)} ث</span>
+              <span>{totalDuration.toFixed(1)} ث</span>
+            </div>
+
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0.1, totalDuration)}
+              step={0.05}
+              value={displayTime}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                timeRef.current = val;
+                setDisplayTime(val);
+                paint();
+              }}
+              className="w-full accent-[#00e5ff]"
+            />
+
+            <div className="flex items-center justify-center gap-2 pt-1">
               <button
                 type="button"
                 onClick={reset}
-                className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-card text-muted transition hover:border-primary hover:text-primary"
+                className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-card text-dim hover:text-fg hover:border-primary/50 transition"
+                title="إعادة للبداية"
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
-            </div>
 
-            <div className="text-xs font-mono font-bold text-fg">
-              {displayTime.toFixed(1)}s / {totalDuration.toFixed(1)}s
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="flex h-9 flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-black hover:brightness-110 transition shadow-md"
+              >
+                {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                <span>{playing ? "إيقاف مؤقت" : `تشغيل المقطع (${actualStart}-${actualEnd})`}</span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Hook Settings, Shots, Visual Effects & Export */}
+        {/* Right Column: Segment Settings, Shots, Visual Effects & Export */}
         <div className="space-y-4 min-w-0">
-          {/* Settings Section */}
+          {/* Compression & Quality */}
           <section className="rounded-2xl sm:rounded-3xl border border-border bg-card p-4 sm:p-5 shadow-lg min-w-0">
             <h2 className="flex items-center gap-2 text-sm sm:text-base font-bold text-fg mb-3">
               <Flame className="h-4 w-4 text-orange-400" />
-              إعدادات الخطاف
+              إعدادات جودة المقطع
             </h2>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="text-xs text-dim block mb-1.5">عدد مشاهد الخطاف المضمنة:</label>
-                <div className="flex gap-2">
-                  {[1, 2, 3].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setSelectedHookShotCount(num)}
-                      className={cn(
-                        "flex-1 h-9 rounded-xl border text-xs font-bold transition",
-                        selectedHookShotCount === num
-                          ? "border-primary bg-primary text-black"
-                          : "border-border bg-surface text-fg hover:border-primary/50"
-                      )}
-                    >
-                      أول {num} {num === 1 ? "مشهد" : "مشاهد"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-dim block mb-1.5">جودة وضغط الفيديو:</label>
-                <div className="flex gap-2">
-                  {(["compact", "balanced", "high"] as CompressionPreset[]).map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setCompressionPreset(p)}
-                      className={cn(
-                        "flex-1 h-9 rounded-xl border text-[11px] font-bold transition capitalize",
-                        compressionPreset === p
-                          ? "border-primary bg-primary text-black"
-                          : "border-border bg-surface text-fg hover:border-primary/50"
-                      )}
-                    >
-                      {p === "compact" ? "خفيف SD" : p === "balanced" ? "متوازن" : "عالي HD"}
-                    </button>
-                  ))}
-                </div>
+            <div>
+              <label className="text-xs text-dim block mb-1.5">جودة وضغط الفيديو:</label>
+              <div className="flex gap-2">
+                {(["compact", "balanced", "high"] as CompressionPreset[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setCompressionPreset(p)}
+                    className={cn(
+                      "flex-1 h-9 rounded-xl border text-[11px] font-bold transition capitalize",
+                      compressionPreset === p
+                        ? "border-primary bg-primary text-black"
+                        : "border-border bg-surface text-fg hover:border-primary/50"
+                    )}
+                  >
+                    {p === "compact" ? "خفيف SD" : p === "balanced" ? "متوازن" : "عالي HD"}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -451,7 +568,7 @@ export default function HookStudioPage() {
           <section className="rounded-2xl sm:rounded-3xl border border-border bg-card p-4 sm:p-5 shadow-lg min-w-0">
             <h2 className="flex items-center gap-2 text-sm sm:text-base font-bold text-fg mb-3">
               <Sparkles className="h-4 w-4 text-primary" />
-              المؤثرات البصرية للخطاف (Visual Effects)
+              المؤثرات البصرية للمقطع (Visual Effects)
             </h2>
 
             <div className="grid gap-2.5 sm:grid-cols-2 text-xs">
@@ -499,17 +616,36 @@ export default function HookStudioPage() {
 
           {/* Hook Shots Editor */}
           <section className="rounded-2xl sm:rounded-3xl border border-border bg-card p-4 sm:p-5 shadow-lg min-w-0">
-            <h2 className="flex items-center gap-2 text-sm sm:text-base font-bold text-fg mb-3">
-              <Layers className="h-4 w-4 text-accent" />
-              نصوص ومؤثرات مشاهد الخطاف
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="flex items-center gap-2 text-sm sm:text-base font-bold text-fg">
+                <Layers className="h-4 w-4 text-accent" />
+                مشاهد المقطع المختار (#{actualStart} إلى #{actualEnd})
+              </h2>
+              <span className="text-xs text-dim">
+                {hookProject.shots.filter((s) => Boolean(s.customAudioId)).length} من {hookProject.shots.length} بصوت مسجل
+              </span>
+            </div>
 
             <div className="space-y-3">
               {hookProject.shots.map((shot) => {
+                const hasAudio = Boolean(shot.customAudioId);
                 return (
-                  <div key={shot.shotNumber} className="rounded-xl border border-border bg-surface p-3 space-y-2">
+                  <div
+                    key={shot.shotNumber}
+                    className={cn(
+                      "rounded-xl border p-3 space-y-2 transition",
+                      hasAudio ? "border-primary/40 bg-surface/90" : "border-border bg-surface"
+                    )}
+                  >
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-primary">مشهد #{shot.shotNumber}: {shot.type}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-primary">مشهد #{shot.shotNumber}: {shot.type}</span>
+                        {hasAudio && (
+                          <span className="rounded-md bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                            صوت جاهز ({shot.audioDurationSec ? `${shot.audioDurationSec.toFixed(1)}ث` : ""})
+                          </span>
+                        )}
+                      </div>
                       <span className="text-dim font-mono">{shot.timeframe}</span>
                     </div>
 
@@ -517,7 +653,7 @@ export default function HookStudioPage() {
                       rows={2}
                       value={shot.voiceoverEgyptian}
                       onChange={(e) => updateShotVoiceover(shot.shotNumber, e.target.value)}
-                      placeholder="نص التعليق الصوتي باللهجة المصرية الحماسية للخطاف…"
+                      placeholder="نص التعليق الصوتي باللهجة المصرية الحماسية…"
                       className="w-full rounded-lg border border-border bg-card p-2 text-xs leading-relaxed text-fg focus:border-primary focus:outline-none"
                     />
 
@@ -555,8 +691,10 @@ export default function HookStudioPage() {
           <section className="rounded-2xl sm:rounded-3xl border border-border bg-gradient-to-r from-surface to-card p-4 sm:p-5 shadow-lg min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-bold text-fg">تصدير فيديو الخطاف MP4</h3>
-                <p className="text-xs text-muted">فيديو رأسي 9:16 سريع التحميل وجاهز للمعاينة أو الإعلان المسبق.</p>
+                <h3 className="text-sm font-bold text-fg">
+                  تصدير فيديو المقطع (#{actualStart} إلى #{actualEnd}) بصيغة MP4
+                </h3>
+                <p className="text-xs text-muted">فيديو رأسي 9:16 بجودة عالية وترجمة مدمجة مع المؤثرات الصوتية.</p>
               </div>
 
               <button
@@ -573,7 +711,7 @@ export default function HookStudioPage() {
                 ) : (
                   <>
                     <Film className="h-5 w-5" />
-                    <span>تصدير فيديو الخطاف الآن</span>
+                    <span>تصدير فيديو المقطع الآن</span>
                   </>
                 )}
               </button>

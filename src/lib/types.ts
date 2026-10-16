@@ -229,6 +229,9 @@ export interface StoryProject {
   selectedBgmId: number;
   customBgmId?: string;
   customBgmTitle?: string;
+  customAudioBedId?: string;
+  customAudioBedTitle?: string;
+  customAudioBedVolume?: number;
   transitionType: TransitionTypeId;
   shotDurationSec: number;
   showSubtitlesInVideo: boolean;

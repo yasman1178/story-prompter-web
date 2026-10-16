@@ -9,7 +9,7 @@ export interface StudioTab {
 
 export const STUDIO_TABS: StudioTab[] = [
   { href: "/project", labelAr: "المشاهد", icon: Clapperboard },
-  { href: "/hook", labelAr: "فيديو الخطاف", icon: Flame },
+  { href: "/hook", labelAr: "مقطع الشورتس", icon: Flame },
   { href: "/record", labelAr: "التسجيل", icon: Mic },
   { href: "/audio", labelAr: "الصوت والموسيقى", icon: Music },
   { href: "/sfx", labelAr: "مكتبة المؤثرات", icon: Sparkles },

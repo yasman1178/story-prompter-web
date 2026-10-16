@@ -18,6 +18,7 @@ import {
   Sliders,
   Sparkles,
   Smartphone,
+  Subtitles,
   Tv,
   Square,
   Zap,
@@ -25,6 +26,7 @@ import {
 import { useStudio, findBgm } from "@/lib/store";
 import { audioEngine } from "@/lib/audio-engine";
 import { getAsset } from "@/lib/db";
+import { synthesizeSpeech, speakWithBrowser } from "@/lib/tts-client";
 import {
   COMPRESSION_PROFILES,
   CompressionPreset,
@@ -42,6 +44,22 @@ import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { matchSfxToCatalog } from "@/lib/data";
 import { LikeSubscribeCta } from "@/components/studio/like-subscribe-cta";
 
+async function getBlobDuration(blob: Blob): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onloadedmetadata = () => {
+      const d = Number.isFinite(audio.duration) ? audio.duration : 0;
+      URL.revokeObjectURL(url);
+      resolve(d);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(0);
+    };
+  });
+}
+
 export default function VideoPage() {
   const project = useStudio((s) => s.project);
   const hydrated = useStudio((s) => s.hydrated);
@@ -53,6 +71,7 @@ export default function VideoPage() {
   const applyVfxPreset = useStudio((s) => s.applyVfxPreset);
   const setShotTextOverlayPos = useStudio((s) => s.setShotTextOverlayPos);
   const setShotCtaPos = useStudio((s) => s.setShotCtaPos);
+  const toggleSubtitles = useStudio((s) => s.toggleSubtitles);
   const toggleVFX = useStudio((s) => s.toggleVFX);
   const showFeedback = useStudio((s) => s.showFeedback);
 
@@ -70,6 +89,8 @@ export default function VideoPage() {
   const [stage, setStage] = useState("");
   const [result, setResult] = useState<{ url: string; name: string; size: number } | null>(null);
   const [compressionPreset, setCompressionPreset] = useState<CompressionPreset>("compact");
+  const [generatingAllVoice, setGeneratingAllVoice] = useState(false);
+  const [allVoiceProgress, setAllVoiceProgress] = useState("");
 
   // VFX scope: current shot or all shots
   const [applyScope, setApplyScope] = useState<"shot" | "all">("all");
@@ -277,6 +298,36 @@ export default function VideoPage() {
     };
   }, [playing, project?.isBgmEnabled, project?.selectedBgmId, bgmVolume]);
 
+  // Ambient audio bed preview sync
+  const bedAudioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    let audio = bedAudioRef.current;
+    if (playing && project?.customAudioBedId) {
+      void (async () => {
+        const { getAsset } = await import("@/lib/db");
+        const asset = await getAsset(project.customAudioBedId!);
+        if (!asset) return;
+        const url = URL.createObjectURL(asset.blob);
+        audio = new Audio(url);
+        audio.loop = true;
+        audio.volume = project.customAudioBedVolume ?? 0.25;
+        bedAudioRef.current = audio;
+        await audio.play().catch(() => {});
+      })();
+    } else {
+      if (audio) {
+        audio.pause();
+        bedAudioRef.current = null;
+      }
+    }
+    return () => {
+      if (audio) {
+        audio.pause();
+        bedAudioRef.current = null;
+      }
+    };
+  }, [playing, project?.customAudioBedId, project?.customAudioBedVolume]);
+
   const togglePlay = useCallback(() => {
     if (!playing && timeRef.current >= totalSec) {
       timeRef.current = 0;
@@ -423,6 +474,35 @@ export default function VideoPage() {
     audioEngine.stop();
   }
 
+  async function handleBatchGenerateAllVoice() {
+    if (!project || generatingAllVoice) return;
+    setGeneratingAllVoice(true);
+    setAllVoiceProgress("بدء توليد أصوات جميع المشاهد…");
+    showFeedback(`جارٍ توليد الصوت لجميع مشاهد المشروع (${project.shots.length} مشهد)…`);
+    try {
+      const { assignShotAudio } = useStudio.getState();
+      const shots = project.shots;
+      for (let i = 0; i < shots.length; i++) {
+        const shot = shots[i];
+        setAllVoiceProgress(`توليد مشهد #${shot.shotNumber} (${i + 1}/${shots.length})…`);
+        try {
+          const res = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
+          const dur = await getBlobDuration(res.blob);
+          await assignShotAudio(shot.shotNumber, res.blob, dur, res.boundaries);
+        } catch {
+          await speakWithBrowser(shot.voiceoverEgyptian);
+        }
+      }
+      showFeedback(`تم بنجاح توليد أصوات جميع المشاهد الـ ${project.shots.length}! 🎙️`);
+      reset();
+    } catch {
+      showFeedback("تعذّر استكمال توليد الصوت.");
+    } finally {
+      setGeneratingAllVoice(false);
+      setAllVoiceProgress("");
+    }
+  }
+
   async function handleExport() {
     if (!project || exporting) return;
     setExporting(true);
@@ -508,9 +588,42 @@ export default function VideoPage() {
                   !useRange ? "bg-primary text-black shadow-sm" : "text-muted hover:text-fg"
                 )}
               >
-                الكل
+                كامل المشروع
               </button>
             </div>
+          </div>
+
+          {/* Quick Actions: Batch Voice Generator + Subtitles Toggle */}
+          <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-border/50">
+            <button
+              type="button"
+              disabled={generatingAllVoice}
+              onClick={handleBatchGenerateAllVoice}
+              className="flex-1 w-full flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary/20 via-primary/30 to-accent/20 border border-primary/50 text-xs font-bold text-fg hover:border-primary transition disabled:opacity-50"
+            >
+              {generatingAllVoice ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span className="truncate">{allVoiceProgress}</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 text-primary" />
+                  <span>توليد أصوات جميع المشاهد ({project.shots.length}) دفعة واحدة</span>
+                </>
+              )}
+            </button>
+
+            <label className="flex items-center gap-2 text-xs font-semibold text-fg cursor-pointer bg-card border border-border rounded-xl px-3 h-10 hover:border-primary/50 transition shrink-0">
+              <Subtitles className="h-4 w-4 text-primary" />
+              <span>الترجمة</span>
+              <input
+                type="checkbox"
+                checked={project.showSubtitlesInVideo !== false}
+                onChange={(e) => toggleSubtitles(e.target.checked)}
+                className="h-4 w-4 accent-[#00e5ff]"
+              />
+            </label>
           </div>
 
           {useRange ? (

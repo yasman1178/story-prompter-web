@@ -777,7 +777,10 @@ export function drawFrame(
   ctx.restore();
 
   // 7. RPG Translucent Scroll Text Overlay (Custom Coordinate & Anime Styling)
-  const caption = project.showSubtitlesInVideo ? shot.voiceoverEgyptian : shot.textOverlay;
+  const subtitlesEnabled = project.showSubtitlesInVideo !== false;
+  const caption = subtitlesEnabled
+    ? (shot.voiceoverEgyptian?.trim() || shot.textOverlay?.trim() || "")
+    : (shot.textOverlay?.trim() || "");
   if (caption) {
     const textPos = shot.textOverlayPos || project.defaultTextOverlayPos || { x: 0.5, y: 0.78 };
     const maxTextWidth = Math.min(targetW - 90, 620);
@@ -909,6 +912,7 @@ export function drawFrame(
 
     ctx.font = "700 36px Cairo, sans-serif";
     ctx.textAlign = "center";
+    ctx.direction = "rtl";
     let textY = by + (shot.vocalCue ? 62 : 52);
 
     let globalWordCounter = 0;
@@ -1205,6 +1209,28 @@ async function buildMixedAudio(
       src.stop(durationSec);
     } catch {
       // ignore bgm failure
+    }
+  }
+
+  // 3b. Custom Ambient Audio Bed under voice
+  if (project.customAudioBedId) {
+    try {
+      const bedAsset = await getImage(project.customAudioBedId);
+      if (bedAsset?.blob) {
+        const bedBuffer = await decodeInContext(bedAsset.blob, offline);
+        const bedSrc = offline.createBufferSource();
+        bedSrc.buffer = bedBuffer;
+        bedSrc.loop = true;
+        const bedGain = offline.createGain();
+        const bedVol = typeof project.customAudioBedVolume === "number" ? project.customAudioBedVolume : 0.25;
+        bedGain.gain.value = bedVol;
+        bedSrc.connect(bedGain);
+        bedGain.connect(offline.destination);
+        bedSrc.start(0);
+        bedSrc.stop(durationSec);
+      }
+    } catch {
+      // ignore audio bed failure
     }
   }
 
