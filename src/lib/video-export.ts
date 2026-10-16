@@ -81,10 +81,76 @@ export interface ExportResult {
 
 export interface ShotImage {
   bitmap: ImageBitmap;
+  foregroundBitmap?: ImageBitmap;
 }
 
 function checkAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException("export_aborted", "AbortError");
+}
+
+function drawForegroundCutout(
+  ctx: CanvasRenderingContext2D,
+  bitmap: ImageBitmap,
+  animation: import("@/lib/types").ForegroundAnimationType = "floating",
+  localSec: number,
+  duration: number,
+  motionIntensity: number,
+  parallaxShiftX: number,
+  targetW: number,
+  targetH: number
+) {
+  ctx.save();
+  // 3D Parallax offset for foreground (1.7x background shift for multiplane depth)
+  let offsetX = parallaxShiftX * 1.7;
+  let offsetY = 0;
+  let scale = 1.0;
+  let rotation = 0;
+
+  switch (animation) {
+    case "floating":
+      offsetY = Math.sin(localSec * 2.6) * 16 * motionIntensity;
+      rotation = Math.sin(localSec * 1.8) * 0.02 * motionIntensity;
+      break;
+    case "pulse":
+      scale = 1.0 + Math.sin(localSec * 5.5) * 0.06 * motionIntensity;
+      break;
+    case "shake":
+      if (localSec < 1.2 || (localSec % 2.5) < 0.45) {
+        offsetX += Math.sin(localSec * 50) * 8 * motionIntensity;
+        offsetY += Math.cos(localSec * 45) * 6 * motionIntensity;
+      }
+      break;
+    case "scale_up": {
+      const p = Math.min(1, localSec / Math.max(1, duration * 0.65));
+      scale = 1.0 + p * 0.22 * motionIntensity;
+      break;
+    }
+    case "static":
+    default:
+      break;
+  }
+
+  const canvasRatio = targetW / targetH;
+  const imageRatio = bitmap.width / bitmap.height;
+  let drawW: number;
+  let drawH: number;
+  if (imageRatio > canvasRatio) {
+    drawH = targetH;
+    drawW = drawH * imageRatio;
+  } else {
+    drawW = targetW;
+    drawH = drawW / imageRatio;
+  }
+
+  drawW *= scale;
+  drawH *= scale;
+  const cx = targetW / 2 + offsetX;
+  const cy = targetH / 2 + offsetY;
+
+  ctx.translate(cx, cy);
+  if (rotation !== 0) ctx.rotate(rotation);
+  ctx.drawImage(bitmap, -drawW / 2, -drawH / 2, drawW, drawH);
+  ctx.restore();
 }
 
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
@@ -400,11 +466,35 @@ export function drawFrame(
   const parallaxDepth = (vfx.parallaxDepth ?? 65) / 100;
   const motionIntensity = (vfx.motionIntensity ?? 80) / 100;
 
-  // 1. Ken Burns Camera Motions with custom Motion Intensity
-  const moveType = shot.shotNumber % 3;
+  // 1. Camera Motions & Visual Beats (v18 Standard)
   let zoom = 1 + progress * 0.14 * (0.4 + motionIntensity * 0.7);
   let panX = 0;
-  if (project.enableKenBurns !== false) {
+
+  if (shot.cameraMotion) {
+    switch (shot.cameraMotion) {
+      case "zoom_in":
+        zoom = 1.0 + progress * 0.22 * motionIntensity;
+        break;
+      case "zoom_out":
+        zoom = Math.max(1.0, 1.24 - progress * 0.18 * motionIntensity);
+        break;
+      case "pan_left":
+        zoom = 1.08;
+        panX = (0.5 - progress) * 50 * motionIntensity;
+        break;
+      case "pan_right":
+        zoom = 1.08;
+        panX = (progress - 0.5) * 50 * motionIntensity;
+        break;
+      case "shake":
+        zoom = 1.10;
+        break;
+      case "static":
+        zoom = 1.05;
+        break;
+    }
+  } else if (project.enableKenBurns !== false) {
+    const moveType = shot.shotNumber % 3;
     if (moveType === 0) {
       zoom = 1.0 + progress * 0.16 * motionIntensity;
     } else if (moveType === 1) {
@@ -419,27 +509,49 @@ export function drawFrame(
   const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
   zoom += hookPunch;
 
-  // Word-boundary / action punch zoom every ~2.4s
-  const punchPhase = (localSec % 2.4) / 0.22;
-  if (punchPhase < 1.0) {
-    zoom += Math.sin(punchPhase * Math.PI) * 0.04;
+  // v18 Beats visual pacing (resets attention every 2.5 - 3 seconds)
+  let hasBeatPulse = false;
+  if (shot.beats && shot.beats.length > 0) {
+    for (const b of shot.beats) {
+      const diff = localSec - b.atSec;
+      if (diff >= 0 && diff < 0.35) {
+        const beatPhase = diff / 0.35;
+        zoom += Math.sin(beatPhase * Math.PI) * 0.07;
+        hasBeatPulse = true;
+        break;
+      }
+    }
+  }
+  if (!hasBeatPulse) {
+    const punchPhase = (localSec % 2.8) / 0.26;
+    if (punchPhase < 1.0) {
+      zoom += Math.sin(punchPhase * Math.PI) * 0.05;
+    }
   }
 
   // 3D Parallax Depth displacement
   const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
 
-  // 2. Camera Screen Shake on impacts / lasers
+  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook
+  const isHookShot1 = shot.shotNumber === 1 && localSec < 0.45;
   const isImpact =
+    isHookShot1 ||
+    shot.cameraMotion === "shake" ||
     shot.type.includes("انغلاق") ||
     shot.type.includes("زئير") ||
     shot.type.includes("ليزر") ||
     shot.type.includes("ارتطام") ||
     shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
     shot.sceneType === "THRONE_STATUE_RED_EYES";
+
   let shakeX = 0;
   let shakeY = 0;
-  if (isImpact && localSec < 0.28) {
-    const intensity = (1 - localSec / 0.28) * 12;
+  if (isHookShot1) {
+    const intensity = (1 - localSec / 0.45) * 16;
+    shakeX = Math.sin(localSec * 75) * intensity;
+    shakeY = Math.cos(localSec * 65) * intensity;
+  } else if (isImpact && localSec < 0.35) {
+    const intensity = (1 - localSec / 0.35) * 12;
     shakeX = Math.sin(localSec * 60) * intensity;
     shakeY = Math.cos(localSec * 50) * intensity;
   }
@@ -450,9 +562,22 @@ export function drawFrame(
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, targetW, targetH);
 
-  // Draw visual artwork with smart cover and parallax
+  // Draw visual artwork with smart cover and parallax (Split-Layer Compositing v19)
   if (image) {
     drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
+    if (image.foregroundBitmap) {
+      drawForegroundCutout(
+        ctx,
+        image.foregroundBitmap,
+        shot.foregroundAnimation || "floating",
+        localSec,
+        duration,
+        motionIntensity,
+        parallaxShiftX,
+        targetW,
+        targetH
+      );
+    }
   } else {
     drawSceneArt(ctx, shot, zoom, targetW, targetH);
   }
@@ -954,16 +1079,38 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
   // 1. Sort shots strictly by shot_number ascending (1, 2, 3...) to eliminate OS file sorting discrepancies
   const sortedShots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
 
-  // 2. Load assets for each shot strictly mapped to shot.shotNumber
+  // 2. Load assets for each shot strictly mapped to shot.shotNumber (background + foreground)
   for (const shot of sortedShots) {
-    if (!shot.customImageId) continue;
-    const asset = await getImage(shot.customImageId).catch(() => undefined);
-    if (!asset || !asset.blob) continue;
-    try {
-      const bitmap = await createImageBitmap(asset.blob);
-      map.set(shot.shotNumber, { bitmap });
-    } catch (err) {
-      console.warn(`[loadShotImages] Failed to create bitmap for shot #${shot.shotNumber}:`, err);
+    let bgBitmap: ImageBitmap | undefined;
+    let fgBitmap: ImageBitmap | undefined;
+
+    if (shot.customImageId) {
+      const asset = await getImage(shot.customImageId).catch(() => undefined);
+      if (asset?.blob) {
+        try {
+          bgBitmap = await createImageBitmap(asset.blob);
+        } catch (err) {
+          console.warn(`[loadShotImages] Failed to create bg bitmap for shot #${shot.shotNumber}:`, err);
+        }
+      }
+    }
+
+    if (shot.customForegroundImageId) {
+      const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
+      if (fgAsset?.blob) {
+        try {
+          fgBitmap = await createImageBitmap(fgAsset.blob);
+        } catch (err) {
+          console.warn(`[loadShotImages] Failed to create fg cutout bitmap for shot #${shot.shotNumber}:`, err);
+        }
+      }
+    }
+
+    if (bgBitmap || fgBitmap) {
+      map.set(shot.shotNumber, {
+        bitmap: bgBitmap || fgBitmap!,
+        foregroundBitmap: bgBitmap && fgBitmap ? fgBitmap : undefined,
+      });
     }
   }
 

@@ -84,6 +84,8 @@ interface StudioState {
   selectShot: (index: number) => void;
   setShotImage: (shotNumber: number, imageId: string) => void;
   assignSingleImage: (shotNumber: number, file: File) => Promise<void>;
+  assignSingleForegroundImage: (shotNumber: number, file: File) => Promise<void>;
+  clearShotForegroundImage: (shotNumber: number) => Promise<void>;
   setRecordedAudio: (audioId: string, durationSec: number) => void;
   assignShotAudio: (shotNumber: number, blob: Blob, durationSec: number, wordBoundaries?: WordBoundary[]) => Promise<void>;
   batchAssignShotsAudio: (assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[]) => Promise<void>;
@@ -292,8 +294,40 @@ export const useStudio = create<StudioState>((set, get) => ({
     await putImage({ id, name: file.name, type: file.type, blob: file, createdAt: Date.now() });
     const project = get().project;
     if (!project) return;
-    const shots = project.shots.map((s) => (s.shotNumber === shotNumber ? { ...s, customImageId: id } : s));
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? { ...s, customImageId: id, matchedFileName: file.name, imageMatchMethod: "manual" as const }
+        : s
+    );
     set({ project: { ...project, shots }, feedback: `تم تحديث صورة المشهد #${shotNumber}` });
+  },
+
+  assignSingleForegroundImage: async (shotNumber, file) => {
+    const id = newId("fg");
+    await putImage({ id, name: file.name, type: file.type, blob: file, createdAt: Date.now() });
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? { ...s, customForegroundImageId: id, matchedForegroundFileName: file.name }
+        : s
+    );
+    set({ project: { ...project, shots }, feedback: `تم تعيين عنصر أمامي مفرغ للمشهد #${shotNumber}` });
+  },
+
+  clearShotForegroundImage: async (shotNumber) => {
+    const project = get().project;
+    if (!project) return;
+    const shot = project.shots.find((s) => s.shotNumber === shotNumber);
+    if (shot?.customForegroundImageId) {
+      await deleteImage(shot.customForegroundImageId).catch(() => undefined);
+    }
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? { ...s, customForegroundImageId: undefined, matchedForegroundFileName: undefined }
+        : s
+    );
+    set({ project: { ...project, shots }, feedback: `تم إزالة العنصر الأمامي للمشهد #${shotNumber}` });
   },
 
   setRecordedAudio: (audioId, durationSec) => {
@@ -545,9 +579,20 @@ export const useStudio = create<StudioState>((set, get) => ({
       })
     );
 
+    // Separate foreground cutout candidates from background/general candidates
+    const fgCandidates: typeof stored = [];
+    const remainingCandidates: typeof stored = [];
+    for (const item of stored) {
+      const lower = item.name.toLowerCase();
+      if (lower.includes("_fg") || lower.includes("fg_") || lower.includes("cutout") || lower.includes("foreground")) {
+        fgCandidates.push(item);
+      } else {
+        remainingCandidates.push(item);
+      }
+    }
+
     // Sort project shots strictly by shotNumber ascending
     const shotsCopy = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
-    const remainingCandidates = [...stored];
 
     let matchedJsonCount = 0;
     let matchedNumberCount = 0;
@@ -593,9 +638,8 @@ export const useStudio = create<StudioState>((set, get) => ({
     });
 
     // Phase 3: Strict ordinal sequential matching following shotNumber ascending (1, 2, 3...)
-    // remainingCandidates is already in natural numerical sort order
     let r = 0;
-    const finalShots = phase2Shots.map((shot) => {
+    const phase3Shots = phase2Shots.map((shot) => {
       if (!shot.customImageId && r < remainingCandidates.length) {
         const hit = remainingCandidates[r++];
         matchedOrdinalCount++;
@@ -609,16 +653,35 @@ export const useStudio = create<StudioState>((set, get) => ({
       return shot;
     });
 
-    const totalMatched = matchedJsonCount + matchedNumberCount + matchedOrdinalCount;
+    // Phase 4: Match foreground cutouts by shotNumber (e.g. shot_01_fg.png)
+    let matchedFgCount = 0;
+    const finalShots = phase3Shots.map((shot) => {
+      const n = shot.shotNumber;
+      const regex = new RegExp(`(^|[^0-9])0*${n}([^0-9]|$)`);
+      const fgHitIdx = fgCandidates.findIndex((c) => regex.test(c.base) || c.num === n);
+      if (fgHitIdx >= 0) {
+        const [fgHit] = fgCandidates.splice(fgHitIdx, 1);
+        matchedFgCount++;
+        return {
+          ...shot,
+          customForegroundImageId: fgHit.id,
+          matchedForegroundFileName: fgHit.name,
+        };
+      }
+      return shot;
+    });
+
+    const totalMatched = matchedJsonCount + matchedNumberCount + matchedOrdinalCount + matchedFgCount;
     const feedbackDetails: string[] = [];
     if (matchedJsonCount > 0) feedbackDetails.push(`${matchedJsonCount} بمطابقة اسم JSON`);
-    if (matchedNumberCount > 0) feedbackDetails.push(`${matchedNumberCount} برقم المشهد shot_number`);
+    if (matchedNumberCount > 0) feedbackDetails.push(`${matchedNumberCount} برقم المشهد`);
+    if (matchedFgCount > 0) feedbackDetails.push(`${matchedFgCount} عناصر أمامية مفرغة (FG)`);
     if (matchedOrdinalCount > 0) feedbackDetails.push(`${matchedOrdinalCount} تسلسلياً`);
 
     const summary = feedbackDetails.length > 0 ? ` (${feedbackDetails.join("، ")})` : "";
     set({
       project: { ...project, shots: finalShots },
-      feedback: `تم تعيين ${totalMatched} صورة ومطابقتها وفق حقل shot_number وأسماء ملف الـ JSON بنجاح${summary}!`,
+      feedback: `تم تعيين ${totalMatched} صورة ومطابقتها وفق حقل shot_number والطبقات المنفصلة بنجاح${summary}!`,
     });
     return totalMatched;
   },

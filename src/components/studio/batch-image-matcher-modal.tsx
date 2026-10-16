@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
   FileImage,
   FolderUp,
+  Layers,
   RefreshCw,
   Trash2,
   Upload,
@@ -20,17 +21,25 @@ interface BatchImageMatcherModalProps {
   onClose: () => void;
 }
 
+type LayerFilter = "ALL" | "NEEDS_BG" | "HAS_FG" | "NEEDS_FG";
+
 export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherModalProps) {
   const project = useStudio((s) => s.project);
   const assignImages = useStudio((s) => s.assignImages);
   const assignSingleImage = useStudio((s) => s.assignSingleImage);
+  const assignSingleForegroundImage = useStudio((s) => s.assignSingleForegroundImage);
   const clearShotImage = useStudio((s) => s.clearShotImage);
+  const clearShotForegroundImage = useStudio((s) => s.clearShotForegroundImage);
   const shiftShotImage = useStudio((s) => s.shiftShotImage);
   const reorderImagesOrdinally = useStudio((s) => s.reorderImagesOrdinally);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fgBatchInputRef = useRef<HTMLInputElement>(null);
   const singleInputRef = useRef<HTMLInputElement>(null);
+  const singleFgInputRef = useRef<HTMLInputElement>(null);
   const targetShotForSingle = useRef<number | null>(null);
+
+  const [filter, setFilter] = useState<LayerFilter>("ALL");
 
   const sortedShots = useMemo(() => {
     if (!project) return [];
@@ -39,6 +48,7 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
 
   const stats = useMemo(() => {
     let withImage = 0;
+    let withFg = 0;
     let jsonMatch = 0;
     let numberMatch = 0;
     let ordinalMatch = 0;
@@ -52,17 +62,31 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
         else if (s.imageMatchMethod === "ordinal") ordinalMatch++;
         else if (s.imageMatchMethod === "manual") manualMatch++;
       }
+      if (s.customForegroundImageId) {
+        withFg++;
+      }
     }
     return {
       total: sortedShots.length,
       withImage,
-      missing: sortedShots.length - withImage,
+      missingImage: sortedShots.length - withImage,
+      withFg,
+      missingFg: sortedShots.length - withFg,
       jsonMatch,
       numberMatch,
       ordinalMatch,
       manualMatch,
     };
   }, [sortedShots]);
+
+  const displayedShots = useMemo(() => {
+    return sortedShots.filter((shot) => {
+      if (filter === "NEEDS_BG") return !shot.customImageId;
+      if (filter === "HAS_FG") return Boolean(shot.customForegroundImageId);
+      if (filter === "NEEDS_FG") return !shot.customForegroundImageId;
+      return true;
+    });
+  }, [sortedShots, filter]);
 
   if (!isOpen || !project) return null;
 
@@ -71,13 +95,30 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
     singleInputRef.current?.click();
   }
 
+  function handleSingleFgUpload(shotNumber: number) {
+    targetShotForSingle.current = shotNumber;
+    singleFgInputRef.current?.click();
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-5 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-5 animate-in fade-in duration-200">
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void assignImages(files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={fgBatchInputRef}
+        type="file"
+        multiple
+        accept="image/*"
         className="hidden"
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
@@ -98,6 +139,19 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
           e.target.value = "";
         }}
       />
+      <input
+        ref={singleFgInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && targetShotForSingle.current !== null) {
+            void assignSingleForegroundImage(targetShotForSingle.current, file);
+          }
+          e.target.value = "";
+        }}
+      />
 
       <div
         className="w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl border border-border bg-surface shadow-2xl overflow-hidden"
@@ -110,11 +164,16 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
               <FolderUp className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-fg">
-                ترتيب ومطابقة الصور مع ملف الـ JSON
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-fg">
+                  مطابقة الطبقات البصرية وعزل العناصر (Split-Layer Compositing)
+                </h2>
+                <span className="rounded-md bg-accent/20 px-2 py-0.5 text-[10px] font-bold text-accent border border-accent/40">
+                  v19 مدمج
+                </span>
+              </div>
               <p className="text-xs text-muted">
-                مطابقة صور المشاهد وفق تسلسل <span className="font-mono text-primary font-bold">shot_number</span> وأسماء الصور بملف الـ JSON
+                مطابقة صور الخلفيات والعناصر المفرغة (FG Cutouts) وفق حقل <span className="font-mono text-primary font-bold">shot_number</span> وأسماء الـ JSON.
               </p>
             </div>
           </div>
@@ -136,16 +195,19 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
                 إجمالي المشاهد: <strong className="font-mono text-primary">{stats.total}</strong>
               </span>
               <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-emerald-400 border border-emerald-500/30">
-                مرتبطة بصور: <strong className="font-mono">{stats.withImage}</strong>
+                خلفيات مرتبطة: <strong className="font-mono">{stats.withImage}</strong>
               </span>
-              {stats.missing > 0 && (
+              <span className="rounded-lg bg-accent/15 px-2.5 py-1 text-accent border border-accent/30">
+                عناصر أمامية (FG): <strong className="font-mono">{stats.withFg}</strong>
+              </span>
+              {stats.missingImage > 0 && (
                 <span className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-amber-400 border border-amber-500/30">
-                  بحاجة لصورة: <strong className="font-mono">{stats.missing}</strong>
+                  بحاجة لخلفية: <strong className="font-mono">{stats.missingImage}</strong>
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={reorderImagesOrdinally}
@@ -158,28 +220,67 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
 
               <button
                 type="button"
+                onClick={() => fgBatchInputRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-xl border border-accent/50 bg-accent/15 px-3 py-1.5 text-xs font-bold text-accent hover:bg-accent hover:text-black transition shadow-sm"
+                title="رفع عناصر أمامية مفرغة (PNG شفافة) يتم ربطها تلقائياً إذا احتوى اسمها على _fg أو fg_ أو cutout أو رقم المشهد"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>رفع عناصر مفرغة (FG)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-bold text-black hover:brightness-110 transition shadow-sm"
               >
                 <Upload className="h-3.5 w-3.5" />
-                <span>رفع حزمة صور جديدة</span>
+                <span>رفع حزمة صور</span>
               </button>
             </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[11px] text-muted font-medium">عرض:</span>
+            {(
+              [
+                { id: "ALL", label: `كل المشاهد (${stats.total})` },
+                { id: "NEEDS_BG", label: `بحاجة لخلفية (${stats.missingImage})` },
+                { id: "HAS_FG", label: `تحتوي عنصر أمامي (${stats.withFg})` },
+                { id: "NEEDS_FG", label: `بدون عنصر أمامي (${stats.missingFg})` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilter(tab.id)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 text-[11px] font-semibold transition border",
+                  filter === tab.id
+                    ? "bg-primary text-black border-primary"
+                    : "bg-card text-muted border-border hover:text-fg"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           {/* Explanation badge */}
           <div className="rounded-xl border border-border/60 bg-card/60 p-2.5 text-xs text-muted flex items-start gap-2">
             <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
             <p className="leading-relaxed">
-              <strong>نظام المطابقة الذكي:</strong> تم إلغاء ترتيب نظام التشغيل العشوائي. يتم أولاً ربط الصورة بالاسم المحدد في ملف الـ JSON، ثم بأرقام المشاهد داخل اسم الملف، وفي حال التسميات العامة يتم التعيين تسلسلياً بحسب رقم المشهد <span className="font-mono text-primary">shot_number</span> تصاعدياً.
+              <strong>نظام الطبقات المنفصلة (Split-Layer):</strong> يمكنك رفع صور الخلفيات والعناصر الأمامية معاً في مجلد واحد؛ الملفات التي تحتوي على <span className="font-mono text-accent">_fg</span> أو <span className="font-mono text-accent">cutout</span> ستُربط كطبقة عنصر أمامي متحرك مع بارالاكس ثلاثي الأبعاد، بينما الصور الأخرى ستُربط كخلفيات مشهد.
             </p>
           </div>
         </div>
 
         {/* Shots List Table */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5 max-h-[58vh]">
-          {sortedShots.map((shot, idx) => {
+          {displayedShots.map((shot) => {
             const hasImage = Boolean(shot.customImageId);
+            const hasFg = Boolean(shot.customForegroundImageId);
+            const idx = sortedShots.findIndex((s) => s.shotNumber === shot.shotNumber);
             const canMoveUp = idx > 0;
             const canMoveDown = idx < sortedShots.length - 1;
 
@@ -232,22 +333,34 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
                           ترتيب يدوي
                         </span>
                       )}
+
+                      {/* Foreground Cutout Badge */}
+                      {hasFg ? (
+                        <span className="rounded-md bg-accent/20 px-2 py-0.5 text-[11px] font-bold text-accent border border-accent/40 flex items-center gap-1">
+                          <Layers className="h-3 w-3" />
+                          <span>عنصر أمامي مفرغ: {shot.matchedForegroundFileName || "FG"}</span>
+                        </span>
+                      ) : shot.foregroundElementPromptEn ? (
+                        <span className="rounded-md bg-surface px-1.5 py-0.5 text-[10px] text-dim border border-border">
+                          مطلوب عنصر أمامي في JSON
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted">
                       {shot.imageFilename && (
                         <span className="truncate max-w-xs font-mono text-dim">
-                          اسم الصورة في JSON: <span className="text-fg">{shot.imageFilename}</span>
+                          خلفية JSON: <span className="text-fg">{shot.imageFilename}</span>
                         </span>
                       )}
                       {shot.matchedFileName && (
                         <span className="truncate max-w-xs font-mono text-dim">
-                          الملف المرفوع: <span className="text-primary font-semibold">{shot.matchedFileName}</span>
+                          ملف الخلفية: <span className="text-primary font-semibold">{shot.matchedFileName}</span>
                         </span>
                       )}
                       {!hasImage && (
                         <span className="text-amber-400 font-semibold">
-                          لم يتم تعيين صورة لهذا المشهد بعد
+                          لم يتم تعيين خلفية لهذا المشهد بعد
                         </span>
                       )}
                     </div>
@@ -255,7 +368,7 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
                 </div>
 
                 {/* Right: Actions */}
-                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center flex-wrap">
                   {/* Reorder arrows */}
                   {hasImage && (
                     <>
@@ -280,24 +393,52 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
                     </>
                   )}
 
-                  {/* Replace/Upload single image button */}
+                  {/* Replace/Upload single background image button */}
                   <button
                     type="button"
                     onClick={() => handleSingleUpload(shot.shotNumber)}
                     className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs text-fg hover:border-primary transition"
-                    title="استبدال صورة هذا المشهد"
+                    title="استبدال خلفية هذا المشهد"
                   >
                     <FileImage className="h-3.5 w-3.5 text-primary" />
-                    <span>{hasImage ? "استبدال" : "رفع صورة"}</span>
+                    <span>{hasImage ? "استبدال الخلفية" : "رفع خلفية"}</span>
                   </button>
 
-                  {/* Clear image button */}
+                  {/* Upload Foreground Cutout button */}
+                  <button
+                    type="button"
+                    onClick={() => handleSingleFgUpload(shot.shotNumber)}
+                    className={cn(
+                      "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition",
+                      hasFg
+                        ? "border-accent/40 bg-accent/15 text-accent hover:bg-accent/25"
+                        : "border-border bg-surface text-muted hover:border-accent hover:text-fg"
+                    )}
+                    title="رفع عنصر أمامي مفرغ (PNG) مع تحريك ثلاثي الأبعاد"
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    <span>{hasFg ? "تغيير FG" : "+ عنصر أمامي"}</span>
+                  </button>
+
+                  {/* Clear FG button if present */}
+                  {hasFg && (
+                    <button
+                      type="button"
+                      onClick={() => void clearShotForegroundImage(shot.shotNumber)}
+                      className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted hover:border-amber-500/50 hover:text-amber-400 transition"
+                      title="إزالة العنصر الأمامي المفرغ"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+
+                  {/* Clear background image button */}
                   {hasImage && (
                     <button
                       type="button"
-                      onClick={() => clearShotImage(shot.shotNumber)}
+                      onClick={() => void clearShotImage(shot.shotNumber)}
                       className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted hover:border-red-500/50 hover:text-red-400 transition"
-                      title="إزالة الصورة"
+                      title="إزالة الخلفية"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -310,9 +451,11 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
 
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-border p-4 bg-card/60">
-          <span className="text-xs text-dim">
-            إجمالي المشاهد المرتبة: {stats.withImage} من {stats.total}
-          </span>
+          <div className="flex items-center gap-3 text-xs text-dim">
+            <span>الخلفيات: {stats.withImage} من {stats.total}</span>
+            <span>•</span>
+            <span>العناصر الأمامية (FG): {stats.withFg} من {stats.total}</span>
+          </div>
           <button
             type="button"
             onClick={onClose}

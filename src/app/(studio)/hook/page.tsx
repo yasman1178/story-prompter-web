@@ -280,15 +280,20 @@ export default function HookStudioPage() {
               <Flame className="h-6 w-6 animate-pulse" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-base sm:text-lg font-bold text-fg truncate">استوديو فيديو الخطاف (Hook Video Studio)</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-bold text-fg truncate">استوديو فيديو الخطاف (Hook Studio v18)</h1>
+                <span className="rounded-md bg-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-400 border border-red-500/40">
+                  حل حاجز الـ 9 ثوانٍ
+                </span>
+              </div>
               <p className="text-xs text-muted truncate">
-                إنشاء وتصدير أول {selectedHookShotCount} ثوانٍ كفيديو خطاف مستقل بأعلى مؤثرات بصرية وصوتية لجذب المشاهدين فوراً.
+                معاينة وتصدير الثواني الأولى كخطاف فوري بصدمة بصرية واهتزاز كاميرا لمنع المشاهد من التخطي فوراً.
               </p>
             </div>
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               disabled={generatingVoice}
@@ -299,6 +304,31 @@ export default function HookStudioPage() {
               <span>توليد صوت الخطاف</span>
             </button>
           </div>
+        </div>
+
+        {/* Channel Retention Diagnostics Banner */}
+        <div className="mt-3.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="space-y-1">
+            <p className="font-bold text-red-400 flex items-center gap-1.5">
+              <span>⚠️ تشخيص أداء القناة: متوسط المشاهدة الحالي 9 ثوانٍ فقط</span>
+            </p>
+            <p className="text-muted leading-relaxed">
+              المشاهد يتخذ قرار التخطي في أول 3 ثوانٍ! لذلك يطلق هذا الاستوديو ضربة <strong>Sub Boom Impact</strong> فورية عند 00:00.0 مع اهتزاز صدمة فوري وجملة صوتية خاطفة دون أي تمهيد بطيء.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (project && project.shots.length > 0) {
+                assignShotSfx(1, 6, "Sub Boom Impact", 95, 0);
+                showFeedback("تم تفعيل Sub Boom Impact عند الثانية 00:00.0 للمشهد الأول!");
+              }
+            }}
+            className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 font-bold text-black hover:brightness-110 shrink-0 shadow-sm transition"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>تثبيت Sub Boom فوراً</span>
+          </button>
         </div>
       </section>
 

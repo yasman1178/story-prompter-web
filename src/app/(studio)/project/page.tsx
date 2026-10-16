@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, FileUp, FolderUp, Layers, RotateCcw, Search, Sparkles, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, FileText, FileUp, FolderUp, Layers, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { BatchImageMatcherModal } from "@/components/studio/batch-image-matcher-modal";
 import { StoryShot, TRANSITION_TYPES } from "@/lib/types";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { validateStoryProject } from "@/lib/story-validator";
 
 const PAGE_SIZE = 60;
 
@@ -39,6 +40,12 @@ export default function ProjectPage() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
   const [matcherModalOpen, setMatcherModalOpen] = useState(false);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+
+  const validation = useMemo(() => {
+    if (!project) return null;
+    return validateStoryProject(project);
+  }, [project]);
 
   const shots = useMemo(() => project?.shots ?? [], [project?.shots]);
 
@@ -274,7 +281,137 @@ export default function ProjectPage() {
         </div>
       </section>
 
-      {/* Paste JSON Modal Dialog */}
+      {/* v18 Story Quality & YouTube Retention Banner */}
+      {validation && (
+        <section className="rounded-2xl border border-primary/30 bg-gradient-to-r from-card via-surface to-surface/90 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span
+              className={cn(
+                "grid h-10 w-10 shrink-0 place-items-center rounded-xl border font-bold font-mono text-sm",
+                validation.score >= 90
+                  ? "bg-accent/20 border-accent/40 text-accent"
+                  : validation.score >= 70
+                  ? "bg-primary/20 border-primary/40 text-primary"
+                  : "bg-danger/20 border-danger/40 text-danger"
+              )}
+            >
+              {validation.score}%
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-bold text-fg">فحص الجودة والامتثال لمعيار v18 وخوارزميات يوتيوب</h2>
+                {validation.isValid ? (
+                  <span className="flex items-center gap-1 text-[11px] text-accent font-semibold">
+                    <CheckCircle className="h-3 w-3" /> مطابق للشروط
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[11px] text-amber-400 font-semibold">
+                    <AlertTriangle className="h-3 w-3" /> ينقصه تحسينات
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted mt-0.5 truncate">
+                الخطاف: {validation.stats.hookWordCount} كلمات · Sub Boom: {validation.stats.hasHookSubBoom ? "مفعّل" : "مفقود"} · شرطات ممنوعة: {validation.stats.forbiddenCharCount}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {validation.stats.forbiddenCharCount > 0 && (
+              <button
+                type="button"
+                onClick={optimizeProjectVoiceovers}
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-black transition"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                تنقية تلقائية
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowValidationModal(true)}
+              className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-fg hover:border-primary transition"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              تفاصيل الفحص
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Validation Details Modal */}
+      {showValidationModal && validation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-xl rounded-2xl border border-border bg-surface p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto scrollbar-thin">
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                <h3 className="text-base font-bold text-fg">تقرير جودة السيناريو والامتثال لمعيار v18</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowValidationModal(false)}
+                className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted hover:text-fg transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-dim uppercase">قائمة الفحص المسبق (Pre-Delivery Checklist)</h4>
+              <div className="divide-y divide-border/40 rounded-xl border border-border bg-card p-3">
+                {validation.checklist.map((item) => (
+                  <div key={item.id} className="py-2 flex items-center justify-between text-xs">
+                    <span className="text-fg font-medium">{item.labelAr}</span>
+                    <span
+                      className={cn(
+                        "font-semibold text-[11px] rounded px-2 py-0.5",
+                        item.passed ? "bg-accent/20 text-accent" : "bg-danger/20 text-danger"
+                      )}
+                    >
+                      {item.passed ? "تم التحقق ✓" : item.details || "غير مطابق"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {validation.issues.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-dim uppercase">الملاحظات والتوصيات المكتشفة ({validation.issues.length})</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
+                  {validation.issues.map((iss, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "rounded-xl border p-2.5 text-xs space-y-1",
+                        iss.type === "error"
+                          ? "border-danger/40 bg-danger/10 text-danger"
+                          : iss.type === "warning"
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                          : "border-primary/40 bg-primary/10 text-primary"
+                      )}
+                    >
+                      <p className="font-semibold text-fg">{iss.message}</p>
+                      {iss.fixSuggestion && <p className="text-[11px] text-muted">{iss.fixSuggestion}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowValidationModal(false)}
+                className="h-10 rounded-xl bg-primary px-4 text-xs font-bold text-black hover:brightness-110"
+              >
+                إغلاق التقرير
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {pasteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="relative w-full max-w-2xl rounded-2xl sm:rounded-3xl border border-border bg-surface p-5 sm:p-6 shadow-2xl">

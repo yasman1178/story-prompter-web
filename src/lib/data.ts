@@ -171,12 +171,12 @@ function sampleShot(
 }
 
 export const SEIF_SHOTS: StoryShot[] = [
-  sampleShot(1, 0, 6, "Hook (القفشة الأولى)", "إثارة وتشويق حابس للأنفاس",
+  sampleShot(1, 0, 6, "Hook (سؤال فضولي صادم)", "إثارة وتشويق حابس للأنفاس",
     "غموض وتشويق - نبرة حبس أنفاس",
-    "بص في المشهد ده, واقف وسط كهف مظلم كله وحوش كاسرة, وعارف إنك أضعف واحد هنا وممكن تقع من أول ضربة!",
-    "موسيقى سينمائية سريعة + زئير وحش عملاق",
-    "Dark Blue (#1B2A4A) & Cyan Portal Glow",
-    "Solo Leveling manhwa style, vertical 9:16, close-up shot of 20yo male hunter Seif wearing a dark blue zip-up hoodie (#1B2A4A) over a gray t-shirt, bandages on left cheek, messy black hair, holding a small iron dagger with trembling hands, intense cyan blue portal light in background, sharp anime art",
+    "هل تتخيل إيه اللي ممكن يحصل لو أضعف صياد في العالم دخل أخطر متاهة في التاريخ?!",
+    "Sub Boom Impact فوري عند 00:00.0 مع اهتزاز الشاشة وسحب سيف حاد",
+    "Neon Cyan (#00E5FF) vs Blood Red (#FF3B30)",
+    "Solo Leveling manhwa style, cinematic 16:9 aspect ratio, extreme close-up of 20yo male hunter Seif wearing dark navy hoodie with wide terrified glowing eyes, trembling dagger with purple shadow aura, giant ancient temple monster statues in background, volumetric neon chiaroscuro lighting, 8k, sharp anime art",
     "DAGGER_TREMBLING",
     "الكتاب الأول - صحوة الصياد",
     8,
@@ -337,8 +337,8 @@ export function createSampleProject(): StoryProject {
   return {
     id: uid("proj"),
     title: "حكاية سيف - أضعف صياد في العالم",
-    platform: "YouTube Shorts / Vertical Video (9:16)",
-    aspectRatio: "9:16",
+    platform: "YouTube Shorts / Video (16:9 & 9:16)",
+    aspectRatio: "16:9",
     totalShots: SEIF_SHOTS.length,
     language: "Egyptian Arabic (العامية المصرية)",
     shots: SEIF_SHOTS.map((s) => ({ ...s })),
@@ -358,6 +358,30 @@ export function createSampleProject(): StoryProject {
     voiceNameAr: "سلمى (أنثى مصرية)",
     generatedVoiceIds: [],
     generatedVoiceDurations: [],
+    seriesMeta: {
+      seriesName: "حكاية سيف",
+      episodeNumber: 1,
+      chaptersCovered: [1, 2],
+      nextEpisodeTeaser: "سيف في مواجهة تمثال العيون الحمراء المرعب!",
+    },
+    seoMetadata: {
+      suggestedTitles: [
+        "هل تتخيل إيه اللي حصل لما أضعف صياد دخل معبد الموت؟! 🔥",
+        "إزاي نجا أضعف إنسان من الوحش اللي أباد الفرقة كلها؟! 😱",
+        "ليه التمثال الحجري فتح عيونه الحمرا بالذات لسيف؟! #Shorts",
+      ],
+      titleOptions: [
+        "هل تتخيل إيه اللي حصل لما أضعف صياد دخل معبد الموت؟! 🔥",
+        "إزاي نجا أضعف إنسان من الوحش اللي أباد الفرقة كلها؟! 😱",
+        "ليه التمثال الحجري فتح عيونه الحمرا بالذات لسيف؟! #Shorts",
+      ],
+      description: "هل تتخيل إيه اللي ممكن يحصل لو أضعف صياد في العالم دخل أخطر متاهة في التاريخ؟!\n\nتابع حكاية سيف من البداية وتحدي المستحيل.\n\n#حكاية_سيف #Shorts #أنمي #مانهوا",
+      hashtags: "#حكاية_سيف #Shorts #أنمي #مانهوا #أكشن",
+      tags: "سيف, أضعف صياد, مانهوا, أنمي, سولو, Shorts, قصة, 16:9",
+      recommendedUploadTime: "بين 6 مساءً و 9 مساءً بتوقيت القاهرة (ذروة التفاعل).",
+      thumbnailPromptEn: "Cinematic 16:9 aspect ratio (1920x1080), extreme high-contrast anime manhwa cover art, young hunter Seif with shocked wide glowing neon cyan eyes, trembling dark purple shadow aura dagger, looming colossal ancient stone monster statues in background, volumetric fog and chiaroscuro lighting (#00E5FF vs #FF3B30), 8k, no text",
+      pinnedComment: "لو كنت مكان سيف ومعاك خنجر ضعيف، كنت هتدخل المتاهة دي ولا تهرب؟! اكتب رأيك في التعليقات 👇",
+    },
   };
 }
 
@@ -591,18 +615,28 @@ function parseDialogueLines(arr: unknown): DialogueLine[] {
 function parseSeoMetadata(obj: unknown): SeoMetadata | undefined {
   if (!isObject(obj)) return undefined;
   const titles: string[] = [];
+  const titleOptions: string[] = [];
+  if (Array.isArray(obj.title_options)) {
+    for (const t of obj.title_options) {
+      if (typeof t === "string" && t.trim()) titleOptions.push(t.trim());
+    }
+  }
   if (Array.isArray(obj.suggested_titles)) {
     for (const t of obj.suggested_titles) {
       if (typeof t === "string" && t.trim()) titles.push(t.trim());
     }
   }
+  const allTitles = titleOptions.length > 0 ? titleOptions : titles;
   return {
-    suggestedTitles: titles,
+    suggestedTitles: allTitles,
+    titleOptions: allTitles,
     description: extractString(obj, ["description", "desc", "details"]) ?? "",
     hashtags: extractString(obj, ["hashtags", "hash_tags", "hashTags"]) ?? "",
     tags: extractString(obj, ["tags", "keywords"]) ?? "",
     recommendedUploadTime:
       extractString(obj, ["recommended_upload_time", "upload_time", "best_time", "uploadTime"]) ?? "",
+    thumbnailPromptEn: extractString(obj, ["thumbnail_prompt_en", "thumbnail_prompt", "thumbnail"]) ?? undefined,
+    pinnedComment: extractString(obj, ["pinned_comment", "pinned", "comment"]) ?? undefined,
   };
 }
 
@@ -617,6 +651,10 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
     let lang = "العامية المصرية";
     let shotsArray: unknown[] | null = null;
     let seoMeta: SeoMetadata | undefined;
+    let seriesMeta: StoryProject["seriesMeta"] | undefined;
+    let characterBible: StoryProject["characterBible"] | undefined;
+    let globalStyleEn: string | undefined;
+    let negativePromptEn: string | undefined;
 
     const parsed: unknown = JSON.parse(trimmed);
 
@@ -629,10 +667,42 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         title = extractString(projInfo, ["title", "name", "project_title", "title_arabic"]) ?? title;
         platform = extractString(projInfo, ["platform", "aspect_ratio", "format"]) ?? platform;
         lang = extractString(projInfo, ["language", "lang"]) ?? lang;
-        seoMeta = parseSeoMetadata(projInfo.seo_metadata);
+        seoMeta = parseSeoMetadata(projInfo.seo_metadata ?? projInfo.seo);
       } else {
         title = extractString(root, ["title", "name", "project_title", "story_title"]) ?? title;
       }
+
+      if (!seoMeta && isObject(root.seo)) {
+        seoMeta = parseSeoMetadata(root.seo);
+      } else if (!seoMeta && isObject(root.seo_metadata)) {
+        seoMeta = parseSeoMetadata(root.seo_metadata);
+      }
+
+      if (isObject(root.series_meta)) {
+        const sm = root.series_meta;
+        seriesMeta = {
+          seriesName: extractString(sm, ["series_name", "series", "name"]) ?? "حكاية سيف",
+          episodeNumber: extractInt(sm, 1, ["episode_number", "episode", "part", "ch"]),
+          chaptersCovered: Array.isArray(sm.chapters_covered)
+            ? sm.chapters_covered.map((c) => Number(c)).filter(Boolean)
+            : [],
+          nextEpisodeTeaser: extractString(sm, ["next_episode_teaser", "teaser", "next_episode"]) ?? "",
+        };
+      }
+
+      if (Array.isArray(root.character_bible)) {
+        characterBible = root.character_bible
+          .filter(isObject)
+          .map((cb) => ({
+            id: extractString(cb, ["id", "key"]) ?? "char",
+            name: extractString(cb, ["name", "name_ar"]) ?? "",
+            descriptionEn: extractString(cb, ["description_en", "description", "desc"]) ?? "",
+            referenceImage: extractString(cb, ["reference_image", "ref_image", "image"]) ?? undefined,
+          }));
+      }
+
+      globalStyleEn = extractString(root, ["global_style_en", "global_style", "style_en"]) ?? undefined;
+      negativePromptEn = extractString(root, ["negative_prompt_en", "negative_prompt"]) ?? undefined;
 
       const arrayKeys = ["shots", "scenes", "clips", "segments", "frames", "items", "data", "list", "story"];
       for (const key of arrayKeys) {
@@ -727,6 +797,8 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       let sfxVolumePercent = 85;
       let sfxTriggerSec = 0;
       let sfxLibrarySource = "MaterialFoundry/SoundFxLibrary";
+      const sfxList: import("./types").ShotSfxItem[] = [];
+
       let soundDesign: string;
       const sdObj = shotObj.sound_design ?? shotObj.audio_design ?? shotObj.sound;
       if (isObject(sdObj)) {
@@ -741,14 +813,40 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
           soundMusic = extractString(sdObj, ["music", "bgm", "background_music", "score", "music_track"]) ?? "";
         }
 
-        soundSfx = extractString(sdObj, ["sfx", "effects", "sound_effects", "sfx_cue", "ambience"]) ?? "";
-        sfxName = extractString(sdObj, ["sfx_name", "sfx", "effects", "sound_effect", "name"]) ?? soundSfx;
+        // v18 SFX Array handling
+        if (Array.isArray(sdObj.sfx)) {
+          for (const sfxEntry of sdObj.sfx) {
+            if (isObject(sfxEntry)) {
+              const sName = extractString(sfxEntry, ["sfx_name", "name", "sfx", "effect"]) ?? "";
+              const sVol = parsePercent(extractString(sfxEntry, ["sfx_volume_percent", "volume_percent", "volume"])) ?? 85;
+              const sTrig = parseTimecodeSec(extractString(sfxEntry, ["sfx_trigger_sec", "trigger_sec", "trigger", "start_sec"])) ?? 0;
+              if (sName) {
+                sfxList.push({ sfxName: sName, sfxVolumePercent: sVol, sfxTriggerSec: sTrig });
+              }
+            } else if (typeof sfxEntry === "string" && sfxEntry.trim()) {
+              sfxList.push({ sfxName: sfxEntry.trim(), sfxVolumePercent: 85, sfxTriggerSec: 0 });
+            }
+          }
+          if (sfxList.length > 0) {
+            sfxName = sfxList[0].sfxName;
+            sfxVolumePercent = sfxList[0].sfxVolumePercent;
+            sfxTriggerSec = sfxList[0].sfxTriggerSec;
+            soundSfx = sfxList.map((s) => s.sfxName).join(" + ");
+          }
+        } else {
+          soundSfx = extractString(sdObj, ["sfx", "effects", "sound_effects", "sfx_cue", "ambience"]) ?? "";
+          sfxName = extractString(sdObj, ["sfx_name", "sfx", "effects", "sound_effect", "name"]) ?? soundSfx;
+          sfxVolumePercent =
+            parsePercent(extractString(sdObj, ["sfx_volume_percent", "volume", "volume_percent"])) ?? 85;
+          sfxTriggerSec =
+            parseTimecodeSec(extractString(sdObj, ["sfx_trigger_sec", "trigger_sec", "trigger", "start_sec"])) ?? 0;
+          if (sfxName) {
+            sfxList.push({ sfxName, sfxVolumePercent, sfxTriggerSec });
+          }
+        }
+
         sfxLibrarySource =
           extractString(sdObj, ["sfx_library_source", "library_source", "source"]) ?? "MaterialFoundry/SoundFxLibrary";
-        sfxVolumePercent =
-          parsePercent(extractString(sdObj, ["sfx_volume_percent", "volume", "volume_percent"])) ?? 85;
-        sfxTriggerSec =
-          parseTimecodeSec(extractString(sdObj, ["sfx_trigger_sec", "trigger_sec", "trigger", "start_sec"])) ?? 0;
         soundDesign = [soundMusic, sfxName || soundSfx].filter(Boolean).join(" + ");
       } else {
         soundDesign =
@@ -757,6 +855,9 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         sfxName = soundDesign;
         sfxVolumePercent = parsePercent(extractString(shotObj, ["sfx_volume_percent", "volume_percent"])) ?? 85;
         sfxTriggerSec = parseTimecodeSec(extractString(shotObj, ["sfx_trigger_sec", "trigger_sec"])) ?? 0;
+        if (sfxName) {
+          sfxList.push({ sfxName, sfxVolumePercent, sfxTriggerSec });
+        }
       }
 
       const assignedSfxId = matchSfxToCatalog(sfxName || soundSfx || soundDesign);
@@ -764,6 +865,27 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       // Resilient VFX Spatial Layers normalization (supporting v17 array and legacy object)
       const rawSpatial = shotObj.vfx_spatial_layers ?? shotObj.spatial_layers ?? shotObj.vfx;
       const vfxSpatialLayers = parseVfxSpatialLayers(rawSpatial);
+
+      // Parse beats array (v18)
+      const beats: import("./types").BeatItem[] = [];
+      if (Array.isArray(shotObj.beats)) {
+        for (const b of shotObj.beats) {
+          if (isObject(b)) {
+            const atSec = Number(b.at_sec ?? b.atSec ?? b.sec ?? 0);
+            const visualChange = extractString(b, ["visual_change", "change", "visual", "beat"]) ?? "";
+            beats.push({ atSec, visualChange });
+          }
+        }
+      }
+
+      // Camera motion and transitions
+      const cameraMotion = extractString(shotObj, ["camera_motion", "camera", "motion"]) as import("./types").CameraMotionType | undefined;
+      const transitionOut = extractString(shotObj, ["transition_out", "transition"]) as import("./types").TransitionOutType | undefined;
+      const charactersInShot = Array.isArray(shotObj.characters_in_shot)
+        ? shotObj.characters_in_shot.map((c) => String(c).trim()).filter(Boolean)
+        : Array.isArray(shotObj.characters)
+        ? shotObj.characters.map((c) => String(c).trim()).filter(Boolean)
+        : undefined;
 
       let textOverlayPos: { x: number; y: number } | undefined;
       const rawTextPos = shotObj.text_overlay_pos ?? shotObj.text_pos ?? shotObj.textOverlayPos;
@@ -786,8 +908,17 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       }
 
       const colorTheme = extractString(shotObj, ["color_theme", "color", "palette", "theme"]) ?? "";
-      const imagePromptEn =
+      const backgroundPromptEn =
+        extractString(shotObj, ["background_prompt_en", "background_prompt", "bg_prompt", "background"]) ?? undefined;
+      const foregroundElementPromptEn =
+        extractString(shotObj, ["foreground_element_prompt_en", "foreground_prompt", "fg_prompt", "foreground", "element_prompt"]) ?? undefined;
+      const foregroundAnimation =
+        extractString(shotObj, ["foreground_animation", "fg_animation", "character_animation", "animation"]) as import("./types").ForegroundAnimationType | undefined;
+
+      const rawImagePrompt =
         extractString(shotObj, ["image_prompt_en", "image_prompt", "prompt", "visual_prompt", "visual", "description", "art_prompt"]) ?? "";
+      const imagePromptEn = rawImagePrompt || [backgroundPromptEn, foregroundElementPromptEn].filter(Boolean).join(" with ") || "";
+
       const imageFilename =
         extractString(shotObj, ["image_filename", "image_file", "image_name", "file_name", "filename", "image_path"]) ?? undefined;
       const textOverlay = extractString(shotObj, ["text_overlay", "overlay", "caption", "onscreen_text", "headline"]) ?? "";
@@ -802,6 +933,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         timeframe,
         startTimeSec: startSec,
         endTimeSec: endSec,
+        durationSec: explicitDuration > 0 ? explicitDuration : endSec - startSec,
         type,
         mood,
         vocalCue,
@@ -810,6 +942,14 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         colorTheme,
         imagePromptEn,
         imageFilename,
+        backgroundPromptEn,
+        foregroundElementPromptEn,
+        foregroundAnimation: foregroundAnimation || (shotNum === 1 ? "scale_up" : "floating"),
+        charactersInShot,
+        cameraMotion,
+        transitionOut,
+        beats: beats.length > 0 ? beats : undefined,
+        sfxList: sfxList.length > 0 ? sfxList : undefined,
         soundMusic,
         soundSfx,
         sfxLibrarySource,
@@ -861,6 +1001,10 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       aspectRatio: detectedAspectRatio,
       totalShots: shots.length,
       language: lang,
+      seriesMeta,
+      characterBible,
+      globalStyleEn,
+      negativePromptEn,
       shots,
       isBgmEnabled: true,
       selectedBgmId,

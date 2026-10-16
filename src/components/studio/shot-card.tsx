@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import {
   Eye,
   ImagePlus,
+  Layers,
   Loader2,
   Pause,
   Play,
@@ -28,7 +29,9 @@ import { cn } from "@/lib/utils";
 export function ShotCard({ shot, index, active }: { shot: StoryShot; index: number; active: boolean }) {
   const selectShot = useStudio((s) => s.selectShot);
   const assignSingleImage = useStudio((s) => s.assignSingleImage);
+  const assignSingleForegroundImage = useStudio((s) => s.assignSingleForegroundImage);
   const clearShotImage = useStudio((s) => s.clearShotImage);
+  const clearShotForegroundImage = useStudio((s) => s.clearShotForegroundImage);
   const assignShotAudio = useStudio((s) => s.assignShotAudio);
   const clearShotAudio = useStudio((s) => s.clearShotAudio);
   const voiceName = useStudio((s) => s.project?.voiceName ?? "ar-EG-SalmaNeural");
@@ -36,8 +39,10 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
   const showFeedback = useStudio((s) => s.showFeedback);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const fgInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const imageUrl = useImageUrl(shot.customImageId);
+  const fgImageUrl = useImageUrl(shot.customForegroundImageId);
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
@@ -140,6 +145,9 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
               {shot.customImageId && (
                 <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-accent ring-2 ring-black" title="تم تعيين صورة مخصصة" />
               )}
+              {shot.customForegroundImageId && (
+                <span className="absolute top-1 left-1 h-2 w-2 rounded-full bg-primary ring-2 ring-black" title="تم تعيين عنصر أمامي مفرغ (FG)" />
+              )}
 
               {/* Hover Eye overlay */}
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition">
@@ -161,6 +169,11 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
                     {shot.matchedFileName && (
                       <span className="text-[10px] rounded bg-surface border border-border px-1.5 py-0.5 font-mono text-dim truncate max-w-[110px]" title={`الصورة المطابقة: ${shot.matchedFileName}`}>
                         📷 {shot.matchedFileName}
+                      </span>
+                    )}
+                    {shot.matchedForegroundFileName && (
+                      <span className="text-[10px] rounded bg-accent/15 border border-accent/40 px-1.5 py-0.5 font-mono text-accent truncate max-w-[110px]" title={`العنصر الأمامي: ${shot.matchedForegroundFileName}`}>
+                        🎭 {shot.matchedForegroundFileName}
                       </span>
                     )}
                     <button
@@ -289,7 +302,7 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
 
         {/* Action Controls for Image and Audio */}
         <div className="mt-3 grid grid-cols-2 gap-2 pt-2 border-t border-border/50">
-          {/* Image button */}
+          {/* Background Image button */}
           <div className="flex items-center gap-1">
             <input
               ref={imageInputRef}
@@ -311,7 +324,7 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
               className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface/60 text-xs font-semibold text-fg transition hover:border-primary/60 hover:bg-surface"
             >
               <ImagePlus className="h-3.5 w-3.5 text-primary" />
-              <span>{shot.customImageId ? "تغيير الصورة" : "ربط صورة"}</span>
+              <span>{shot.customImageId ? "تغيير الخلفية" : "ربط خلفية"}</span>
             </button>
             {shot.customImageId && (
               <button
@@ -368,6 +381,51 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
             </button>
           </div>
         </div>
+
+        {/* Foreground Cutout Layer Row (Split-Layer Compositing) */}
+        <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-between gap-2 text-xs">
+          <input
+            ref={fgInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void assignSingleForegroundImage(shot.shotNumber, file);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              fgInputRef.current?.click();
+            }}
+            className={cn(
+              "flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition",
+              shot.customForegroundImageId
+                ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20"
+                : "border-border/60 bg-surface/40 text-muted hover:border-accent hover:text-fg"
+            )}
+            title="رفع عنصر أمامي مفرغ (PNG شفاف) لتحريك البارالاكس ثلاثي الأبعاد"
+          >
+            <Layers className="h-3 w-3" />
+            <span>{shot.customForegroundImageId ? "تغيير العنصر الأمامي (FG)" : "+ عنصر أمامي مفرغ (FG)"}</span>
+          </button>
+          {shot.customForegroundImageId && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void clearShotForegroundImage(shot.shotNumber);
+              }}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border text-muted hover:border-amber-500/60 hover:text-amber-400 transition"
+              title="إزالة العنصر الأمامي المفرغ"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
+        </div>
       </article>
 
       {/* SFX Picker Modal for this shot */}
@@ -408,7 +466,7 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
               </button>
             </div>
 
-            {/* 9:16 Vertical Preview Frame */}
+            {/* 9:16 Vertical Preview Frame with Layering */}
             <div
               className="relative mx-auto w-full max-w-[240px] aspect-[9/16] overflow-hidden rounded-2xl border-2 border-primary/50 shadow-2xl"
               style={{ background: themeGradient(shot.colorTheme, index) }}
@@ -422,6 +480,16 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
                 />
               ) : (
                 <SceneThumbnail sceneType={shot.sceneType} className="h-full w-full object-cover" />
+              )}
+
+              {/* Foreground Cutout Layer if present */}
+              {fgImageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={fgImageUrl}
+                  alt={`عنصر أمامي ${shot.shotNumber}`}
+                  className="absolute inset-0 h-full w-full object-contain pointer-events-none drop-shadow-[0_10px_20px_rgba(0,0,0,0.7)]"
+                />
               )}
 
               {/* Subtitle Plate overlay */}
@@ -441,9 +509,15 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
             {/* Link Status & Controls */}
             <div className="space-y-2.5 rounded-2xl bg-card p-3 border border-border/60">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted">حالة الصورة:</span>
+                <span className="text-muted">حالة الخلفية:</span>
                 <span className={cn("font-bold", shot.customImageId ? "text-accent" : "text-primary")}>
-                  {shot.customImageId ? "صورة مخصصة مرتبطة ✓" : "رسمة المشهد القياسية"}
+                  {shot.customImageId ? "خلفية مخصصة مرتبطة ✓" : "رسمة المشهد القياسية"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted">العنصر الأمامي (FG):</span>
+                <span className={cn("font-bold", shot.customForegroundImageId ? "text-accent" : "text-muted")}>
+                  {shot.customForegroundImageId ? "عنصر مفرغ جاهز للبارالاكس ✓" : "غير مرتبط (خلفية فقط)"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">

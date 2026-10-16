@@ -11,6 +11,35 @@ export const TRANSITION_TYPES: TransitionType[] = [
   { id: "SMOOTH_FADE", labelAr: "تلاشي ناعم (Smooth Fade)" },
 ];
 
+export type CameraMotionType = "zoom_in" | "zoom_out" | "pan_left" | "pan_right" | "shake" | "static";
+export type TransitionOutType = "cut" | "flash" | "glitch" | "fade" | "whip";
+export type ForegroundAnimationType = "floating" | "pulse" | "shake" | "scale_up" | "static";
+
+export interface BeatItem {
+  atSec: number;
+  visualChange: string;
+}
+
+export interface ShotSfxItem {
+  sfxName: string;
+  sfxVolumePercent: number;
+  sfxTriggerSec: number;
+}
+
+export interface CharacterBibleItem {
+  id: string;
+  name: string;
+  descriptionEn: string;
+  referenceImage?: string;
+}
+
+export interface SeriesMeta {
+  seriesName: string;
+  episodeNumber: number;
+  chaptersCovered: number[];
+  nextEpisodeTeaser: string;
+}
+
 export type SceneArtType =
   | "DAGGER_TREMBLING"
   | "DUNGEON_FIRMED"
@@ -107,6 +136,7 @@ export interface WordBoundary {
 export interface DialogueLine {
   speaker: string;
   text: string;
+  voiceProfile?: string;
   pitch?: string;
   rate?: string;
 }
@@ -117,6 +147,7 @@ export interface StoryShot {
   timeframe: string;
   startTimeSec: number;
   endTimeSec: number;
+  durationSec?: number;
   type: string;
   mood: string;
   vocalCue?: string;
@@ -125,6 +156,16 @@ export interface StoryShot {
   colorTheme: string;
   imagePromptEn: string;
   imageFilename?: string;
+  backgroundPromptEn?: string;
+  foregroundElementPromptEn?: string;
+  foregroundAnimation?: ForegroundAnimationType;
+  customForegroundImageId?: string;
+  matchedForegroundFileName?: string;
+  charactersInShot?: string[];
+  cameraMotion?: CameraMotionType;
+  transitionOut?: TransitionOutType;
+  beats?: BeatItem[];
+  sfxList?: ShotSfxItem[];
   soundMusic: string;
   soundSfx: string;
   sfxLibrarySource?: string;
@@ -154,10 +195,13 @@ export interface StoryShot {
 
 export interface SeoMetadata {
   suggestedTitles: string[];
+  titleOptions?: string[];
   description: string;
   hashtags: string;
   tags: string;
   recommendedUploadTime: string;
+  thumbnailPromptEn?: string;
+  pinnedComment?: string;
 }
 
 export interface VoiceOption {
@@ -172,7 +216,12 @@ export interface StoryProject {
   platform: string;
   aspectRatio: AspectRatioType | string;
   totalShots: number;
+  estimatedDurationSec?: number;
   language: string;
+  seriesMeta?: SeriesMeta;
+  globalStyleEn?: string;
+  negativePromptEn?: string;
+  characterBible?: CharacterBibleItem[];
   shots: StoryShot[];
   audioRecordId?: string;
   audioRecordDurationSec?: number;

