@@ -11,6 +11,7 @@ import {
   Loader2,
   Maximize2,
   Move,
+  Music,
   Pause,
   Play,
   RotateCcw,
@@ -21,12 +22,15 @@ import {
   Subtitles,
   Tv,
   Square,
+  Vibrate,
+  Volume2,
+  VolumeX,
   Zap,
 } from "lucide-react";
 import { useStudio, findBgm } from "@/lib/store";
 import { audioEngine } from "@/lib/audio-engine";
 import { getAsset } from "@/lib/db";
-import { synthesizeSpeech, speakWithBrowser } from "@/lib/tts-client";
+import { synthesizeSpeech, speakWithBrowser, runConcurrentPool } from "@/lib/tts-client";
 import {
   COMPRESSION_PROFILES,
   CompressionPreset,
@@ -72,6 +76,9 @@ export default function VideoPage() {
   const setShotTextOverlayPos = useStudio((s) => s.setShotTextOverlayPos);
   const setShotCtaPos = useStudio((s) => s.setShotCtaPos);
   const toggleSubtitles = useStudio((s) => s.toggleSubtitles);
+  const toggleBgm = useStudio((s) => s.toggleBgm);
+  const toggleSfx = useStudio((s) => s.toggleSfx);
+  const toggleCameraShake = useStudio((s) => s.toggleCameraShake);
   const toggleVFX = useStudio((s) => s.toggleVFX);
   const showFeedback = useStudio((s) => s.showFeedback);
 

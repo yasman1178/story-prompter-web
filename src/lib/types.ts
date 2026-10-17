@@ -235,6 +235,8 @@ export interface StoryProject {
   transitionType: TransitionTypeId;
   shotDurationSec: number;
   showSubtitlesInVideo: boolean;
+  isSfxEnabled?: boolean;
+  enableCameraShake?: boolean;
   channelName: string;
   showChannelWatermark: boolean;
   showSubscribeCta: boolean;

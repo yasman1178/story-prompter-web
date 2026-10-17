@@ -78,6 +78,8 @@ interface StudioState {
   toggleSubtitles: (show: boolean) => void;
   setTransitionType: (type: TransitionTypeId) => void;
   toggleBgm: (enabled: boolean) => void;
+  toggleSfx: (enabled?: boolean) => void;
+  toggleCameraShake: (enabled?: boolean) => void;
   selectBgm: (id: number) => void;
   setCustomBgm: (imageId: string, title: string) => void;
   setCustomAudioBed: (assetId: string, title: string, volume?: number) => void;
@@ -256,6 +258,26 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({
       project: { ...project, isBgmEnabled: enabled },
       feedback: enabled ? "تم تفعيل الموسيقى التصويرية" : "تم إيقاف الموسيقى (صوتك فقط)",
+    });
+  },
+
+  toggleSfx: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const nextVal = enabled !== undefined ? enabled : !project.isSfxEnabled;
+    set({
+      project: { ...project, isSfxEnabled: nextVal },
+      feedback: nextVal ? "تم تفعيل المؤثرات الصوتية (SFX)" : "تم إيقاف المؤثرات الصوتية (SFX)",
+    });
+  },
+
+  toggleCameraShake: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const nextVal = enabled !== undefined ? enabled : !project.enableCameraShake;
+    set({
+      project: { ...project, enableCameraShake: nextVal },
+      feedback: nextVal ? "تم تفعيل اهتزاز الكاميرا" : "تم تعطيل اهتزاز الكاميرا (ثبات سينمائي)",
     });
   },
 

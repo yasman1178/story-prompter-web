@@ -27,32 +27,36 @@ export interface CompressionProfile {
   videoBitrate: number;
   audioBitrate: number;
   badge: string;
+  fps: number;
 }
 
 export const COMPRESSION_PROFILES: Record<CompressionPreset, CompressionProfile> = {
   compact: {
     id: "compact",
-    labelAr: "مضغوط وموفر (سريع وخفيف)",
-    descriptionAr: "أصغر حجم (~8-12 MB للدقيقة)، مثالي للشورتس ومشاركة الواتساب",
+    labelAr: "توربو فائق السرعة (24 إطار/ث - سريع وخفيف)",
+    descriptionAr: "أسرع وضع للرندر، يوفر 35% من الوقت والجهد، مثالي للشورتس ومشاركة الواتساب",
     videoBitrate: 1_250_000,
     audioBitrate: 96_000,
-    badge: "توفير 65%",
+    badge: "الأسرع ⚡",
+    fps: 24,
   },
   balanced: {
     id: "balanced",
-    labelAr: "متوازن (موصى به)",
-    descriptionAr: "جودة ممتازة متوازنة مع حجم مناسب (~16-20 MB للدقيقة)",
+    labelAr: "متوازن (30 إطار/ث - موصى به)",
+    descriptionAr: "جودة ممتازة متوازنة مع سرعة عالية وحجم مناسب (~16-20 MB للدقيقة)",
     videoBitrate: 2_200_000,
     audioBitrate: 128_000,
     badge: "موصى به",
+    fps: 30,
   },
   high: {
     id: "high",
-    labelAr: "جودة سينمائية كاملة",
+    labelAr: "جودة سينمائية كاملة (30 إطار/ث)",
     descriptionAr: "أعلى وضوح وتفاصيل مع حجم ملف أكبر (~28-35 MB للدقيقة)",
     videoBitrate: 3_600_000,
     audioBitrate: 160_000,
     badge: "أعلى دقة",
+    fps: 30,
   },
 };
 
@@ -533,28 +537,32 @@ export function drawFrame(
   // 3D Parallax Depth displacement
   const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
 
-  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook
-  const isHookShot1 = shot.shotNumber === 1 && localSec < 0.45;
+  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook (Disabled by default unless user enables it)
+  const shakeAllowed = project.enableCameraShake === true;
+  const isHookShot1 = shakeAllowed && shot.shotNumber === 1 && localSec < 0.45;
   const isImpact =
-    isHookShot1 ||
-    shot.cameraMotion === "shake" ||
-    shot.type.includes("انغلاق") ||
-    shot.type.includes("زئير") ||
-    shot.type.includes("ليزر") ||
-    shot.type.includes("ارتطام") ||
-    shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
-    shot.sceneType === "THRONE_STATUE_RED_EYES";
+    shakeAllowed &&
+    (isHookShot1 ||
+      shot.cameraMotion === "shake" ||
+      shot.type.includes("انغلاق") ||
+      shot.type.includes("زئير") ||
+      shot.type.includes("ليزر") ||
+      shot.type.includes("ارتطام") ||
+      shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
+      shot.sceneType === "THRONE_STATUE_RED_EYES");
 
   let shakeX = 0;
   let shakeY = 0;
-  if (isHookShot1) {
-    const intensity = (1 - localSec / 0.45) * 16;
-    shakeX = Math.sin(localSec * 75) * intensity;
-    shakeY = Math.cos(localSec * 65) * intensity;
-  } else if (isImpact && localSec < 0.35) {
-    const intensity = (1 - localSec / 0.35) * 12;
-    shakeX = Math.sin(localSec * 60) * intensity;
-    shakeY = Math.cos(localSec * 50) * intensity;
+  if (shakeAllowed) {
+    if (isHookShot1) {
+      const intensity = (1 - localSec / 0.45) * 16;
+      shakeX = Math.sin(localSec * 75) * intensity;
+      shakeY = Math.cos(localSec * 65) * intensity;
+    } else if (isImpact && localSec < 0.35) {
+      const intensity = (1 - localSec / 0.35) * 12;
+      shakeX = Math.sin(localSec * 60) * intensity;
+      shakeY = Math.cos(localSec * 50) * intensity;
+    }
   }
 
   ctx.save();
@@ -750,31 +758,6 @@ export function drawFrame(
   sheen.addColorStop(1, "rgba(0,0,0,0.60)");
   ctx.fillStyle = sheen;
   ctx.fillRect(0, targetH * 0.80, targetW, targetH * 0.20);
-
-  // 6. Scene Stamp Header Badge (Book / Part & Shot Number)
-  const stampText = shot.bookOrPart
-    ? `${shot.bookOrPart} · المشهد #${shot.shotNumber}`
-    : `المشهد #${shot.shotNumber}`;
-  ctx.save();
-  ctx.font = "bold 24px Cairo, sans-serif";
-  ctx.textAlign = "center";
-  const stampMetrics = ctx.measureText(stampText);
-  const badgeW = stampMetrics.width + 42;
-  const badgeH = 44;
-  const badgeX = (targetW - badgeW) / 2;
-  const badgeY = 32;
-
-  ctx.fillStyle = "rgba(10, 15, 26, 0.78)";
-  ctx.strokeStyle = "rgba(0, 229, 255, 0.45)";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 22);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = "#00e5ff";
-  ctx.fillText(stampText, targetW / 2, badgeY + 30);
-  ctx.restore();
 
   // 7. RPG Translucent Scroll Text Overlay (Custom Coordinate & Anime Styling)
   const subtitlesEnabled = project.showSubtitlesInVideo !== false;
@@ -1234,36 +1217,38 @@ async function buildMixedAudio(
     }
   }
 
-  // 4. Per-shot Synchronized SFX sound effects
-  for (let i = 0; i < timeline.items.length; i++) {
-    const item = timeline.items[i];
-    const shot = item.shot;
-    const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
-    if (shot.assignedSfxId || rawSfxText) {
-      try {
-        let sfxItem = SFX_CATALOG.find(
-          (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
-        );
-        if (!sfxItem && rawSfxText) {
-          const matchedId = matchSfxToCatalog(rawSfxText);
-          if (matchedId) {
-            sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
+  // 4. Per-shot Synchronized SFX sound effects (Disabled by default unless user enables it)
+  if (project.isSfxEnabled === true) {
+    for (let i = 0; i < timeline.items.length; i++) {
+      const item = timeline.items[i];
+      const shot = item.shot;
+      const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
+      if (shot.assignedSfxId || rawSfxText) {
+        try {
+          let sfxItem = SFX_CATALOG.find(
+            (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
+          );
+          if (!sfxItem && rawSfxText) {
+            const matchedId = matchSfxToCatalog(rawSfxText);
+            if (matchedId) {
+              sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
+            }
           }
+          if (sfxItem) {
+            const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
+            const src = offline.createBufferSource();
+            src.buffer = sfxBuffer;
+            const gain = offline.createGain();
+            const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85;
+            gain.gain.value = effVol;
+            src.connect(gain);
+            gain.connect(offline.destination);
+            const trigger = item.startSec + (shot.sfxTriggerSec || 0);
+            src.start(Math.max(0, trigger));
+          }
+        } catch {
+          // ignore sfx failure
         }
-        if (sfxItem) {
-          const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
-          const src = offline.createBufferSource();
-          src.buffer = sfxBuffer;
-          const gain = offline.createGain();
-          const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85;
-          gain.gain.value = effVol;
-          src.connect(gain);
-          gain.connect(offline.destination);
-          const trigger = item.startSec + (shot.sfxTriggerSec || 0);
-          src.start(Math.max(0, trigger));
-        }
-      } catch {
-        // ignore sfx failure
       }
     }
   }
@@ -1344,10 +1329,11 @@ async function exportWithWebCodecs(
   const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
   const videoBitrate = profile.videoBitrate;
   const audioBitrate = profile.audioBitrate;
+  const fps = profile.fps ?? VIDEO_FPS;
 
   const timeline = computeProjectTimeline(project);
   const totalSec = timeline.totalDurationSec;
-  const totalFrames = Math.max(1, Math.round(totalSec * VIDEO_FPS));
+  const totalFrames = Math.max(1, Math.round(totalSec * fps));
   const hasAudio =
     Boolean(input.voiceBlob) ||
     project.isBgmEnabled ||
@@ -1369,7 +1355,7 @@ async function exportWithWebCodecs(
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
-    video: { codec: "avc", width: targetW, height: targetH, frameRate: VIDEO_FPS },
+    video: { codec: "avc", width: targetW, height: targetH, frameRate: fps },
     audio:
       hasAudio && audioOk
         ? { codec: "aac", numberOfChannels: 2, sampleRate: AUDIO_SAMPLE_RATE }
@@ -1389,36 +1375,35 @@ async function exportWithWebCodecs(
     width: targetW,
     height: targetH,
     bitrate: videoBitrate,
-    framerate: VIDEO_FPS,
+    framerate: fps,
   });
 
-  onProgress?.(0.05, "ترميز الفيديو…");
+  onProgress?.(0.05, "ترميز الفيديو فائق السرعة…");
 
   for (let frame = 0; frame < totalFrames; frame++) {
     checkAborted(signal);
-    const t = frame / VIDEO_FPS;
+    const t = frame / fps;
     const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
     drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
 
-    // STRICT QUEUE THROTTLING TO PREVENT AW SNAP / OOM CRASH:
-    // Never allow more than 2 uncompressed frames to pile up in GPU/RAM memory!
-    while (videoEncoder.encodeQueueSize > 2) {
+    // Streamlined queue throttling to keep GPU/RAM fed without unnecessary pauses
+    while (videoEncoder.encodeQueueSize > 8) {
       checkAborted(signal);
-      await new Promise((r) => setTimeout(r, 8));
+      await new Promise((r) => setTimeout(r, 1));
     }
 
-    const timestamp = Math.round((frame / VIDEO_FPS) * 1_000_000);
-    const videoFrame = new VideoFrame(canvas, { timestamp, duration: Math.round(1_000_000 / VIDEO_FPS) });
-    const keyFrame = frame % (VIDEO_FPS * 2) === 0;
+    const timestamp = Math.round((frame / fps) * 1_000_000);
+    const videoFrame = new VideoFrame(canvas, { timestamp, duration: Math.round(1_000_000 / fps) });
+    const keyFrame = frame % (fps * 2) === 0;
     videoEncoder.encode(videoFrame, { keyFrame });
     videoFrame.close();
 
-    // Periodically yield to event loop so browser engine can run garbage collection
-    if (frame % 6 === 0) {
+    // Responsive event loop yield for browser stability
+    if (frame % 24 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
 
-    if (frame % 15 === 0) {
+    if (frame % 15 === 0 || frame === totalFrames - 1) {
       onProgress?.(
         0.05 + (frame / totalFrames) * 0.65,
         `ترميز الفيديو (${Math.round((frame / totalFrames) * 100)}%)…`
@@ -1510,7 +1495,12 @@ async function exportWithMediaRecorder(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas_unavailable");
 
-  const stream = canvas.captureStream(VIDEO_FPS);
+  const preset = input.compressionPreset ?? "balanced";
+  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
+  const videoBitrate = profile.videoBitrate;
+  const fps = profile.fps ?? VIDEO_FPS;
+
+  const stream = canvas.captureStream(fps);
 
   const audioCtx = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
   const dest = audioCtx.createMediaStreamDestination();
@@ -1519,10 +1509,6 @@ async function exportWithMediaRecorder(
   source.buffer = mixed;
   source.connect(dest);
   for (const track of dest.stream.getAudioTracks()) stream.addTrack(track);
-
-  const preset = input.compressionPreset ?? "balanced";
-  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
-  const videoBitrate = profile.videoBitrate;
 
   const { mime, extension } = pickRecorderMime();
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: videoBitrate });
