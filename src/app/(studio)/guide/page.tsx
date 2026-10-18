@@ -6,6 +6,7 @@ import {
   Bot,
   Check,
   Copy,
+  Flame,
   Layers,
   Play,
   Search,
@@ -16,6 +17,7 @@ import {
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { audioEngine } from "@/lib/audio-engine";
 import { VOICE_PRESETS } from "@/lib/voice-presets";
+import { ModernAnimeOverlay } from "@/components/studio/modern-anime-overlay";
 import { cn } from "@/lib/utils";
 
 const MASTER_PROMPT_V19_TEXT = `# دليل التعليمات الموحد والبرومبت المرجعي - سلسلة "حكاية سيف" (Edge-TTS & Shorts Engine v19)
@@ -209,11 +211,65 @@ const AGENT_SYSTEM_PROMPT_TEXT = `# SYSTEM PROMPT FOR AI SCRIPT GENERATOR AGENT
 ## المخرجات المطلوبة
 أخرج JSON صالحاً ومكتملاً بنفس الهيكل المعتمد في دليل v19.`;
 
+const STORYTELLER_DIRECTOR_TEXT = `# AUDIO PROFILE: راوي حكايات الأنمي
+## "The Storyteller"
+
+## THE SCENE
+استوديو تسجيل هادي ليلاً، إضاءة خافتة. الراوي بيحكي قصة أنمي مشوّقة لجمهور شباب، وكأنه بيحكيها لصاحبه بحماس وسرّ.
+
+### DIRECTOR'S NOTES
+Style: راوي سينمائي بحماس مكتوم. صوت دافي وعميق، فيه تشويق وغموض، من غير مبالغة مسرحية.
+Accent: لهجة مصرية طبيعية وواضحة (قاهرية)، نطق سلس من غير تكلّف.
+Pacing: متوسط وهادي في الشرح. يبطّأ قبل اللحظات المهمة، ويسرّع في مشاهد الأكشن، ويسكت ثانية قبل المفاجآت.
+Dynamics: نبرة منخفضة في الغموض، وترتفع تدريجياً في الذروة، وتهمس في الأسرار. مفيش صراخ.
+Emotion: يتغير حسب المشهد (حزن، حماس، توتر) مع الحفاظ على نفس شخصية الصوت.
+
+#### TRANSCRIPT
+[ضع النص هنا]
+
+--------------------------------------------------------------------------------
+
+# AI DIRECTOR & TECHNICAL PROMPT ENGINEER PROMPT
+
+Role: You are an expert AI Director and Technical Prompt Engineer for an automated anime-style YouTube production pipeline.
+Task: Analyze the provided input script, dialogue, and JSON scene structure, and output a refined, synchronized production JSON containing dynamic change rates for audio modulation, visual pacing, and dramatic tension.
+
+Input Data:
+- Scene JSON structure & Dialogue text.
+- Target Audience: Anime enthusiasts on YouTube (High energy, dynamic, engaging, punchy pacing).
+
+Requirements for the Output JSON:
+1. "scene_id": Sequential number.
+2. "visual_prompt": Detailed AI image/video generation prompt optimized for anime aesthetics (e.g., dynamic angles, dramatic lighting, vibrant colors).
+3. "audio_modulation":
+   - "pitch_shift_factor": Numeric value (e.g., 1.03 to 1.08) for vocal excitement.
+   - "playback_tempo": Numeric pacing multiplier (e.g., 1.05 to 1.1) to maintain high adrenaline.
+   - "emotional_tone": e.g., "Hype", "Suspense", "Epic Reveal", "Comedic".
+4. "transition_effect": Type of cut or transition to the next scene (e.g., "Glitch Flash", "Fast Zoom In", "Action Cut").
+
+Output Format: Strict, valid JSON array only, without markdown text wrappers if requested by API, ready for ingestion into the Next.js production tool.
+
+--------------------------------------------------------------------------------
+
+# AUDIO ENHANCEMENT SPECIFICATION (FFmpeg & Web Audio API)
+
+1. Audio Filters:
+   - atempo=1.08 (زيادة سرعة الإيقاع بنسبة 8%)
+   - asetrate=44100*1.03 (رفع طفيف لطبقة الصوت Pitch Shift)
+   - aresample=44100 (مطابقة معدل العينات)
+   - equalizer=f=250:width_type=h:width=200:g=5 (تضخيم الـ Bass لعمق سينمائي قوي)
+
+2. Web Audio API Implementation (Native in Applet):
+   - BiquadFilterNode (peaking at 250Hz with +5dB gain)
+   - AudioBufferSourceNode.playbackRate = 1.08
+`;
+
 export default function GuidePage() {
   const [query, setQuery] = useState("");
   const [copiedGuide, setCopiedGuide] = useState(false);
   const [copiedAgent, setCopiedAgent] = useState(false);
-  const [activeTab, setActiveTab] = useState<"guide" | "agent">("guide");
+  const [copiedStoryteller, setCopiedStoryteller] = useState(false);
+  const [activeTab, setActiveTab] = useState<"guide" | "agent" | "storyteller">("storyteller");
 
   const filteredSfx = useMemo(() => {
     if (!query.trim()) return SFX_CATALOG;
@@ -247,6 +303,16 @@ export default function GuidePage() {
     }
   }
 
+  async function copyStorytellerPrompt() {
+    try {
+      await navigator.clipboard.writeText(STORYTELLER_DIRECTOR_TEXT);
+      setCopiedStoryteller(true);
+      setTimeout(() => setCopiedStoryteller(false), 2500);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
       {/* Hero Header */}
@@ -259,17 +325,17 @@ export default function GuidePage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-bold text-fg">
-                  دليل التعليمات وبرومبت الوكيل الذكي (v19)
+                  دليل التعليمات وبروفايل الراوي والمخرج الذكي
                 </h1>
-                <span className="rounded-md bg-accent/20 px-2 py-0.5 text-[11px] font-bold text-accent border border-accent/40">
-                  سلسلة حكاية سيف
+                <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-[11px] font-bold text-amber-400 border border-amber-500/40">
+                  The Storyteller
                 </span>
                 <span className="rounded-md bg-primary/20 px-2 py-0.5 text-[11px] font-bold text-primary border border-primary/40">
-                  عزل الطبقات بصرياً
+                  Modern Anime Overlay
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                المعيار V19 مع عزل الطبقات بصرياً (Split-Layer Compositing)، وبرومبت نظام وكيل كتابة السيناريو الذكي.
+                بروفايل راوي حكايات الأنمي، مواصفة المخرج الفني الذكي، معالجة الصوت بفلتر الـ Bass، وشريط الأوفرلاي النيون.
               </p>
             </div>
           </div>
@@ -277,11 +343,11 @@ export default function GuidePage() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={copyAgentPrompt}
-              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-accent/50 bg-accent/10 px-3.5 text-xs font-bold text-accent hover:bg-accent hover:text-black transition shrink-0 shadow-sm"
+              onClick={copyStorytellerPrompt}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/10 px-3.5 text-xs font-bold text-amber-400 hover:bg-amber-400 hover:text-black transition shrink-0 shadow-sm"
             >
-              {copiedAgent ? <Check className="h-4 w-4 stroke-[3]" /> : <Bot className="h-4 w-4" />}
-              <span>{copiedAgent ? "تم نسخ برومبت الوكيل!" : "نسخ برومبت الوكيل الذكي"}</span>
+              {copiedStoryteller ? <Check className="h-4 w-4 stroke-[3]" /> : <Flame className="h-4 w-4" />}
+              <span>{copiedStoryteller ? "تم نسخ بروفايل الراوي!" : "نسخ بروفايل راوي الأنمي"}</span>
             </button>
             <button
               type="button"
@@ -289,13 +355,27 @@ export default function GuidePage() {
               className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-black transition hover:brightness-110 shrink-0 shadow-md"
             >
               {copiedGuide ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
-              <span>{copiedGuide ? "تم نسخ البرومبت الكامل v19!" : "نسخ البرومبت المرجعي v19"}</span>
+              <span>{copiedGuide ? "تم نسخ البرومبت الكامل!" : "نسخ الدليل المرجعي"}</span>
             </button>
           </div>
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="mt-4 flex items-center gap-2 border-t border-border/50 pt-3">
+        <div className="mt-4 flex items-center gap-2 border-t border-border/50 pt-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setActiveTab("storyteller")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
+              activeTab === "storyteller"
+                ? "bg-amber-500 text-black shadow-sm"
+                : "border border-border bg-card text-muted hover:text-fg"
+            )}
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span>راوي حكايات الأنمي والمخرج الذكي (The Storyteller)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab("guide")}
@@ -321,10 +401,146 @@ export default function GuidePage() {
             )}
           >
             <Bot className="h-3.5 w-3.5" />
-            <span>برومبت نظام الوكيل الذكي (AI Script Generator Agent)</span>
+            <span>برومبت نظام الوكيل الذكي (AI Script Agent)</span>
           </button>
         </div>
       </section>
+
+      {/* Tab 1: Storyteller Audio Profile & AI Director */}
+      {activeTab === "storyteller" && (
+        <section className="space-y-4">
+          {/* Header Banner */}
+          <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-r from-card via-surface to-surface p-4 sm:p-5 shadow-lg space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                  <Flame className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-fg">
+                    بروفايل راوي حكايات الأنمي & مواصفة المخرج الفني الذكي
+                  </h2>
+                  <p className="text-xs text-muted">
+                    المواصفة المعتمدة لهندسة الصوت السينمائي، وهيكل الجيسون المتزامن مع محرك المونتاج التلقائي.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={copyStorytellerPrompt}
+                className="flex h-10 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 text-xs font-bold text-black hover:brightness-110 transition shrink-0 shadow-md"
+              >
+                {copiedStoryteller ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
+                <span>{copiedStoryteller ? "تم النسخ بنجاح!" : "نسخ البروفايل بالكامل"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4 Pillars Grid */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* Pillar 1: Audio Profile The Storyteller */}
+            <div className="rounded-2xl border border-border bg-surface/80 p-4 sm:p-5 space-y-3">
+              <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400 font-bold text-sm">🎙️ 1. AUDIO PROFILE: &quot;The Storyteller&quot;</span>
+                </div>
+                <span className="text-[10px] rounded-md bg-amber-500/20 px-2 py-0.5 font-bold text-amber-300">
+                  عامية مصرية سينمائية
+                </span>
+              </div>
+
+              <div className="text-xs text-muted space-y-2 leading-relaxed">
+                <p className="bg-card/70 p-2.5 rounded-xl border border-border/60 text-fg">
+                  <strong>المشهد (The Scene):</strong> استوديو تسجيل هادي ليلاً، إضاءة خافتة. الراوي بيحكي قصة أنمي مشوّقة لجمهور شباب، وكأنه بيحكيها لصاحبه بحماس وسرّ.
+                </p>
+                <div className="space-y-1.5 pt-1">
+                  <p><strong className="text-fg">الأسلوب (Style):</strong> راوي سينمائي بحماس مكتوم. صوت دافي وعميق، فيه تشويق وغموض، من غير مبالغة مسرحية.</p>
+                  <p><strong className="text-fg">اللهجة (Accent):</strong> لهجة مصرية طبيعية وواضحة (قاهرية)، نطق سلس من غير تكلّف.</p>
+                  <p><strong className="text-fg">الإيقاع (Pacing):</strong> متوسط وهادي في الشرح. يبطّأ قبل اللحظات المهمة، ويسرّع في مشاهد الأكشن، ويسكت ثانية قبل المفاجآت.</p>
+                  <p><strong className="text-fg">الديناميكية (Dynamics):</strong> نبرة منخفضة في الغموض، وترتفع تدريجياً في الذروة، وتهمس في الأسرار. مفيش صراخ.</p>
+                  <p><strong className="text-fg">المشاعر (Emotion):</strong> يتغير حسب المشهد (حزن، حماس، توتر) مع الحفاظ على نفس شخصية الصوت.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Pillar 2: AI Director & Technical Prompt Engineer */}
+            <div className="rounded-2xl border border-border bg-surface/80 p-4 sm:p-5 space-y-3">
+              <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-primary font-bold text-sm">🎬 2. AI DIRECTOR & JSON STRUCTURE</span>
+                </div>
+                <span className="text-[10px] rounded-md bg-primary/20 px-2 py-0.5 font-bold text-primary">
+                  مخرجات متزامنة
+                </span>
+              </div>
+
+              <div className="text-xs text-muted space-y-2 leading-relaxed">
+                <p>محلل الاستوديو يدعم الآن تلقائياً هذه الحقول الإخراجية الخاصة:</p>
+                <div className="bg-card p-3 rounded-xl border border-border/60 font-mono text-[11px] text-fg space-y-1" dir="ltr">
+                  <p><span className="text-primary">&quot;scene_id&quot;</span>: 1,</p>
+                  <p><span className="text-primary">&quot;visual_prompt&quot;</span>: &quot;Dynamic angle anime scene...&quot;,</p>
+                  <p><span className="text-primary">&quot;audio_modulation&quot;</span>: &#123;</p>
+                  <p className="pl-4"><span className="text-accent">&quot;pitch_shift_factor&quot;</span>: 1.05,</p>
+                  <p className="pl-4"><span className="text-accent">&quot;playback_tempo&quot;</span>: 1.08,</p>
+                  <p className="pl-4"><span className="text-accent">&quot;emotional_tone&quot;</span>: &quot;Hype&quot;</p>
+                  <p>&#125;,</p>
+                  <p><span className="text-primary">&quot;transition_effect&quot;</span>: &quot;Glitch Flash&quot;</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Pillar 3: Audio Filters (FFmpeg & Web Audio API) */}
+            <div className="rounded-2xl border border-border bg-surface/80 p-4 sm:p-5 space-y-3">
+              <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-accent font-bold text-sm">🔊 3. معالجة الصوت بفلتر الـ Bass (FFmpeg & Web Audio)</span>
+                </div>
+                <span className="text-[10px] rounded-md bg-accent/20 px-2 py-0.5 font-bold text-accent">
+                  تضخيم سينمائي دافي
+                </span>
+              </div>
+
+              <div className="text-xs text-muted space-y-2 leading-relaxed">
+                <p>تم ربط فلاتر الصوت في محرك الصوت <code className="text-accent">audio-engine.ts</code> لتحقيق المعادلة:</p>
+                <ul className="list-disc list-inside space-y-1 text-fg">
+                  <li><strong className="text-accent">Equalizer Bass Boost:</strong> فلتر Peaking بتردد 250Hz ورفع +5dB يمنح الصوت دفئاً وعمقاً شبيهاً باستوديو إذاعي احترافي.</li>
+                  <li><strong className="text-accent">atempo = 1.08:</strong> تسريع وتيرة الإلقاء 8% لمنع الملل ورفع الـ Retention.</li>
+                  <li><strong className="text-accent">Pitch Shift (1.03):</strong> رفع طفيف لطبقة الصوت يمنح حيوية وشبابية دون تشويه.</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Pillar 4: ModernAnimeOverlay Live Preview */}
+            <div className="rounded-2xl border border-border bg-surface/80 p-4 sm:p-5 space-y-3">
+              <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-primary font-bold text-sm">⚡ 4. شريط الأنمي العصري (ModernAnimeOverlay)</span>
+                </div>
+                <span className="text-[10px] rounded-md bg-primary/20 px-2 py-0.5 font-bold text-primary">
+                  تصميم نيون تفاعلي
+                </span>
+              </div>
+
+              {/* Interactive Preview Container */}
+              <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 h-72 flex flex-col justify-between p-3 shadow-inner">
+                {/* Background Art Placeholder */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-slate-900/60 -z-0 flex items-center justify-center">
+                  <span className="text-[11px] text-muted/40 font-mono">خلفية المشهد السينمائي</span>
+                </div>
+
+                <ModernAnimeOverlay
+                  channelName="محب أنمي"
+                  currentDialogue="صفقة الملايين مع زينو في المتاهة المزدوجة!"
+                  emotionalTone="Hype Mode"
+                  interactive={true}
+                  className="p-1"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Tab 2: Agent System Prompt View */}
       {activeTab === "agent" && (

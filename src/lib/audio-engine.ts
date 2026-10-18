@@ -16,6 +16,7 @@ let isBgmChannelMuted = false;
 let sfxChannelVolume = 0.8;
 let isSfxChannelMuted = false;
 let currentDuckingStrength = 0.25;
+let isAnimeVoiceEnhancerEnabled = true;
 const bufferCache = new Map<string, AudioBuffer>();
 
 function getContext(): AudioContext {
@@ -682,7 +683,11 @@ export const audioEngine = {
     });
   },
 
-  async playBlobAudio(blob: Blob, onEnded?: () => void): Promise<() => void> {
+  async playBlobAudio(
+    blob: Blob,
+    onEnded?: () => void,
+    options?: { tempo?: number; enhanceBass?: boolean }
+  ): Promise<() => void> {
     const audio = getContext();
     if (activeBlobSource) {
       try {
@@ -696,7 +701,23 @@ export const audioEngine = {
     const buffer = await decodeAudioBlob(blob);
     const source = audio.createBufferSource();
     source.buffer = buffer;
-    source.connect(voiceGain!);
+
+    const shouldEnhance = options?.enhanceBass ?? isAnimeVoiceEnhancerEnabled;
+    const tempoMultiplier = options?.tempo ?? (shouldEnhance ? 1.08 : 1.0);
+    source.playbackRate.value = Math.max(0.5, Math.min(2.0, tempoMultiplier));
+
+    if (shouldEnhance) {
+      // Cinematic Anime Storyteller Bass Equalizer: f=250Hz, gain=+5dB
+      const bassEq = audio.createBiquadFilter();
+      bassEq.type = "peaking";
+      bassEq.frequency.value = 250;
+      bassEq.Q.value = 1.0;
+      bassEq.gain.value = 5.0; // +5 dB boost for rich cinematic narration
+      source.connect(bassEq);
+      bassEq.connect(voiceGain!);
+    } else {
+      source.connect(voiceGain!);
+    }
 
     // Automatically duck background music during narration!
     this.duckBgm(true);
@@ -718,5 +739,13 @@ export const audioEngine = {
       source.disconnect();
       if (activeBlobSource === source) activeBlobSource = null;
     };
+  },
+
+  setAnimeVoiceEnhancer(enabled: boolean) {
+    isAnimeVoiceEnhancerEnabled = enabled;
+  },
+
+  get isAnimeVoiceEnhancerEnabled() {
+    return isAnimeVoiceEnhancerEnabled;
   },
 };

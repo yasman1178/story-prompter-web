@@ -14,6 +14,7 @@ import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
 import { syncProjectShotTimeframes } from "@/lib/timeline";
 import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
+import { audioEngine } from "@/lib/audio-engine";
 
 const PROJECT_KEY = "project";
 const SETTINGS_KEY = "settings";
@@ -160,6 +161,8 @@ interface StudioState {
   optimizeShotVoiceover: (shotNumber: number) => void;
   optimizeProjectVoiceovers: () => void;
   toggleDazzlingCTA: (enabled: boolean) => void;
+  toggleAnimeVoiceEnhancer: (enabled?: boolean) => void;
+  toggleModernAnimeOverlay: (enabled?: boolean) => void;
   setShotVfxSettings: (shotNumber: number, settings: Partial<VfxSettings>) => void;
   setProjectVfxSettings: (settings: Partial<VfxSettings>) => void;
   applyVfxPreset: (preset: VfxPresetId, shotNumber?: number) => void;
@@ -655,6 +658,29 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({
       project: { ...project, enableDazzlingCTA: enabled },
       feedback: enabled ? "تم تفعيل زر الإعجاب والاشتراك المبهر 🔔" : "تم إخفاء زر الإعجاب والاشتراك",
+    });
+  },
+
+  toggleAnimeVoiceEnhancer: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const next = typeof enabled === "boolean" ? enabled : !project.enableAnimeVoiceEnhancer;
+    audioEngine.setAnimeVoiceEnhancer(next);
+    set({
+      project: { ...project, enableAnimeVoiceEnhancer: next },
+      feedback: next
+        ? "تم تفعيل فلتر صوت راوي الأنمي (Equalizer Bass Boost + 1.08x Tempo) 🎙️"
+        : "تم تعطيل فلتر صوت راوي الأنمي",
+    });
+  },
+
+  toggleModernAnimeOverlay: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const next = typeof enabled === "boolean" ? enabled : !project.enableModernAnimeOverlay;
+    set({
+      project: { ...project, enableModernAnimeOverlay: next },
+      feedback: next ? "تم تفعيل شريط الأنمي العصري ⚡" : "تم تعطيل شريط الأنمي العصري",
     });
   },
 

@@ -50,6 +50,7 @@ export function AudioVfxMixer({ isOpen, onClose }: AudioVfxMixerProps) {
   const setMasterVfxDisabled = useStudio((s) => s.setMasterVfxDisabled);
   const toggleCameraShake = useStudio((s) => s.toggleCameraShake);
   const toggleVFX = useStudio((s) => s.toggleVFX);
+  const toggleAnimeVoiceEnhancer = useStudio((s) => s.toggleAnimeVoiceEnhancer);
 
   const [activeTab, setActiveTab] = useState<"audio" | "vfx" | "music_trim">("audio");
 
@@ -267,6 +268,25 @@ export function AudioVfxMixer({ isOpen, onClose }: AudioVfxMixerProps) {
                   {isSfxMuted ? "0%" : `${Math.round(sfxVolume * 100)}%`}
                 </span>
               </div>
+            </div>
+
+            {/* Anime Voice Enhancer Equalizer */}
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500/20 text-amber-400">
+                  <Flame className="h-4 w-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-fg">معزز صوت الأنمي (The Storyteller Bass EQ)</h3>
+                  <p className="text-[11px] text-muted">تضخيم البيز 250Hz (+5dB) مع تسريع الإيقاع 8% لعمق سينمائي دافي</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={project?.enableAnimeVoiceEnhancer !== false}
+                onChange={(e) => toggleAnimeVoiceEnhancer(e.target.checked)}
+                className="h-5 w-5 accent-[#f59e0b] cursor-pointer"
+              />
             </div>
           </div>
         )}

@@ -15,6 +15,12 @@ export type CameraMotionType = "zoom_in" | "zoom_out" | "pan_left" | "pan_right"
 export type TransitionOutType = "cut" | "flash" | "glitch" | "fade" | "whip";
 export type ForegroundAnimationType = "floating" | "pulse" | "shake" | "scale_up" | "static";
 
+export interface AudioModulation {
+  pitchShiftFactor?: number; // e.g. 1.03 to 1.08
+  playbackTempo?: number;    // e.g. 1.05 to 1.1
+  emotionalTone?: string;    // e.g. "Hype", "Suspense", "Epic Reveal", "Comedic", "excited"
+}
+
 export interface BeatItem {
   atSec: number;
   visualChange: string;
@@ -166,6 +172,7 @@ export interface DialogueLine {
 
 export interface StoryShot {
   shotNumber: number;
+  sceneId?: number;
   bookOrPart?: string;
   timeframe: string;
   startTimeSec: number;
@@ -174,6 +181,8 @@ export interface StoryShot {
   type: string;
   mood: string;
   vocalCue?: string;
+  audioModulation?: AudioModulation;
+  transitionEffect?: string;
   voiceoverEgyptian: string;
   soundDesign: string;
   colorTheme: string;
@@ -271,6 +280,8 @@ export interface StoryProject {
   showChannelWatermark: boolean;
   showSubscribeCta: boolean;
   enableDazzlingCTA?: boolean;
+  enableModernAnimeOverlay?: boolean;
+  enableAnimeVoiceEnhancer?: boolean;
   vfxSettings?: VfxSettings;
   defaultTextOverlayPos?: OverlayPosition;
   defaultCtaPos?: OverlayPosition;

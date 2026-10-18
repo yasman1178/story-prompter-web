@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Download,
   Eye,
+  Flame,
   Loader2,
   Mic,
   MicOff,
@@ -87,6 +88,7 @@ export default function VideoPage() {
   const setShotTextOverlayPos = useStudio((s) => s.setShotTextOverlayPos);
   const setShotCtaPos = useStudio((s) => s.setShotCtaPos);
   const toggleSubtitles = useStudio((s) => s.toggleSubtitles);
+  const toggleModernAnimeOverlay = useStudio((s) => s.toggleModernAnimeOverlay);
   const showFeedback = useStudio((s) => s.showFeedback);
   const updateShotActualDuration = useStudio((s) => s.updateShotActualDuration);
 
@@ -341,9 +343,16 @@ export default function VideoPage() {
             isVoicePlayingRef.current = true;
             const asset = await getAsset(shot.customAudioId);
             if (asset?.blob && playing) {
-              const stopFn = await audioEngine.playBlobAudio(asset.blob, () => {
-                isVoicePlayingRef.current = false;
-              });
+              const stopFn = await audioEngine.playBlobAudio(
+                asset.blob,
+                () => {
+                  isVoicePlayingRef.current = false;
+                },
+                {
+                  enhanceBass: project?.enableAnimeVoiceEnhancer !== false,
+                  tempo: shot.audioModulation?.playbackTempo ?? (project?.enableAnimeVoiceEnhancer !== false ? 1.08 : 1.0),
+                }
+              );
               activeAudioStopRef.current = stopFn;
             }
           }
@@ -417,7 +426,15 @@ export default function VideoPage() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       stopActiveVoice();
     };
-  }, [playing, totalSec, paint, timeline, loadAudioBufferForShot, stopActiveVoice]);
+  }, [
+    playing,
+    totalSec,
+    paint,
+    timeline,
+    loadAudioBufferForShot,
+    stopActiveVoice,
+    project?.enableAnimeVoiceEnhancer,
+  ]);
 
   useEffect(() => {
     if (!playing) paint();
@@ -778,6 +795,25 @@ export default function VideoPage() {
           >
             <Subtitles className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">النصوص</span>
+          </button>
+
+          {/* Modern Anime Overlay Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              toggleModernAnimeOverlay(!project.enableModernAnimeOverlay);
+              paint();
+            }}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition",
+              project.enableModernAnimeOverlay !== false
+                ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                : "border-border bg-card text-dim hover:text-fg"
+            )}
+            title="تفعيل أو تعطيل تصميم شريط الأنمي النيون (Modern Anime Overlay)"
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">أوفرلاي الأنمي</span>
           </button>
 
           {/* Aspect Ratio Switcher */}

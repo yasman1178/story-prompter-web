@@ -828,42 +828,38 @@ export function drawFrame(
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // Corner RPG Notches in Gold Accent
-    const notch = 10;
-    ctx.strokeStyle = "#f59e0b";
-    ctx.lineWidth = 2.5;
-    // Top-left
+    // Distinctive Modern Anime Neon Vertical Accent Strip on left edge
+    const stripW = 6;
+    const stripGrad = ctx.createLinearGradient(bx + 3, by, bx + 3, by + boxHeight);
+    stripGrad.addColorStop(0, "#22d3ee");
+    stripGrad.addColorStop(1, "#3b82f6");
+    ctx.save();
+    ctx.shadowColor = "#00e5ff";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = stripGrad;
     ctx.beginPath();
-    ctx.moveTo(bx + 4, by + 4 + notch);
-    ctx.lineTo(bx + 4, by + 4);
-    ctx.lineTo(bx + 4 + notch, by + 4);
-    ctx.stroke();
-    // Top-right
-    ctx.beginPath();
-    ctx.moveTo(bx + bw - 4 - notch, by + 4);
-    ctx.lineTo(bx + bw - 4, by + 4);
-    ctx.lineTo(bx + bw - 4, by + 4 + notch);
-    ctx.stroke();
-    // Bottom-left
-    ctx.beginPath();
-    ctx.moveTo(bx + 4, by + boxHeight - 4 - notch);
-    ctx.lineTo(bx + 4, by + boxHeight - 4);
-    ctx.lineTo(bx + 4 + notch, by + boxHeight - 4);
-    ctx.stroke();
-    // Bottom-right
-    ctx.beginPath();
-    ctx.moveTo(bx + bw - 4 - notch, by + boxHeight - 4);
-    ctx.lineTo(bx + bw - 4, by + boxHeight - 4);
-    ctx.lineTo(bx + bw - 4, by + boxHeight - 4 - notch);
-    ctx.stroke();
+    ctx.roundRect(bx + 3, by + 3, stripW, boxHeight - 6, [8, 0, 0, 8]);
+    ctx.fill();
+    ctx.restore();
 
-    // Vocal Cue Tag if present
-    if (shot.vocalCue) {
-      ctx.font = "bold 15px Cairo, sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillStyle = "#38bdf8";
-      ctx.fillText(`🎙️ ${shot.vocalCue}`, bx + bw - 20, by + 24);
-    }
+    // Top Header Inside Caption Box: "الحوار الحالي" + Tone Badge
+    const displayTone = shot.audioModulation?.emotionalTone || shot.vocalCue || "Hype Mode";
+    ctx.font = "bold 14px Cairo, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#22d3ee";
+    ctx.fillText("الحوار الحالي", bx + bw - 20, by + 24);
+
+    // Tone Badge on left
+    const toneText =
+      displayTone.toLowerCase().includes("hype") ||
+      displayTone.toLowerCase().includes("excit") ||
+      displayTone.includes("حماس")
+        ? `🔥 ${displayTone}`
+        : `⚡ ${displayTone}`;
+    ctx.font = "bold 13px Cairo, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#fde047";
+    ctx.fillText(toneText, bx + 22, by + 24);
 
     // Determine anime aesthetic theme color for text highlighting
     const shotTheme = (shot.colorTheme + " " + shot.mood + " " + shot.type + " " + shot.voiceoverEgyptian).toLowerCase();
@@ -964,12 +960,69 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // Channel Watermark
+  // 7. Modern Anime Top Channel Header Bar
   if (project.showChannelWatermark) {
+    ctx.save();
+    const headW = Math.min(targetW - 50, 480);
+    const headH = 50;
+    const headX = (targetW - headW) / 2;
+    const headY = 28;
+
+    // Glass pill background
+    ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
+    ctx.strokeStyle = "rgba(51, 65, 85, 0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.roundRect(headX, headY, headW, headH, 20);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Glowing Amber-Red Circle with White Bolt ⚡
+    const boltCircleX = headX + headW - 28;
+    const boltCircleY = headY + 25;
+    const circleGrad = ctx.createLinearGradient(
+      boltCircleX - 16,
+      boltCircleY - 16,
+      boltCircleX + 16,
+      boltCircleY + 16
+    );
+    circleGrad.addColorStop(0, "#f59e0b");
+    circleGrad.addColorStop(1, "#dc2626");
+    ctx.fillStyle = circleGrad;
+    ctx.shadowColor = "#f59e0b";
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(boltCircleX, boltCircleY, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Bolt icon
+    ctx.font = "bold 15px Cairo, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("⚡", boltCircleX, boltCircleY + 1);
+
+    // Channel Name
     ctx.textAlign = "right";
-    ctx.font = "700 26px Cairo, sans-serif";
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillText(project.channelName, targetW - 36, 58);
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 17px Cairo, sans-serif";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(project.channelName || "محب أنمي", boltCircleX - 22, headY + 26);
+
+    // Mode Badge on left side
+    const toneLabel = shot.audioModulation?.emotionalTone || shot.vocalCue || "Hype Mode";
+    const modeBadgeText = `🎙️ ${toneLabel}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 13px Cairo, sans-serif";
+    ctx.fillStyle = "#fbbf24";
+    ctx.fillText(modeBadgeText, headX + 18, headY + 26);
+
+    ctx.restore();
   }
 
   // 8. Anime-themed Like & Subscribe CTA Overlay with custom positioning

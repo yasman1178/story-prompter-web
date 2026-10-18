@@ -354,6 +354,8 @@ export function createSampleProject(): StoryProject {
     showChannelWatermark: true,
     showSubscribeCta: true,
     enableDazzlingCTA: true,
+    enableModernAnimeOverlay: true,
+    enableAnimeVoiceEnhancer: true,
     vfxSettings: { ...DEFAULT_VFX_ACTION },
     defaultTextOverlayPos: { x: 0.5, y: 0.78 },
     defaultCtaPos: { x: 0.5, y: 0.92 },
@@ -734,7 +736,17 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       if (!isObject(rawShot)) continue;
       const shotObj = rawShot;
 
-      const rawShotNum = extractInt(shotObj, i + 1, ["shot_number", "shot", "number", "num", "id", "index", "scene_number"]);
+      const rawShotNum = extractInt(shotObj, i + 1, [
+        "scene_id",
+        "sceneId",
+        "shot_number",
+        "shot",
+        "number",
+        "num",
+        "id",
+        "index",
+        "scene_number",
+      ]);
       // Guarantee unique monotonic numbering for multi-book stories (prevent shot_number resetting in book 2)
       const shotNum = rawShotNum > 0 && !shots.some((s) => s.shotNumber === rawShotNum) ? rawShotNum : i + 1;
 
@@ -744,6 +756,38 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       let vocalCue =
         extractString(shotObj, ["vocal_cue", "vocal_tone", "tone", "director_cue", "acting_cue"]) ??
         undefined;
+
+      let audioModulation: import("./types").AudioModulation | undefined;
+      const rawMod = shotObj.audio_modulation ?? shotObj.audioModulation;
+      if (isObject(rawMod)) {
+        const pitch =
+          typeof rawMod.pitch_shift_factor === "number"
+            ? rawMod.pitch_shift_factor
+            : typeof rawMod.pitchShiftFactor === "number"
+            ? rawMod.pitchShiftFactor
+            : undefined;
+        const tempo =
+          typeof rawMod.playback_tempo === "number"
+            ? rawMod.playback_tempo
+            : typeof rawMod.playbackTempo === "number"
+            ? rawMod.playbackTempo
+            : undefined;
+        const tone = extractString(rawMod, ["emotional_tone", "tone", "emotion", "feeling"]) ?? undefined;
+        audioModulation = {
+          pitchShiftFactor: pitch,
+          playbackTempo: tempo,
+          emotionalTone: tone,
+        };
+        if (tone && !vocalCue) {
+          vocalCue = tone.toLowerCase();
+        }
+      }
+
+      const transitionEffect = extractString(shotObj, [
+        "transition_effect",
+        "transitionEffect",
+        "transition_style",
+      ]);
 
       const rawTimeframe = extractString(shotObj, ["timeframe", "timing", "time", "interval", "timestamps", "range"]);
       const explicitDuration = extractInt(shotObj, 0, ["duration_sec", "duration", "length_sec", "length"]);
@@ -932,6 +976,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
 
       shots.push({
         shotNumber: shotNum,
+        sceneId: shotNum,
         bookOrPart,
         timeframe,
         startTimeSec: startSec,
@@ -940,6 +985,8 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         type,
         mood,
         vocalCue,
+        audioModulation,
+        transitionEffect: transitionEffect ?? undefined,
         voiceoverEgyptian: voiceover,
         soundDesign,
         colorTheme,
@@ -1021,6 +1068,8 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       showChannelWatermark: true,
       showSubscribeCta: true,
       enableDazzlingCTA: true,
+      enableModernAnimeOverlay: true,
+      enableAnimeVoiceEnhancer: true,
       vfxSettings: { ...DEFAULT_VFX_ACTION },
       defaultTextOverlayPos: { x: 0.5, y: 0.78 },
       defaultCtaPos: { x: 0.5, y: 0.92 },
