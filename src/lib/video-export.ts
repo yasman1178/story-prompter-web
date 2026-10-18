@@ -74,9 +74,14 @@ export interface ExportInput {
   bgmTrack?: BgmTrack | null;
   voiceVolume: number;
   bgmVolume: number;
+  sfxVolume?: number;
+  isVoiceMuted?: boolean;
+  isBgmMuted?: boolean;
+  isSfxMuted?: boolean;
   compressionPreset?: CompressionPreset;
   onProgress?: (ratio: number, stage: string) => void;
   signal?: AbortSignal;
+  decodedBuffers?: Map<number, AudioBuffer>;
 }
 
 export interface ExportResult {
@@ -460,169 +465,196 @@ export function drawFrame(
   const targetH = explicitH ?? dims.height;
   const progress = Math.min(1, localSec / Math.max(1, duration));
 
-  // Retrieve VFX settings (per shot or project-level default)
-  const vfx = shot.vfxSettings || project.vfxSettings || {
-    parallaxDepth: 65,
-    dynamicRelighting: 85,
-    runeParticles: 75,
-    motionIntensity: 80,
-    preset: "action" as const,
-  };
-  const parallaxDepth = (vfx.parallaxDepth ?? 65) / 100;
-  const motionIntensity = (vfx.motionIntensity ?? 80) / 100;
+  const isMasterVfxDisabled = project.masterVfxDisabled === true;
 
-  // 1. Camera Motions & Visual Beats (v18 Standard)
-  let zoom = 1 + progress * 0.14 * (0.4 + motionIntensity * 0.7);
-  let panX = 0;
+  if (isMasterVfxDisabled) {
+    ctx.save();
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, targetW, targetH);
 
-  if (shot.cameraMotion) {
-    switch (shot.cameraMotion) {
-      case "zoom_in":
-        zoom = 1.0 + progress * 0.22 * motionIntensity;
-        break;
-      case "zoom_out":
-        zoom = Math.max(1.0, 1.24 - progress * 0.18 * motionIntensity);
-        break;
-      case "pan_left":
-        zoom = 1.08;
-        panX = (0.5 - progress) * 50 * motionIntensity;
-        break;
-      case "pan_right":
-        zoom = 1.08;
-        panX = (progress - 0.5) * 50 * motionIntensity;
-        break;
-      case "shake":
-        zoom = 1.10;
-        break;
-      case "static":
-        zoom = 1.05;
-        break;
-    }
-  } else if (project.enableKenBurns !== false) {
-    const moveType = shot.shotNumber % 3;
-    if (moveType === 0) {
-      zoom = 1.0 + progress * 0.16 * motionIntensity;
-    } else if (moveType === 1) {
-      zoom = Math.max(1.0, (1.0 + 0.15 * motionIntensity) - progress * 0.13 * motionIntensity);
-    } else {
-      zoom = 1.0 + 0.08 * motionIntensity;
-      panX = (progress - 0.5) * 36 * motionIntensity;
-    }
-  }
-
-  // Initial 0.8s Impact Hook for high-energy start
-  const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
-  zoom += hookPunch;
-
-  // v18 Beats visual pacing (resets attention every 2.5 - 3 seconds)
-  let hasBeatPulse = false;
-  if (shot.beats && shot.beats.length > 0) {
-    for (const b of shot.beats) {
-      const diff = localSec - b.atSec;
-      if (diff >= 0 && diff < 0.35) {
-        const beatPhase = diff / 0.35;
-        zoom += Math.sin(beatPhase * Math.PI) * 0.07;
-        hasBeatPulse = true;
-        break;
+    // 100% Still, static crisp image with zero movement, shake, or parallax
+    if (image) {
+      drawCover(ctx, image.bitmap, 1.0, 0, targetW, targetH);
+      if (image.foregroundBitmap) {
+        drawForegroundCutout(
+          ctx,
+          image.foregroundBitmap,
+          "static",
+          localSec,
+          duration,
+          0,
+          0,
+          targetW,
+          targetH
+        );
       }
-    }
-  }
-  if (!hasBeatPulse) {
-    const punchPhase = (localSec % 2.8) / 0.26;
-    if (punchPhase < 1.0) {
-      zoom += Math.sin(punchPhase * Math.PI) * 0.05;
-    }
-  }
-
-  // 3D Parallax Depth displacement
-  const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
-
-  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook (Disabled by default unless user enables it)
-  const shakeAllowed = project.enableCameraShake === true;
-  const isHookShot1 = shakeAllowed && shot.shotNumber === 1 && localSec < 0.45;
-  const isImpact =
-    shakeAllowed &&
-    (isHookShot1 ||
-      shot.cameraMotion === "shake" ||
-      shot.type.includes("انغلاق") ||
-      shot.type.includes("زئير") ||
-      shot.type.includes("ليزر") ||
-      shot.type.includes("ارتطام") ||
-      shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
-      shot.sceneType === "THRONE_STATUE_RED_EYES");
-
-  let shakeX = 0;
-  let shakeY = 0;
-  if (shakeAllowed) {
-    if (isHookShot1) {
-      const intensity = (1 - localSec / 0.45) * 16;
-      shakeX = Math.sin(localSec * 75) * intensity;
-      shakeY = Math.cos(localSec * 65) * intensity;
-    } else if (isImpact && localSec < 0.35) {
-      const intensity = (1 - localSec / 0.35) * 12;
-      shakeX = Math.sin(localSec * 60) * intensity;
-      shakeY = Math.cos(localSec * 50) * intensity;
-    }
-  }
-
-  ctx.save();
-  ctx.translate(shakeX, shakeY);
-
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, targetW, targetH);
-
-  // Draw visual artwork with smart cover and parallax (Split-Layer Compositing v19)
-  if (image) {
-    drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
-    if (image.foregroundBitmap) {
-      drawForegroundCutout(
-        ctx,
-        image.foregroundBitmap,
-        shot.foregroundAnimation || "floating",
-        localSec,
-        duration,
-        motionIntensity,
-        parallaxShiftX,
-        targetW,
-        targetH
-      );
+    } else {
+      drawSceneArt(ctx, shot, 1.0, targetW, targetH);
     }
   } else {
-    drawSceneArt(ctx, shot, zoom, targetW, targetH);
-  }
+    // Retrieve VFX settings (per shot or project-level default)
+    const vfx = shot.vfxSettings || project.vfxSettings || {
+      parallaxDepth: 65,
+      dynamicRelighting: 85,
+      runeParticles: 75,
+      motionIntensity: 80,
+      preset: "action" as const,
+    };
+    const parallaxDepth = (vfx.parallaxDepth ?? 65) / 100;
+    const motionIntensity = (vfx.motionIntensity ?? 80) / 100;
 
-  // Draw Anime VFX Spatial Layers (slash trails, shadow aura, venom fangs)
-  drawSpatialLayers(ctx, shot, localSec, targetW, targetH);
+    // 1. Camera Motions & Visual Beats (v18 Standard)
+    let zoom = 1 + progress * 0.14 * (0.4 + motionIntensity * 0.7);
+    let panX = 0;
 
-  // 2b. Dynamic Relighting (spotlight / character aura reacting to mood)
-  const relightIntensity = (vfx.dynamicRelighting ?? 85) / 100;
-  if (relightIntensity > 0) {
-    ctx.save();
-    ctx.globalCompositeOperation = "screen";
-    const lightFocus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.42 };
-    const lx = lightFocus.x * targetW;
-    const ly = lightFocus.y * targetH;
-    const pulse = 0.85 + Math.sin(localSec * 5) * 0.15;
-    const rad = Math.min(targetW, targetH) * 0.52 * pulse;
-
-    const lightGrad = ctx.createRadialGradient(lx, ly, 15, lx, ly, rad);
-    const isGold = shot.colorTheme.includes("gold") || shot.mood.includes("حماس") || shot.type.includes("تحول");
-    if (isGold) {
-      lightGrad.addColorStop(0, `rgba(255, 225, 130, ${0.45 * relightIntensity})`);
-      lightGrad.addColorStop(0.4, `rgba(245, 158, 11, ${0.2 * relightIntensity})`);
-      lightGrad.addColorStop(1, "rgba(245, 158, 11, 0)");
-    } else {
-      lightGrad.addColorStop(0, `rgba(0, 229, 255, ${0.42 * relightIntensity})`);
-      lightGrad.addColorStop(0.4, `rgba(14, 165, 233, ${0.18 * relightIntensity})`);
-      lightGrad.addColorStop(1, "rgba(14, 165, 233, 0)");
+    if (shot.cameraMotion) {
+      switch (shot.cameraMotion) {
+        case "zoom_in":
+          zoom = 1.0 + progress * 0.22 * motionIntensity;
+          break;
+        case "zoom_out":
+          zoom = Math.max(1.0, 1.24 - progress * 0.18 * motionIntensity);
+          break;
+        case "pan_left":
+          zoom = 1.08;
+          panX = (0.5 - progress) * 50 * motionIntensity;
+          break;
+        case "pan_right":
+          zoom = 1.08;
+          panX = (progress - 0.5) * 50 * motionIntensity;
+          break;
+        case "shake":
+          zoom = 1.10;
+          break;
+        case "static":
+          zoom = 1.05;
+          break;
+      }
+    } else if (project.enableKenBurns !== false) {
+      const moveType = shot.shotNumber % 3;
+      if (moveType === 0) {
+        zoom = 1.0 + progress * 0.16 * motionIntensity;
+      } else if (moveType === 1) {
+        zoom = Math.max(1.0, (1.0 + 0.15 * motionIntensity) - progress * 0.13 * motionIntensity);
+      } else {
+        zoom = 1.0 + 0.08 * motionIntensity;
+        panX = (progress - 0.5) * 36 * motionIntensity;
+      }
     }
 
-    ctx.fillStyle = lightGrad;
-    ctx.beginPath();
-    ctx.arc(lx, ly, rad, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
+    // Initial 0.8s Impact Hook for high-energy start
+    const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
+    zoom += hookPunch;
+
+    // v18 Beats visual pacing (resets attention every 2.5 - 3 seconds)
+    let hasBeatPulse = false;
+    if (shot.beats && shot.beats.length > 0) {
+      for (const b of shot.beats) {
+        const diff = localSec - b.atSec;
+        if (diff >= 0 && diff < 0.35) {
+          const beatPhase = diff / 0.35;
+          zoom += Math.sin(beatPhase * Math.PI) * 0.07;
+          hasBeatPulse = true;
+          break;
+        }
+      }
+    }
+    if (!hasBeatPulse) {
+      const punchPhase = (localSec % 2.8) / 0.26;
+      if (punchPhase < 1.0) {
+        zoom += Math.sin(punchPhase * Math.PI) * 0.05;
+      }
+    }
+
+    // 3D Parallax Depth displacement
+    const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
+
+    // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook (Disabled by default unless user enables it)
+    const shakeAllowed = project.enableCameraShake === true;
+    const isHookShot1 = shakeAllowed && shot.shotNumber === 1 && localSec < 0.45;
+    const isImpact =
+      shakeAllowed &&
+      (isHookShot1 ||
+        shot.cameraMotion === "shake" ||
+        shot.type.includes("انغلاق") ||
+        shot.type.includes("زئير") ||
+        shot.type.includes("ليزر") ||
+        shot.type.includes("ارتطام") ||
+        shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
+        shot.sceneType === "THRONE_STATUE_RED_EYES");
+
+    let shakeX = 0;
+    let shakeY = 0;
+    if (shakeAllowed) {
+      if (isHookShot1) {
+        const intensity = (1 - localSec / 0.45) * 16;
+        shakeX = Math.sin(localSec * 75) * intensity;
+        shakeY = Math.cos(localSec * 65) * intensity;
+      } else if (isImpact && localSec < 0.35) {
+        const intensity = (1 - localSec / 0.35) * 12;
+        shakeX = Math.sin(localSec * 60) * intensity;
+        shakeY = Math.cos(localSec * 50) * intensity;
+      }
+    }
+
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, targetW, targetH);
+
+    // Draw visual artwork with smart cover and parallax (Split-Layer Compositing v19)
+    if (image) {
+      drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
+      if (image.foregroundBitmap) {
+        drawForegroundCutout(
+          ctx,
+          image.foregroundBitmap,
+          shot.foregroundAnimation || "floating",
+          localSec,
+          duration,
+          motionIntensity,
+          parallaxShiftX,
+          targetW,
+          targetH
+        );
+      }
+    } else {
+      drawSceneArt(ctx, shot, zoom, targetW, targetH);
+    }
+
+    // Draw Anime VFX Spatial Layers (slash trails, shadow aura, venom fangs)
+    drawSpatialLayers(ctx, shot, localSec, targetW, targetH);
+
+    // 2b. Dynamic Relighting (spotlight / character aura reacting to mood)
+    const relightIntensity = (vfx.dynamicRelighting ?? 85) / 100;
+    if (relightIntensity > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      const lightFocus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.42 };
+      const lx = lightFocus.x * targetW;
+      const ly = lightFocus.y * targetH;
+      const pulse = 0.85 + Math.sin(localSec * 5) * 0.15;
+      const rad = Math.min(targetW, targetH) * 0.52 * pulse;
+
+      const lightGrad = ctx.createRadialGradient(lx, ly, 15, lx, ly, rad);
+      const isGold = shot.colorTheme.includes("gold") || shot.mood.includes("حماس") || shot.type.includes("تحول");
+      if (isGold) {
+        lightGrad.addColorStop(0, `rgba(255, 225, 130, ${0.45 * relightIntensity})`);
+        lightGrad.addColorStop(0.4, `rgba(245, 158, 11, ${0.2 * relightIntensity})`);
+        lightGrad.addColorStop(1, "rgba(245, 158, 11, 0)");
+      } else {
+        lightGrad.addColorStop(0, `rgba(0, 229, 255, ${0.42 * relightIntensity})`);
+        lightGrad.addColorStop(0.4, `rgba(14, 165, 233, ${0.18 * relightIntensity})`);
+        lightGrad.addColorStop(1, "rgba(14, 165, 233, 0)");
+      }
+
+      ctx.fillStyle = lightGrad;
+      ctx.beginPath();
+      ctx.arc(lx, ly, rad, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
   // 2c. Manga / Anime Dynamic Action Speedlines
   const isActionMoment =
@@ -750,6 +782,7 @@ export function drawFrame(
     }
     ctx.restore();
   }
+}
 
   // Localized bottom reading contrast scrim strictly behind subtitle text (preserving middle of the canvas)
   const sheen = ctx.createLinearGradient(0, targetH * 0.80, 0, targetH);
@@ -1048,13 +1081,15 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // Transitions
-  if (project.transitionType === "FLASH_CUT" && localSec < 0.12) {
-    ctx.fillStyle = `rgba(255,255,255,${1 - localSec / 0.12})`;
-    ctx.fillRect(0, 0, targetW, targetH);
-  } else if (project.transitionType === "SMOOTH_FADE" && localSec < 0.45) {
-    ctx.fillStyle = `rgba(0,0,0,${1 - localSec / 0.45})`;
-    ctx.fillRect(0, 0, targetW, targetH);
+  // Transitions (only if VFX not disabled)
+  if (!isMasterVfxDisabled) {
+    if (project.transitionType === "FLASH_CUT" && localSec < 0.12) {
+      ctx.fillStyle = `rgba(255,255,255,${1 - localSec / 0.12})`;
+      ctx.fillRect(0, 0, targetW, targetH);
+    } else if (project.transitionType === "SMOOTH_FADE" && localSec < 0.45) {
+      ctx.fillStyle = `rgba(0,0,0,${1 - localSec / 0.45})`;
+      ctx.fillRect(0, 0, targetW, targetH);
+    }
   }
 
   ctx.restore();
@@ -1110,11 +1145,20 @@ async function buildMixedAudio(
   voiceBlob: Blob | null | undefined,
   bgmTrack: BgmTrack | null | undefined,
   voiceVolume: number,
-  bgmVolume: number
+  bgmVolume: number,
+  sfxVolume: number = 0.8,
+  isVoiceMuted: boolean = false,
+  isBgmMuted: boolean = false,
+  isSfxMuted: boolean = false,
+  decodedBuffers?: Map<number, AudioBuffer>
 ): Promise<AudioBuffer> {
   const timeline = computeProjectTimeline(project);
   const durationSec = Math.max(1, timeline.totalDurationSec);
   const offline = new OfflineAudioContext(2, Math.ceil(AUDIO_SAMPLE_RATE * durationSec), AUDIO_SAMPLE_RATE);
+
+  const effVoiceVolume = isVoiceMuted ? 0 : voiceVolume;
+  const effBgmVolume = (isBgmMuted || !project.isBgmEnabled) ? 0 : bgmVolume;
+  const effSfxVolume = (isSfxMuted || project.isSfxEnabled === false) ? 0 : sfxVolume;
 
   // 1. Check if individual shots have their own linked audio
   let hasShotAudio = false;
@@ -1123,20 +1167,25 @@ async function buildMixedAudio(
     const shot = item.shot;
     if (shot.customAudioId) {
       try {
-        const asset = await getImage(shot.customAudioId);
-        if (asset?.blob) {
+        let decoded = decodedBuffers?.get(shot.shotNumber);
+        if (!decoded) {
+          const asset = await getImage(shot.customAudioId);
+          if (asset?.blob) {
+            decoded = await decodeInContext(asset.blob, offline);
+          }
+        }
+        if (decoded) {
           hasShotAudio = true;
-          const decoded = await decodeInContext(asset.blob, offline);
           const src = offline.createBufferSource();
           src.buffer = decoded;
           const gain = offline.createGain();
-          gain.gain.value = voiceVolume;
+          gain.gain.value = effVoiceVolume;
           src.connect(gain);
           gain.connect(offline.destination);
           src.start(item.startSec);
         }
       } catch {
-        // ignore
+        // ignore individual shot audio failure
       }
     }
   }
@@ -1148,7 +1197,7 @@ async function buildMixedAudio(
       const src = offline.createBufferSource();
       src.buffer = voice;
       const gain = offline.createGain();
-      gain.gain.value = voiceVolume;
+      gain.gain.value = effVoiceVolume;
       src.connect(gain);
       gain.connect(offline.destination);
       src.start(0);
@@ -1157,8 +1206,8 @@ async function buildMixedAudio(
     }
   }
 
-  // 3. Background Music with Automatic Audio Ducking under voice narration
-  if (project.isBgmEnabled && bgmTrack) {
+  // 3. Background Music with Automatic Audio Ducking, Trim, and Fade In/Out
+  if (effBgmVolume > 0 && bgmTrack) {
     try {
       const bgm = await getBgmBuffer(bgmTrack);
       const src = offline.createBufferSource();
@@ -1166,29 +1215,43 @@ async function buildMixedAudio(
       src.loop = true;
       const gain = offline.createGain();
 
-      const normalVol = bgmVolume * 0.7;
-      const duckedVol = bgmVolume * 0.22; // Smoothly ducks down while narrator speaks
+      const normalVol = effBgmVolume * 0.7;
+      const duckStrength = project.bgmDuckingStrength ?? 0.25;
+      const duckedVol = normalVol * duckStrength; // Smoothly ducks down while narrator speaks
+      const fadeInSec = Math.max(0.05, project.bgmFadeInSec ?? 1.0);
+      const fadeOutSec = Math.max(0.05, project.bgmFadeOutSec ?? 1.5);
+
+      // Initial volume and Fade In
+      gain.gain.setValueAtTime(0.0001, 0);
+      gain.gain.linearRampToValueAtTime(normalVol, Math.min(durationSec, fadeInSec));
 
       if (hasShotAudio) {
-        gain.gain.setValueAtTime(normalVol, 0);
         for (const item of timeline.items) {
           if (item.shot.customAudioId) {
-            const startD = Math.max(0, item.startSec - 0.12);
-            gain.gain.setValueAtTime(normalVol, startD);
+            const duckStart = Math.max(0, item.startSec - 0.12);
+            gain.gain.setValueAtTime(normalVol, duckStart);
             gain.gain.linearRampToValueAtTime(duckedVol, item.startSec);
             gain.gain.setValueAtTime(duckedVol, Math.max(item.startSec, item.endSec - 0.15));
             gain.gain.linearRampToValueAtTime(normalVol, item.endSec);
           }
         }
       } else if (voiceBlob) {
-        gain.gain.setValueAtTime(duckedVol, 0);
-      } else {
-        gain.gain.setValueAtTime(normalVol, 0);
+        gain.gain.linearRampToValueAtTime(duckedVol, 0.2);
+      }
+
+      // Fade Out at the end of the video
+      const fadeOutStart = Math.max(0, durationSec - fadeOutSec);
+      if (fadeOutStart > 0 && fadeOutStart < durationSec) {
+        gain.gain.setValueAtTime(normalVol, fadeOutStart);
+        gain.gain.linearRampToValueAtTime(0.0001, durationSec);
       }
 
       src.connect(gain);
       gain.connect(offline.destination);
-      src.start(0);
+
+      // Support custom Trim start offset
+      const trimStart = project.bgmTrimStartSec || 0;
+      src.start(0, trimStart);
       src.stop(durationSec);
     } catch {
       // ignore bgm failure
@@ -1217,8 +1280,8 @@ async function buildMixedAudio(
     }
   }
 
-  // 4. Per-shot Synchronized SFX sound effects (Disabled by default unless user enables it)
-  if (project.isSfxEnabled === true) {
+  // 4. Per-shot Synchronized SFX sound effects
+  if (effSfxVolume > 0 && (project.isSfxEnabled !== false)) {
     for (let i = 0; i < timeline.items.length; i++) {
       const item = timeline.items[i];
       const shot = item.shot;
@@ -1239,7 +1302,7 @@ async function buildMixedAudio(
             const src = offline.createBufferSource();
             src.buffer = sfxBuffer;
             const gain = offline.createGain();
-            const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85;
+            const effVol = ((shot.sfxVolumePercent || 80) / 100) * effSfxVolume;
             gain.gain.value = effVol;
             src.connect(gain);
             gain.connect(offline.destination);
@@ -1415,7 +1478,18 @@ async function exportWithWebCodecs(
 
   if (hasAudio && audioOk) {
     onProgress?.(0.72, "معالجة ومزامنة الصوت…");
-    const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
+    const mixed = await buildMixedAudio(
+      project,
+      input.voiceBlob,
+      input.bgmTrack,
+      input.voiceVolume,
+      input.bgmVolume,
+      input.sfxVolume ?? 0.8,
+      input.isVoiceMuted ?? false,
+      input.isBgmMuted ?? false,
+      input.isSfxMuted ?? false,
+      input.decodedBuffers
+    );
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => {
@@ -1504,7 +1578,18 @@ async function exportWithMediaRecorder(
 
   const audioCtx = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
   const dest = audioCtx.createMediaStreamDestination();
-  const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
+  const mixed = await buildMixedAudio(
+    project,
+    input.voiceBlob,
+    input.bgmTrack,
+    input.voiceVolume,
+    input.bgmVolume,
+    input.sfxVolume ?? 0.8,
+    input.isVoiceMuted ?? false,
+    input.isBgmMuted ?? false,
+    input.isSfxMuted ?? false,
+    input.decodedBuffers
+  );
   const source = audioCtx.createBufferSource();
   source.buffer = mixed;
   source.connect(dest);
@@ -1554,18 +1639,59 @@ async function exportWithMediaRecorder(
   return { blob: new Blob(chunks, { type: mime }), extension };
 }
 
+export async function calibrateProjectWithActualAudios(project: StoryProject): Promise<{
+  calibratedProject: StoryProject;
+  decodedBuffers: Map<number, AudioBuffer>;
+}> {
+  const decodedBuffers = new Map<number, AudioBuffer>();
+  const offline = new OfflineAudioContext(2, 48000, 48000);
+
+  const updatedShots = await Promise.all(
+    project.shots.map(async (shot) => {
+      if (shot.customAudioId) {
+        try {
+          const asset = await getImage(shot.customAudioId);
+          if (asset?.blob) {
+            const buf = await decodeInContext(asset.blob, offline);
+            decodedBuffers.set(shot.shotNumber, buf);
+            const actualDur = buf.duration;
+            return {
+              ...shot,
+              actualAudioDurationSec: actualDur,
+              audioDurationSec: actualDur,
+            };
+          }
+        } catch {
+          // ignore error
+        }
+      }
+      return shot;
+    })
+  );
+
+  const calibrated = {
+    ...project,
+    shots: updatedShots,
+  };
+  return { calibratedProject: calibrated, decodedBuffers };
+}
+
 export async function exportStoryVideo(input: ExportInput): Promise<ExportResult> {
-  const effectiveProject = input.shotRange
+  const baseProject = input.shotRange
     ? sliceProjectRange(input.project, input.shotRange.startShot, input.shotRange.endShot)
     : input.project;
 
+  input.onProgress?.(0.01, "فحص ومعايرة أطوال الصوت الحقيقية لكل مشهد بدقة…");
+  const { calibratedProject, decodedBuffers } = await calibrateProjectWithActualAudios(baseProject);
+
   const effectiveInput: ExportInput = {
     ...input,
-    project: effectiveProject,
+    project: calibratedProject,
+    decodedBuffers,
   };
 
-  const images = await loadShotImages(effectiveProject.shots);
-  effectiveInput.onProgress?.(0.02, "تحضير المشاهد…");
+  const images = await loadShotImages(calibratedProject.shots);
+  effectiveInput.onProgress?.(0.04, "تحضير كادرات المشاهد…");
 
   try {
     const result = await exportWithWebCodecs(effectiveInput, images);

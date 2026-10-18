@@ -36,7 +36,9 @@ export function computeProjectTimeline(project: StoryProject): ProjectTimeline {
     const shot = project.shots[i];
 
     let dur = defaultDur;
-    if (typeof shot.audioDurationSec === "number" && shot.audioDurationSec > 0.5) {
+    if (typeof shot.actualAudioDurationSec === "number" && shot.actualAudioDurationSec > 0.05) {
+      dur = shot.actualAudioDurationSec;
+    } else if (typeof shot.audioDurationSec === "number" && shot.audioDurationSec > 0.05) {
       dur = shot.audioDurationSec;
     } else if (
       typeof shot.endTimeSec === "number" &&
@@ -46,8 +48,8 @@ export function computeProjectTimeline(project: StoryProject): ProjectTimeline {
       dur = shot.endTimeSec - shot.startTimeSec;
     }
 
-    // Clamp duration to reasonable boundaries (minimum 1s, maximum 60s)
-    dur = Math.max(1, Math.min(60, dur));
+    // Clamp duration to reasonable boundaries (minimum 0.5s for audio, maximum 120s)
+    dur = Math.max(0.5, Math.min(120, dur));
 
     const startSec = currentStart;
     const endSec = startSec + dur;
@@ -128,7 +130,9 @@ export function sliceProjectRange(
   let cursor = 0;
   const remappedShots: StoryShot[] = slicedShots.map((shot) => {
     let dur = project.shotDurationSec || 5;
-    if (typeof shot.audioDurationSec === "number" && shot.audioDurationSec > 0.5) {
+    if (typeof shot.actualAudioDurationSec === "number" && shot.actualAudioDurationSec > 0.05) {
+      dur = shot.actualAudioDurationSec;
+    } else if (typeof shot.audioDurationSec === "number" && shot.audioDurationSec > 0.05) {
       dur = shot.audioDurationSec;
     } else if (
       typeof shot.endTimeSec === "number" &&
@@ -137,7 +141,7 @@ export function sliceProjectRange(
     ) {
       dur = shot.endTimeSec - shot.startTimeSec;
     }
-    dur = Math.max(1, Math.min(60, dur));
+    dur = Math.max(0.5, Math.min(120, dur));
     const start = cursor;
     const end = cursor + dur;
     cursor = end;

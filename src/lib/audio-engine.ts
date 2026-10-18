@@ -2,10 +2,20 @@ import type { BgmTrack } from "@/lib/types";
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
+let voiceGain: GainNode | null = null;
 let bgmGain: GainNode | null = null;
+let sfxGain: GainNode | null = null;
 let activeSource: AudioBufferSourceNode | null = null;
+let activeBedSource: AudioBufferSourceNode | null = null;
 let activeTrackId: number | null = null;
 let volume = 0.6;
+let voiceChannelVolume = 1.0;
+let isVoiceChannelMuted = false;
+let bgmChannelVolume = 0.6;
+let isBgmChannelMuted = false;
+let sfxChannelVolume = 0.8;
+let isSfxChannelMuted = false;
+let currentDuckingStrength = 0.25;
 const bufferCache = new Map<string, AudioBuffer>();
 
 function getContext(): AudioContext {
@@ -18,9 +28,20 @@ function getContext(): AudioContext {
     masterGain.gain.value = volume;
     masterGain.connect(ctx.destination);
 
+    // Voice channel gain
+    voiceGain = ctx.createGain();
+    voiceGain.gain.value = isVoiceChannelMuted ? 0 : voiceChannelVolume;
+    voiceGain.connect(masterGain);
+
+    // BGM channel gain
     bgmGain = ctx.createGain();
-    bgmGain.gain.value = 1.0;
+    bgmGain.gain.value = isBgmChannelMuted ? 0 : bgmChannelVolume;
     bgmGain.connect(masterGain);
+
+    // SFX channel gain
+    sfxGain = ctx.createGain();
+    sfxGain.gain.value = isSfxChannelMuted ? 0 : sfxChannelVolume;
+    sfxGain.connect(masterGain);
   }
   if (ctx.state === "suspended") void ctx.resume();
   return ctx;
@@ -497,22 +518,51 @@ export const audioEngine = {
     if (masterGain) masterGain.gain.value = volume;
   },
 
+  setVoiceChannel(vol: number, isMuted: boolean) {
+    voiceChannelVolume = Math.max(0, Math.min(1, vol));
+    isVoiceChannelMuted = isMuted;
+    if (voiceGain && ctx) {
+      voiceGain.gain.setValueAtTime(isMuted ? 0 : voiceChannelVolume, ctx.currentTime);
+    }
+  },
+
+  setBgmChannel(vol: number, isMuted: boolean) {
+    bgmChannelVolume = Math.max(0, Math.min(1, vol));
+    isBgmChannelMuted = isMuted;
+    if (bgmGain && ctx) {
+      bgmGain.gain.setValueAtTime(isMuted ? 0 : bgmChannelVolume, ctx.currentTime);
+    }
+  },
+
+  setSfxChannel(vol: number, isMuted: boolean) {
+    sfxChannelVolume = Math.max(0, Math.min(1, vol));
+    isSfxChannelMuted = isMuted;
+    if (sfxGain && ctx) {
+      sfxGain.gain.setValueAtTime(isMuted ? 0 : sfxChannelVolume, ctx.currentTime);
+    }
+  },
+
+  setDuckingStrength(strength: number) {
+    currentDuckingStrength = Math.max(0, Math.min(1, strength));
+  },
+
   get activeTrackId() {
     return activeTrackId;
   },
 
-  // Audio Ducking: Smoothly dips BGM to 18% during voiceover narration
-  duckBgm(ducking: boolean) {
+  // Audio Ducking: Smoothly dips BGM during voiceover narration
+  duckBgm(ducking: boolean, strength?: number) {
     if (!bgmGain || !ctx) return;
     const now = ctx.currentTime;
-    const target = ducking ? 0.22 : 1.0;
+    const effStrength = typeof strength === "number" ? strength : currentDuckingStrength;
+    const target = isBgmChannelMuted ? 0 : ducking ? bgmChannelVolume * effStrength : bgmChannelVolume;
     bgmGain.gain.cancelScheduledValues(now);
     bgmGain.gain.setTargetAtTime(target, now, 0.12);
   },
 
-  async playTrack(track: BgmTrack) {
+  async playTrack(track: BgmTrack, trimStartSec = 0) {
     const audio = getContext();
-    this.stop();
+    this.stopBgm();
 
     const cacheKey = `synth:${track.id}`;
     let buffer = bufferCache.get(cacheKey);
@@ -525,12 +575,31 @@ export const audioEngine = {
     source.buffer = buffer;
     source.loop = true;
     source.connect(bgmGain!);
-    source.start();
+    source.start(0, Math.max(0, trimStartSec));
     activeSource = source;
     activeTrackId = track.id;
   },
 
-  stop() {
+  async playBedAudio(blob: Blob, volumeMultiplier = 0.5) {
+    const audio = getContext();
+    this.stopBed();
+    try {
+      const buffer = await decodeAudioBlob(blob);
+      const source = audio.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const gain = audio.createGain();
+      gain.gain.value = volumeMultiplier;
+      source.connect(gain);
+      gain.connect(bgmGain!);
+      source.start();
+      activeBedSource = source;
+    } catch (e) {
+      console.warn("Failed to play bed audio:", e);
+    }
+  },
+
+  stopBgm() {
     if (activeSource) {
       try {
         activeSource.stop();
@@ -540,6 +609,25 @@ export const audioEngine = {
       activeSource.disconnect();
       activeSource = null;
     }
+    this.duckBgm(false);
+    activeTrackId = null;
+  },
+
+  stopBed() {
+    if (activeBedSource) {
+      try {
+        activeBedSource.stop();
+      } catch {
+        // already stopped
+      }
+      activeBedSource.disconnect();
+      activeBedSource = null;
+    }
+  },
+
+  stop() {
+    this.stopBgm();
+    this.stopBed();
     if (activeBlobSource) {
       try {
         activeBlobSource.stop();
@@ -561,6 +649,7 @@ export const audioEngine = {
     item: { id: number; nameEn: string; categoryEn: string; fileName?: string; volume?: number },
     customVolume?: number
   ) {
+    if (isSfxChannelMuted) return;
     const audio = getContext();
     const buffer = await getCatalogSfxBuffer(item);
     const source = audio.createBufferSource();
@@ -569,11 +658,12 @@ export const audioEngine = {
     const effVolume = (customVolume ?? (item.volume ? item.volume / 100 : 0.85)) * 0.9;
     gain.gain.value = Math.max(0, Math.min(1, effVolume));
     source.connect(gain);
-    gain.connect(masterGain!);
+    gain.connect(sfxGain!);
     source.start();
   },
 
   playLikeSubscribeChime() {
+    if (isSfxChannelMuted) return;
     const audio = getContext();
     const now = audio.currentTime;
     const notes = [659.25, 830.61, 987.77, 1318.51];
@@ -586,7 +676,7 @@ export const audioEngine = {
       gain.gain.exponentialRampToValueAtTime(0.4, now + idx * 0.09 + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.09 + 0.6);
       osc.connect(gain);
-      gain.connect(masterGain!);
+      gain.connect(sfxGain!);
       osc.start(now + idx * 0.09);
       osc.stop(now + idx * 0.09 + 0.65);
     });
@@ -606,7 +696,7 @@ export const audioEngine = {
     const buffer = await decodeAudioBlob(blob);
     const source = audio.createBufferSource();
     source.buffer = buffer;
-    source.connect(masterGain!);
+    source.connect(voiceGain!);
 
     // Automatically duck background music during narration!
     this.duckBgm(true);

@@ -7,6 +7,7 @@ import { Clapperboard, Loader2, LogOut } from "lucide-react";
 import { STUDIO_TABS } from "@/lib/nav";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { WorkflowStepper } from "@/components/studio/workflow-stepper";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -88,6 +89,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </nav>
       </header>
+
+      {/* Fixed Workflow Stepper */}
+      <WorkflowStepper />
 
       {/* Main Content Area */}
       <main className="mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 sm:py-5 flex-1 pb-24 md:pb-8 min-w-0 overflow-x-hidden">

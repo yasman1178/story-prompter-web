@@ -112,6 +112,29 @@ export interface VfxSettings {
   runeParticles: number;     // 0 - 100
   motionIntensity: number;   // 0 - 100
   preset: VfxPresetId;
+  masterVfxDisabled?: boolean;
+  enableCameraShake?: boolean;
+  enableParallax?: boolean;
+  enableParticles?: boolean;
+  enableRelighting?: boolean;
+  enableAuras?: boolean;
+}
+
+export interface AudioMixerSettings {
+  voiceVolume: number;       // 0.0 - 1.0
+  isVoiceMuted: boolean;
+  bgmVolume: number;         // 0.0 - 1.0
+  isBgmMuted: boolean;
+  sfxVolume: number;         // 0.0 - 1.0
+  isSfxMuted: boolean;
+}
+
+export interface BgmPlaybackSettings {
+  trimStartSec?: number;
+  trimEndSec?: number;
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  duckingStrength?: number;  // 0.0 - 1.0 (default ~0.25)
 }
 
 export interface OverlayPosition {
@@ -174,6 +197,7 @@ export interface StoryShot {
   imageMatchMethod?: "json_filename" | "shot_number" | "ordinal" | "manual";
   customAudioId?: string;
   audioDurationSec?: number;
+  actualAudioDurationSec?: number;
   sceneType: SceneArtType | string;
   textOverlay: string;
   sfxName: string;
@@ -232,6 +256,12 @@ export interface StoryProject {
   customAudioBedId?: string;
   customAudioBedTitle?: string;
   customAudioBedVolume?: number;
+  bgmTrimStartSec?: number;
+  bgmTrimEndSec?: number;
+  bgmFadeInSec?: number;
+  bgmFadeOutSec?: number;
+  bgmDuckingStrength?: number;
+  masterVfxDisabled?: boolean;
   transitionType: TransitionTypeId;
   shotDurationSec: number;
   showSubtitlesInVideo: boolean;
