@@ -749,3 +749,162 @@ export const audioEngine = {
     return isAnimeVoiceEnhancerEnabled;
   },
 };
+
+export function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+
+  const numFrames = buffer.length;
+  const dataByteLength = numFrames * blockAlign;
+  const bufferArray = new ArrayBuffer(44 + dataByteLength);
+  const view = new DataView(bufferArray);
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  // RIFF header
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataByteLength, true);
+  writeStr(8, "WAVE");
+
+  // fmt chunk
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+
+  // data chunk
+  writeStr(36, "data");
+  view.setUint32(40, dataByteLength, true);
+
+  // Interleave channels
+  let offset = 44;
+  for (let i = 0; i < numFrames; i++) {
+    for (let channel = 0; channel < numChannels; channel++) {
+      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([bufferArray], { type: "audio/wav" });
+}
+
+export async function masterVoiceRecording(
+  blob: Blob,
+  options?: {
+    bassBoost?: boolean; // 250Hz +5dB
+    tempo?: number;     // e.g. 1.08
+    compress?: boolean;
+  }
+): Promise<{ blob: Blob; durationSec: number }> {
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const tempCtx = new AudioCtx();
+  let decoded: AudioBuffer;
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    decoded = await tempCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    void tempCtx.close();
+  }
+
+  const tempo = options?.tempo ?? 1.08;
+  const shouldBassBoost = options?.bassBoost ?? true;
+
+  // Render processed audio
+  const targetLength = Math.max(1, Math.round(decoded.length / tempo));
+  const offline = new OfflineAudioContext(
+    decoded.numberOfChannels,
+    targetLength,
+    decoded.sampleRate
+  );
+
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.playbackRate.value = tempo;
+
+  let lastNode: AudioNode = source;
+
+  if (shouldBassBoost) {
+    const bass = offline.createBiquadFilter();
+    bass.type = "peaking";
+    bass.frequency.value = 250;
+    bass.Q.value = 1.0;
+    bass.gain.value = 5.0; // +5 dB boost for rich cinematic narration
+    lastNode.connect(bass);
+    lastNode = bass;
+  }
+
+  if (options?.compress !== false) {
+    const comp = offline.createDynamicsCompressor();
+    comp.threshold.value = -14;
+    comp.knee.value = 8;
+    comp.ratio.value = 3;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.2;
+    lastNode.connect(comp);
+    lastNode = comp;
+  }
+
+  lastNode.connect(offline.destination);
+  source.start(0);
+
+  const rendered = await offline.startRendering();
+  const wavBlob = audioBufferToWavBlob(rendered);
+  const durationSec = rendered.duration;
+
+  return { blob: wavBlob, durationSec };
+}
+
+export async function stitchAudioBlobs(blobs: Blob[]): Promise<{ blob: Blob; durationSec: number }> {
+  if (blobs.length === 0) {
+    return { blob: new Blob([], { type: "audio/wav" }), durationSec: 0 };
+  }
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const tempCtx = new AudioCtx();
+  const decodedList: AudioBuffer[] = [];
+
+  try {
+    for (const b of blobs) {
+      const buf = await tempCtx.decodeAudioData(await b.arrayBuffer());
+      decodedList.push(buf);
+    }
+  } finally {
+    void tempCtx.close();
+  }
+
+  const sampleRate = decodedList[0].sampleRate;
+  const channels = Math.max(...decodedList.map((d) => d.numberOfChannels));
+  const totalLength = decodedList.reduce((acc, curr) => acc + curr.length, 0);
+
+  const offline = new OfflineAudioContext(channels, totalLength, sampleRate);
+  let offset = 0;
+  for (const item of decodedList) {
+    const src = offline.createBufferSource();
+    src.buffer = item;
+    src.connect(offline.destination);
+    src.start(offset / sampleRate);
+    offset += item.length;
+  }
+
+  const rendered = await offline.startRendering();
+  const wavBlob = audioBufferToWavBlob(rendered);
+  return { blob: wavBlob, durationSec: rendered.duration };
+}
+

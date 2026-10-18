@@ -22,11 +22,6 @@ export function WorkflowStepper() {
 
   const totalShots = project?.shots.length || 0;
   const shotsWithAudio = project?.shots.filter((s) => Boolean(s.customAudioId)).length || 0;
-  const hasBgmOrSfx = Boolean(
-    project?.isBgmEnabled ||
-    project?.customAudioBedId ||
-    project?.shots.some((s) => Boolean(s.assignedSfxId))
-  );
 
   const steps: WorkflowStep[] = [
     {
@@ -39,15 +34,15 @@ export function WorkflowStepper() {
       badgeText: totalShots > 0 ? "مكتمل ✓" : "مطلوب",
     },
     {
-      id: "voice",
+      id: "record",
       href: "/record",
-      labelAr: "2. صوت الراوي",
+      labelAr: "2. تسجيل المشاهد",
       shortDescAr:
         totalShots === 0
           ? "في انتظار المشاهد"
           : shotsWithAudio === totalShots
           ? `جميع المشاهد (${shotsWithAudio}/${totalShots})`
-          : `${shotsWithAudio} من ${totalShots} جاهز`,
+          : `${shotsWithAudio} من ${totalShots} مسجل`,
       icon: Mic,
       status:
         totalShots > 0 && shotsWithAudio === totalShots
@@ -63,28 +58,28 @@ export function WorkflowStepper() {
           : "0%",
     },
     {
-      id: "audio",
-      href: "/audio",
-      labelAr: "3. موسيقى ومؤثرات",
-      shortDescAr: hasBgmOrSfx ? "مدمجة وخافضة للصوت" : "اختيار تراك أو رفع",
-      icon: Music2,
-      status: hasBgmOrSfx ? "completed" : "pending",
-      badgeText: hasBgmOrSfx ? "جاهز ✓" : "اختياري",
-    },
-    {
-      id: "preview",
-      href: "/video",
-      labelAr: "4. معاينة الاستوديو",
-      shortDescAr: "شاشة الكانفس والتايم لاين",
+      id: "hook",
+      href: "/hook",
+      labelAr: "3. مقطع الشورتس (الهوك)",
+      shortDescAr: "لقطة البداية السريعة والتشويق",
       icon: Film,
       status: totalShots > 0 ? "completed" : "pending",
-      badgeText: totalShots > 0 ? "الرئيسية" : "مغلق",
+      badgeText: totalShots > 0 ? "جاهز" : "اختياري",
+    },
+    {
+      id: "audio",
+      href: "/audio",
+      labelAr: "4. الموسيقى المرفوعة ومكساج الصوت",
+      shortDescAr: project?.customAudioBedId || project?.isBgmEnabled ? "الموسيقى جاهزة وموزونة" : "رفع موسيقى وتحديد النبرة",
+      icon: Music2,
+      status: (project?.customAudioBedId || project?.isBgmEnabled) ? "completed" : "pending",
+      badgeText: (project?.customAudioBedId || project?.isBgmEnabled) ? "مضبوط ✓" : "موسيقى",
     },
     {
       id: "export",
       href: "/video",
-      labelAr: "5. تصدير الفيديو",
-      shortDescAr: "رندر MP4 بمزامنة صارمة",
+      labelAr: "5. المعاينة وتصدير MP4",
+      shortDescAr: "رندر بمزامنة صارمة مع الصوت المسجل",
       icon: Upload,
       status: totalShots > 0 && shotsWithAudio > 0 ? "completed" : "pending",
       badgeText: totalShots > 0 && shotsWithAudio > 0 ? "جاهز للرندر" : "يحتاج صوت",

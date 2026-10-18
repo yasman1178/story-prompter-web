@@ -1,17 +1,35 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Circle, Loader2, Mic, Play, Sparkles, Square, Wand2 } from "lucide-react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Clock,
+  FastForward,
+  Layers,
+  Loader2,
+  Mic,
+  Pause,
+  Play,
+  RotateCcw,
+  Sliders,
+  Sparkles,
+  Square,
+  Wand2,
+} from "lucide-react";
 import { useStudio } from "@/lib/store";
 import { getAsset, putAsset } from "@/lib/db";
 import { synthesizeSpeech } from "@/lib/tts-client";
-import { uid } from "@/lib/utils";
+import { uid, cn } from "@/lib/utils";
 import { useImageUrl } from "@/lib/use-image";
 import { SceneThumbnail } from "@/components/studio/scene-thumbnail";
-import { audioEngine } from "@/lib/audio-engine";
+import { audioEngine, masterVoiceRecording, stitchAudioBlobs } from "@/lib/audio-engine";
 import { StoryShot, WordBoundary } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { optimizeEgyptianVoiceover, vocalCueToProsody } from "@/lib/tts-optimizer";
+import { vocalCueToProsody } from "@/lib/tts-optimizer";
 
 function formatElapsed(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -39,130 +57,93 @@ async function blobDuration(blob: Blob): Promise<number> {
 export default function RecordPage() {
   const project = useStudio((s) => s.project);
   const hydrated = useStudio((s) => s.hydrated);
-  const setRecordedAudio = useStudio((s) => s.setRecordedAudio);
   const assignShotAudio = useStudio((s) => s.assignShotAudio);
   const batchAssignShotsAudio = useStudio((s) => s.batchAssignShotsAudio);
-  const optimizeProjectVoiceovers = useStudio((s) => s.optimizeProjectVoiceovers);
+  const setRecordedAudio = useStudio((s) => s.setRecordedAudio);
+  const toggleAnimeVoiceEnhancer = useStudio((s) => s.toggleAnimeVoiceEnhancer);
   const showFeedback = useStudio((s) => s.showFeedback);
 
+  const [activeShotIndex, setActiveShotIndex] = useState(0);
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{
+  const [autoAdvance, setAutoAdvance] = useState(true);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const [playingShotNumber, setPlayingShotNumber] = useState<number | null>(null);
+  const [stopAudioPlayback, setStopAudioPlayback] = useState<(() => void) | null>(null);
+
+  // Batch AI voice generation state
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiBatchProgress, setAiBatchProgress] = useState<{
     current: number;
     total: number;
     shotNumber: number;
     percent: number;
   } | null>(null);
-  const [selectedShotNumber, setSelectedShotNumber] = useState<number>(1);
-  const [singleGenLoading, setSingleGenLoading] = useState(false);
-  const [failedShots, setFailedShots] = useState<number[]>([]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
   const levelRef = useRef<HTMLDivElement>(null);
+  const isTransitioningRef = useRef(false);
 
+  const shots = project?.shots || [];
+  const currentShot: StoryShot | undefined = shots[activeShotIndex];
+  const isFirstShot = activeShotIndex === 0;
+  const isLastShot = activeShotIndex >= shots.length - 1;
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       void audioCtxRef.current?.close();
+      if (stopAudioPlayback) stopAudioPlayback();
     };
-  }, []);
+  }, [stopAudioPlayback]);
 
+  // Elapsed timer update
   useEffect(() => {
     if (!recording) return;
-    const id = setInterval(() => setElapsed(Date.now() - startedAtRef.current), 200);
+    const id = setInterval(() => setElapsed(Date.now() - startedAtRef.current), 150);
     return () => clearInterval(id);
   }, [recording]);
 
-  if (!hydrated) return <p className="py-20 text-center text-muted">جارٍ التحميل…</p>;
-  if (!project) return <p className="py-20 text-center text-muted">حمّل مشروعاً من تبويب المشاهد أولاً.</p>;
-
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const audioCtx = new AudioContext();
-      audioCtxRef.current = audioCtx;
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const tick = () => {
-        analyser.getByteTimeDomainData(data);
-        let peak = 0;
-        for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
-        if (levelRef.current) levelRef.current.style.width = `${Math.min(100, (peak / 128) * 100)}%`;
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      tick();
-
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        const url = URL.createObjectURL(blob);
-        setPreviewUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return url;
-        });
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      startedAtRef.current = Date.now();
-      setElapsed(0);
-      setRecording(true);
-    } catch {
-      showFeedback("تعذّر الوصول إلى الميكروفون. تحقق من الأذونات.");
-    }
+  if (!hydrated) {
+    return (
+      <div className="py-24 text-center">
+        <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+        <p className="mt-3 text-sm text-muted">جارٍ تحميل الاستوديو…</p>
+      </div>
+    );
   }
 
-  function stopRecording() {
-    mediaRecorderRef.current?.stop();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    void audioCtxRef.current?.close();
-    audioCtxRef.current = null;
-    if (levelRef.current) levelRef.current.style.width = "0%";
-    setRecording(false);
+  if (!project || shots.length === 0) {
+    return (
+      <div className="rounded-3xl border border-border bg-card/60 p-8 text-center space-y-4">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-primary/10 text-primary">
+          <Layers className="h-8 w-8" />
+        </div>
+        <h2 className="text-lg font-bold text-fg">لا يوجد سيناريو محمل للتسجيل</h2>
+        <p className="text-sm text-muted max-w-md mx-auto">
+          قم بتحميل أو لصق جيسون المشاهد في الخطوة الأولى للبدء في قراءة وتسجيل الحوار مشهداً بمشهد.
+        </p>
+        <Link
+          href="/project"
+          className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-6 text-sm font-bold text-black transition hover:brightness-110 shadow-lg"
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>الذهاب إلى تبويب المشاهد أولاً</span>
+        </Link>
+      </div>
+    );
   }
 
-  async function saveRecording() {
-    if (!previewUrl) return;
-    const blob = await (await fetch(previewUrl)).blob();
-    const id = uid("rec");
-    await putAsset({ id, name: "recording.webm", type: blob.type, blob, createdAt: Date.now() });
-    const duration = await blobDuration(blob);
-    setRecordedAudio(id, duration);
-    showFeedback("تم حفظ التسجيل في المشروع.");
-  }
-
-  async function playSaved() {
-    const id = project?.audioRecordId;
-    if (!id) return;
-    const asset = await getAsset(id);
-    if (!asset) {
-      showFeedback("لم يتم العثور على التسجيل المحفوظ.");
-      return;
-    }
-    const url = URL.createObjectURL(asset.blob);
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    await audio.play();
-  }
-
-  function getShotText(shot: StoryShot): string {
+  // Helper to extract voiceover clean text
+  function getShotCleanDialogue(shot: StoryShot): string {
     let raw = "";
     if (shot.voiceoverEgyptian && shot.voiceoverEgyptian.trim()) {
       raw = shot.voiceoverEgyptian.trim();
@@ -174,47 +155,316 @@ export default function RecordPage() {
     } else if (shot.type && shot.type.trim()) {
       raw = shot.type.trim();
     }
-    if (!raw) return "";
-    const opt = optimizeEgyptianVoiceover(raw, shot.vocalCue);
-    return opt.cleanText;
+    return raw || "لا يوجد نص محدد لهذا المشهد.";
   }
 
-  async function generateVoice(targetShots?: StoryShot[]) {
-    if (!project || generating) return;
-    const shotsToProcess = targetShots ?? project.shots;
-    if (shotsToProcess.length === 0) return;
+  // Start Mic Audio Stream
+  async function initMicStream(): Promise<MediaStream> {
+    if (streamRef.current && streamRef.current.active) {
+      return streamRef.current;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    streamRef.current = stream;
 
-    setGenerating(true);
-    setFailedShots([]);
-    setBatchProgress({ current: 0, total: shotsToProcess.length, shotNumber: shotsToProcess[0]?.shotNumber ?? 1, percent: 0 });
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    audioCtxRef.current = audioCtx;
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyserRef.current = analyser;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let peak = 0;
+      for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
+      if (levelRef.current) {
+        const pct = Math.min(100, Math.round((peak / 128) * 120));
+        levelRef.current.style.width = `${pct}%`;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    tick();
+
+    return stream;
+  }
+
+  // Start recording for target shot
+  async function startRecording(targetIndex: number) {
+    if (recording || isTransitioningRef.current) return;
+    try {
+      if (stopAudioPlayback) {
+        stopAudioPlayback();
+        setStopAudioPlayback(null);
+        setPlayingShotNumber(null);
+      }
+
+      const stream = await initMicStream();
+      chunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      startedAtRef.current = Date.now();
+      setElapsed(0);
+      setRecording(true);
+      setActiveShotIndex(targetIndex);
+    } catch {
+      showFeedback("تعذّر الوصول إلى الميكروفون. يرجى التأكد من منح الإذن.");
+    }
+  }
+
+  // Stop recording and return the recorded raw Blob
+  async function stopCurrentRecorder(): Promise<Blob | null> {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return null;
+
+    return new Promise((resolve) => {
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        chunksRef.current = [];
+        resolve(blob);
+      };
+      recorder.stop();
+    });
+  }
+
+  // Master and attach audio to a shot
+  async function processAndSaveShotAudio(
+    targetShot: StoryShot,
+    rawBlob: Blob
+  ): Promise<{ blob: Blob; durationSec: number }> {
+    setIsProcessingAudio(true);
+    try {
+      const applyAnimeMastering = project?.enableAnimeVoiceEnhancer ?? true;
+      let finalBlob = rawBlob;
+      let durationSec = await blobDuration(rawBlob);
+
+      // Apply Bass Boost 250Hz (+5dB) and 1.08x atempo mastering
+      if (applyAnimeMastering) {
+        try {
+          const mastered = await masterVoiceRecording(rawBlob, {
+            bassBoost: true,
+            tempo: 1.08,
+            compress: true,
+          });
+          finalBlob = mastered.blob;
+          durationSec = mastered.durationSec;
+        } catch {
+          // If offline mastering fails, keep raw recording
+        }
+      }
+
+      await assignShotAudio(targetShot.shotNumber, finalBlob, durationSec);
+      return { blob: finalBlob, durationSec };
+    } finally {
+      setIsProcessingAudio(false);
+    }
+  }
+
+  // User presses: "Next & Auto-Record" or "Next"
+  async function handleNextShot(shouldContinueRecording: boolean = autoAdvance) {
+    if (!currentShot || isTransitioningRef.current) return;
+    isTransitioningRef.current = true;
+
+    try {
+      if (recording) {
+        const rawBlob = await stopCurrentRecorder();
+        setRecording(false);
+        setElapsed(0);
+
+        if (rawBlob && rawBlob.size > 1000) {
+          const savedShot = currentShot;
+          void processAndSaveShotAudio(savedShot, rawBlob).then(({ durationSec }) => {
+            showFeedback(`تم حفظ وماسترينج صوت المشهد #${savedShot.shotNumber} (${durationSec.toFixed(1)} ث)!`);
+          });
+        }
+      }
+
+      if (!isLastShot) {
+        const nextIdx = activeShotIndex + 1;
+        setActiveShotIndex(nextIdx);
+
+        if (shouldContinueRecording) {
+          // Automatic seamless auto-record start on next scene
+          setTimeout(() => {
+            void startRecording(nextIdx);
+            isTransitioningRef.current = false;
+          }, 320);
+          return;
+        }
+      } else {
+        // Last shot reached and finished
+        showFeedback("تم تسجيل آخر مشهد بنجاح! يمكنك الآن مراجعة الأصوات أو الانتقال لتاب الهوك.");
+      }
+    } finally {
+      if (!shouldContinueRecording || isLastShot) {
+        isTransitioningRef.current = false;
+      }
+    }
+  }
+
+  // User presses: Stop Recording (Pause)
+  async function handleStopRecordingOnly() {
+    if (!recording || !currentShot) return;
+    const rawBlob = await stopCurrentRecorder();
+    setRecording(false);
+    setElapsed(0);
+
+    if (rawBlob && rawBlob.size > 1000) {
+      const savedShot = currentShot;
+      const { durationSec } = await processAndSaveShotAudio(savedShot, rawBlob);
+      showFeedback(`تم حفظ صوت المشهد #${savedShot.shotNumber} (${durationSec.toFixed(1)} ث)`);
+    }
+  }
+
+  // Re-record current shot
+  async function handleRerecordCurrentShot() {
+    if (recording) {
+      await stopCurrentRecorder();
+      setRecording(false);
+      setElapsed(0);
+    }
+    setTimeout(() => {
+      void startRecording(activeShotIndex);
+    }, 200);
+  }
+
+  // Playback saved audio of the current shot
+  async function togglePlayShotAudio(shot: StoryShot) {
+    if (playingShotNumber === shot.shotNumber) {
+      if (stopAudioPlayback) {
+        stopAudioPlayback();
+        setStopAudioPlayback(null);
+      }
+      setPlayingShotNumber(null);
+      return;
+    }
+
+    if (!shot.customAudioId) {
+      showFeedback("لم يُسجل صوت لهذا المشهد بعد.");
+      return;
+    }
+
+    try {
+      const asset = await getAsset(shot.customAudioId);
+      if (!asset?.blob) {
+        showFeedback("لم يتم العثور على الملف الصوتي للمشهد.");
+        return;
+      }
+
+      if (stopAudioPlayback) {
+        stopAudioPlayback();
+      }
+
+      const stop = await audioEngine.playBlobAudio(
+        asset.blob,
+        () => {
+          setPlayingShotNumber(null);
+          setStopAudioPlayback(null);
+        },
+        { enhanceBass: project?.enableAnimeVoiceEnhancer ?? true, tempo: 1.0 }
+      );
+
+      setStopAudioPlayback(() => stop);
+      setPlayingShotNumber(shot.shotNumber);
+    } catch {
+      showFeedback("تعذّر تشغيل صوت المشهد.");
+    }
+  }
+
+  // Master and stitch all recorded shots into full project audio
+  async function masterAndStitchAllShots() {
+    if (!project || shots.length === 0) return;
+    setIsProcessingAudio(true);
+    try {
+      const shotBlobs: Blob[] = [];
+      let missingCount = 0;
+
+      for (const s of shots) {
+        if (s.customAudioId) {
+          const asset = await getAsset(s.customAudioId);
+          if (asset?.blob) {
+            shotBlobs.push(asset.blob);
+            continue;
+          }
+        }
+        missingCount++;
+      }
+
+      if (shotBlobs.length === 0) {
+        showFeedback("لا توجد مقاطع صوتية مسجلة بعد لدمجها.");
+        return;
+      }
+
+      const stitched = await stitchAudioBlobs(shotBlobs);
+      const id = uid("vo_full");
+      await putAsset({
+        id,
+        name: "full_project_narration.wav",
+        type: "audio/wav",
+        blob: stitched.blob,
+        createdAt: Date.now(),
+      });
+
+      setRecordedAudio(id, stitched.durationSec);
+      const note = missingCount > 0 ? ` (يوجد ${missingCount} مشهد بدون صوت)` : "";
+      showFeedback(
+        `تم دمج وماسترينج أصوات جميع المشاهد (${shotBlobs.length} مشهد، مدة ${stitched.durationSec.toFixed(1)} ثوانٍ)!${note}`
+      );
+    } catch {
+      showFeedback("حدث خطأ أثناء دمج الأصوات.");
+    } finally {
+      setIsProcessingAudio(false);
+    }
+  }
+
+  // Batch AI Generation fallback
+  async function generateVoiceWithAi() {
+    if (!project || generatingAi) return;
+    setGeneratingAi(true);
+    setAiBatchProgress({ current: 0, total: shots.length, shotNumber: shots[0]?.shotNumber ?? 1, percent: 0 });
 
     try {
       const assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[] = [];
       const buffers: Blob[] = [];
-      let successCount = 0;
-      const newlyFailed: number[] = [];
       const voiceToUse = project.voiceName || "ar-EG-ShakirNeural";
 
-      for (let i = 0; i < shotsToProcess.length; i++) {
-        const shot = shotsToProcess[i];
-        const text = getShotText(shot);
+      for (let i = 0; i < shots.length; i++) {
+        const shot = shots[i];
+        const text = getShotCleanDialogue(shot);
 
-        setBatchProgress({
+        setAiBatchProgress({
           current: i + 1,
-          total: shotsToProcess.length,
+          total: shots.length,
           shotNumber: shot.shotNumber,
-          percent: Math.round(((i + 1) / shotsToProcess.length) * 100),
+          percent: Math.round(((i + 1) / shots.length) * 100),
         });
 
-        if (!text) {
-          continue;
-        }
+        if (!text || text === "لا يوجد نص محدد لهذا المشهد.") continue;
 
         let blob: Blob | null = null;
         let boundaries: { offset: number; duration: number; text: string }[] = [];
         const prosody = vocalCueToProsody(shot.vocalCue);
 
-        // 3 retry attempts with exponential delay
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             const res = await synthesizeSpeech(text, voiceToUse, prosody);
@@ -222,7 +472,7 @@ export default function RecordPage() {
             boundaries = res.boundaries || [];
             break;
           } catch {
-            if (attempt < 2) await new Promise((r) => setTimeout(r, (attempt + 1) * 350));
+            if (attempt < 2) await new Promise((r) => setTimeout(r, 300));
           }
         }
 
@@ -235,386 +485,477 @@ export default function RecordPage() {
             text: b.text,
           }));
           assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur, wordBoundaries });
-          successCount++;
-        } else {
-          newlyFailed.push(shot.shotNumber);
         }
-
-        // Pacing delay to avoid WebSocket burst rate-limiting
-        await new Promise((r) => setTimeout(r, 160));
+        await new Promise((r) => setTimeout(r, 150));
       }
 
       if (assignments.length > 0) {
         await batchAssignShotsAudio(assignments);
       }
 
-      setFailedShots(newlyFailed);
-
-      if (buffers.length === 0) {
-        showFeedback("تعذّر توليد الصوت. تحقق من اتصال الإنترنت ومحتوى النصوص.");
-        return;
+      if (buffers.length > 0) {
+        const combined = new Blob(buffers, { type: "audio/mpeg" });
+        const id = uid("vo");
+        await putAsset({ id, name: "voiceover.mp3", type: "audio/mpeg", blob: combined, createdAt: Date.now() });
+        const duration = await blobDuration(combined);
+        setRecordedAudio(id, duration);
+        showFeedback(`تم توليد وربط الصوت بالذكاء الاصطناعي لـ ${assignments.length} مشهد بنجاح!`);
       }
-
-      const combined = new Blob(buffers, { type: "audio/mpeg" });
-      const id = uid("vo");
-      await putAsset({ id, name: "voiceover.mp3", type: "audio/mpeg", blob: combined, createdAt: Date.now() });
-      const duration = await blobDuration(combined);
-      setRecordedAudio(id, duration);
-
-      const note = newlyFailed.length > 0 ? ` (تعذّر ${newlyFailed.length} مشهد - يمكنك إعادة محاولتها)` : "";
-      showFeedback(`تم توليد وربط الصوت بنجاح (${successCount} مشهد، مدة ${Math.round(duration)} ثوانٍ)!${note}`);
     } catch {
-      showFeedback("حدث خطأ أثناء توليد الصوت.");
+      showFeedback("تعذّر التوليد بالذكاء الاصطناعي.");
     } finally {
-      setGenerating(false);
-      setBatchProgress(null);
+      setGeneratingAi(false);
+      setAiBatchProgress(null);
     }
   }
 
-  async function retryFailed() {
-    if (!project || failedShots.length === 0) return;
-    const target = project.shots.filter((s) => failedShots.includes(s.shotNumber));
-    await generateVoice(target);
-  }
-
-  async function generateVoiceForShot(shotNumber: number) {
-    if (!project || singleGenLoading) return;
-    const shot = project.shots.find((s) => s.shotNumber === shotNumber);
-    if (!shot) return;
-    const text = getShotText(shot);
-    if (!text) {
-      showFeedback("لا يوجد نص تعليق مكتوب لهذا المشهد.");
-      return;
-    }
-    setSingleGenLoading(true);
-    try {
-      const prosody = vocalCueToProsody(shot.vocalCue);
-      const { blob, boundaries } = await synthesizeSpeech(text, project.voiceName, prosody);
-      const dur = await blobDuration(blob);
-      const wordBoundaries = boundaries.map((b) => ({
-        offset: b.offset,
-        duration: b.duration,
-        text: b.text,
-      }));
-      await assignShotAudio(shotNumber, blob, dur, wordBoundaries);
-      showFeedback(`تم توليد وربط الصوت للمشهد #${shotNumber} بنجاح (${dur.toFixed(1)} ث)!`);
-    } catch {
-      showFeedback("تعذّر توليد الصوت لهذا المشهد.");
-    } finally {
-      setSingleGenLoading(false);
-    }
-  }
-
-  async function saveRecordingToShot(shotNumber: number) {
-    if (!previewUrl) return;
-    const blob = await (await fetch(previewUrl)).blob();
-    const dur = await blobDuration(blob);
-    await assignShotAudio(shotNumber, blob, dur);
-    showFeedback(`تم ربط هذا التسجيل الصوتي بالمشهد #${shotNumber}`);
-  }
-
-  const selectedShot = project.shots.find((s) => s.shotNumber === selectedShotNumber) ?? project.shots[0];
+  const shotsRecordedCount = shots.filter((s) => Boolean(s.customAudioId)).length;
+  const progressPercent = Math.round((shotsRecordedCount / shots.length) * 100);
 
   return (
-    <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
-      {/* Per-Shot Voice Studio Section */}
-      <section className="rounded-2xl sm:rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-4 sm:p-5 shadow-xl min-w-0 w-full">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border/50 min-w-0">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-bold text-fg">تسجيل وتوليد الصوت لكل مشهد على حدة</h2>
-            <p className="text-xs text-muted">
-              اربط كل مقطع صوتي مباشرة بصورته مع إمكانية التوليد الفردي أو الجماعي.
-            </p>
+    <div className="space-y-4 sm:space-y-6 w-full max-w-full">
+      {/* Top Banner & Quick Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl sm:rounded-3xl border border-border bg-surface/80 p-4 sm:p-5 shadow-lg">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-black font-bold text-xs shadow-md">
+              <Mic className="h-4 w-4" />
+            </span>
+            <h1 className="text-base sm:text-lg font-bold text-fg">
+              استوديو تسجيل المشاهد والتليبرومبتر التفاعلي
+            </h1>
+            <span className="rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-bold text-accent">
+              الخطوة 2
+            </span>
           </div>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto min-w-0">
-            <button
-              type="button"
-              onClick={() => void generateVoice()}
-              disabled={generating}
-              className="flex h-10 w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-3.5 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-60 shadow-md shrink-0"
-            >
-              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-              <span>{generating ? "جارٍ التوليد…" : "توليد كل المشاهد دفعة واحدة"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={optimizeProjectVoiceovers}
-              className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-primary/50 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-black transition shrink-0"
-              title="تنقية نصوص التعليق لجميع المشاهد وضبط الوقفات والترقيم لمحرك Edge-TTS"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>تنقية النطق (v15)</span>
-            </button>
-
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 h-10 text-xs min-w-0 w-full sm:w-auto max-w-full">
-              <span className="text-xs text-dim shrink-0">المشهد:</span>
-              <select
-                value={selectedShotNumber}
-                onChange={(e) => setSelectedShotNumber(Number(e.target.value))}
-                className="bg-transparent text-sm text-primary font-bold outline-none cursor-pointer truncate min-w-0 flex-1 sm:max-w-[180px]"
-              >
-                {project.shots.map((s) => (
-                  <option key={s.shotNumber} value={s.shotNumber} className="bg-surface text-fg">
-                    #{s.shotNumber} - {s.type} {s.customAudioId ? "✓" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          <p className="text-xs sm:text-sm text-muted">
+            شاهد المشهد أمامك، اقرأ الحوار واضغط &ldquo;التالي&rdquo; للانتقال والتسجيل التلقائي فوراً مع تطبيق فلاتر الأنمي.
+          </p>
         </div>
 
-        {/* Real-time batch progress card */}
-        {batchProgress && (
-          <div className="mt-3 rounded-2xl border border-primary/40 bg-primary/10 p-3 sm:p-4 space-y-2.5 shadow-sm min-w-0">
-            <div className="flex items-center justify-between text-xs font-bold gap-2">
-              <span className="flex items-center gap-2 text-primary truncate">
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                <span className="truncate">صوت المشهد #{batchProgress.shotNumber} ({batchProgress.current} من {batchProgress.total})…</span>
-              </span>
-              <span className="font-mono text-primary font-bold shrink-0">{batchProgress.percent}%</span>
-            </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-black/40">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${batchProgress.percent}%` }}
-              />
-            </div>
-            <p className="text-[11px] text-muted">
-              يتم حفظ الصوت لكل مشهد وتحديث توقيت ظهور الصورة في ملف المشروع تلقائياً.
-            </p>
-          </div>
-        )}
+        {/* Global Progress & Enhancer Switch */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Anime Voice Enhancer Toggle */}
+          <button
+            type="button"
+            onClick={() => toggleAnimeVoiceEnhancer()}
+            className={cn(
+              "flex h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold transition border",
+              project.enableAnimeVoiceEnhancer
+                ? "bg-primary/20 border-primary text-primary shadow-sm"
+                : "bg-card border-border text-dim hover:text-fg"
+            )}
+            title="تطبيق فلتر صوت راوي الأنمي: Bass Boost 250Hz +5dB مع زيادة الإيقاع 1.08x"
+          >
+            <Sliders className="h-3.5 w-3.5 text-primary" />
+            <span>فلتر صوت الأنمي (Bass Boost 250Hz)</span>
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                project.enableAnimeVoiceEnhancer ? "bg-primary shadow-[0_0_8px_#00e5ff]" : "bg-dim"
+              )}
+            />
+          </button>
 
-        {/* Failed shots retry banner */}
-        {failedShots.length > 0 && !generating && (
-          <div className="mt-3 rounded-2xl border border-danger/40 bg-danger/10 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm min-w-0">
-            <div className="text-xs">
-              <p className="font-bold text-danger">
-                تعذّر توليد الصوت مؤقتاً لـ {failedShots.length} مشهد: {failedShots.map((n) => `#${n}`).join(", ")}
-              </p>
-              <p className="text-muted text-[11px] mt-0.5">
-                يمكنك إعادة محاولة توليد هذه المشاهد المتعثرة بنقرة واحدة دون تكرار باقي المشاهد.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={retryFailed}
-              className="flex h-9 items-center justify-center gap-1.5 rounded-xl bg-danger px-3 text-xs font-bold text-white transition hover:brightness-110 shrink-0"
-            >
-              <Wand2 className="h-3.5 w-3.5" />
-              <span>إعادة محاولة المتعثرة ({failedShots.length})</span>
-            </button>
-          </div>
-        )}
+          {/* AI Batch Generation Fallback */}
+          <button
+            type="button"
+            onClick={() => void generateVoiceWithAi()}
+            disabled={generatingAi}
+            className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-fg transition hover:border-primary/50 disabled:opacity-50"
+          >
+            {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5 text-accent" />}
+            <span className="hidden sm:inline">توليد تلقائي بالذكاء الاصطناعي</span>
+            <span className="sm:hidden">توليد AI</span>
+          </button>
+        </div>
+      </div>
 
-        {/* Horizontal Visual Shot Strip */}
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-none w-full max-w-full">
-          {project.shots.map((s) => {
-            const isSelected = s.shotNumber === selectedShotNumber;
+      {/* AI Batch Progress Banner */}
+      {aiBatchProgress && (
+        <div className="rounded-2xl border border-primary/40 bg-primary/10 p-3 sm:p-4 space-y-2.5 shadow-sm">
+          <div className="flex items-center justify-between text-xs font-bold gap-2">
+            <span className="flex items-center gap-2 text-primary truncate">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              <span className="truncate">توليد صوت المشهد #{aiBatchProgress.shotNumber} ({aiBatchProgress.current} من {aiBatchProgress.total})…</span>
+            </span>
+            <span className="font-mono text-primary font-bold shrink-0">{aiBatchProgress.percent}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-black/40">
+            <div
+              className="h-full bg-primary transition-all duration-300"
+              style={{ width: `${aiBatchProgress.percent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Progress Strip */}
+
+      <div className="rounded-2xl border border-border/70 bg-card/60 p-3 sm:p-4 space-y-2">
+        <div className="flex items-center justify-between text-xs font-bold">
+          <span className="text-fg flex items-center gap-2">
+            <span>إنجاز تسجيل المشاهد:</span>
+            <span className="font-mono text-primary">
+              {shotsRecordedCount} من {shots.length} مشهد جاهز
+            </span>
+          </span>
+          <span className="font-mono text-accent">{progressPercent}%</span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-surface">
+          <div
+            className="h-full bg-gradient-to-r from-primary via-accent to-gold transition-all duration-300"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+
+        {/* Thumbnail Navigator Strip */}
+        <div className="flex gap-2 overflow-x-auto pb-1.5 pt-2 scrollbar-none w-full max-w-full">
+          {shots.map((s, idx) => {
+            const isCurrent = idx === activeShotIndex;
+            const hasAudio = Boolean(s.customAudioId);
+
             return (
               <button
                 key={s.shotNumber}
                 type="button"
-                onClick={() => setSelectedShotNumber(s.shotNumber)}
+                onClick={() => {
+                  if (recording) {
+                    void handleStopRecordingOnly();
+                  }
+                  setActiveShotIndex(idx);
+                }}
                 className={cn(
                   "flex shrink-0 flex-col items-center gap-1 rounded-xl p-1.5 border transition",
-                  isSelected
-                    ? "border-primary bg-primary/10 shadow-sm"
-                    : "border-border bg-card/60 hover:border-primary/40"
+                  isCurrent
+                    ? "border-primary bg-primary/15 shadow-md scale-105"
+                    : "border-border/70 bg-surface/60 hover:border-primary/40"
                 )}
               >
-                <div className="relative h-16 w-11 overflow-hidden rounded-lg bg-surface border border-border/50">
-                  <ShotThumbnailView shot={s} />
-                  <span className="absolute bottom-0.5 right-0.5 rounded bg-black/80 px-1 text-[8px] font-bold text-white">
+                <div className="relative h-14 w-10 sm:h-16 sm:w-11 overflow-hidden rounded-lg bg-black border border-border/50">
+                  <SceneThumbnailView shot={s} />
+                  <span className="absolute bottom-0.5 right-0.5 rounded bg-black/85 px-1 text-[8px] font-bold text-white">
                     #{s.shotNumber}
                   </span>
-                  {s.customAudioId && (
-                    <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-accent ring-1 ring-black" />
+                  {hasAudio && (
+                    <span className="absolute top-0.5 right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-accent text-[8px] text-black font-bold">
+                      ✓
+                    </span>
                   )}
                 </div>
-                <span className="text-[10px] font-mono text-dim">
-                  {s.customAudioId ? "صوت ✓" : `#${s.shotNumber}`}
+                <span className="text-[9px] font-mono text-dim">
+                  {hasAudio ? `${(s.audioDurationSec || 0).toFixed(1)}ث` : `#${s.shotNumber}`}
                 </span>
               </button>
             );
           })}
         </div>
+      </div>
 
-        {selectedShot && (
-          <div className="mt-4 flex flex-col sm:flex-row gap-4 items-center sm:items-start bg-card/40 p-3.5 rounded-2xl border border-border/60 min-w-0 w-full">
-            {/* Visual Image Preview */}
-            <div className="relative h-36 w-24 shrink-0 overflow-hidden rounded-2xl border-2 border-primary/40 shadow-lg bg-black">
-              <ShotThumbnailView shot={selectedShot} />
-              <span className="absolute bottom-1 right-1 rounded-md bg-black/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                #{selectedShot.shotNumber}
-              </span>
-              {selectedShot.customImageId && (
-                <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-accent ring-2 ring-black" title="صورة مخصصة" />
+      {/* Main Interactive Stage: Video / Scene on Right, Teleprompter on Left */}
+      {currentShot && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch">
+          {/* Visual Scene Canvas Stage (5 cols on lg) */}
+          <div className="lg:col-span-5 flex flex-col rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-4 sm:p-5 shadow-xl relative overflow-hidden">
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <span className="rounded-lg bg-primary/20 px-2.5 py-1 text-xs font-bold text-primary font-mono">
+                  المشهد #{currentShot.shotNumber}
+                </span>
+                <span className="text-xs text-dim">من {shots.length}</span>
+              </div>
+
+              {currentShot.customAudioId ? (
+                <span className="flex items-center gap-1.5 text-xs font-bold text-accent bg-accent/15 px-2.5 py-1 rounded-lg">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>مسجل ({(currentShot.audioDurationSec || 0).toFixed(1)} ث)</span>
+                </span>
+              ) : (
+                <span className="text-xs text-muted bg-surface px-2.5 py-1 rounded-lg">
+                  بانتظار التسجيل
+                </span>
               )}
             </div>
 
-            {/* Script and Linking Info */}
-            <div className="min-w-0 flex-1 space-y-2 w-full">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-bold text-primary">المشهد #{selectedShot.shotNumber}</span>
-                <span className="text-xs text-dim font-mono">({selectedShot.timeframe})</span>
-                <span className="text-xs text-muted">· {selectedShot.type}</span>
-                {selectedShot.customAudioId ? (
-                  <span className="text-xs font-bold text-accent bg-accent/15 px-2 py-0.5 rounded-md flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" />
-                    صوت مرتبط بالصورة جاهز
+            {/* Visual Frame in 9:16 vertical shorts aspect ratio */}
+            <div className="mt-4 relative mx-auto w-full max-w-[280px] sm:max-w-[320px] aspect-[9/16] rounded-2xl overflow-hidden border-2 border-border/80 shadow-2xl bg-black flex flex-col justify-between">
+              {/* Image Preview */}
+              <div className="absolute inset-0">
+                <SceneThumbnailView shot={currentShot} />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/60 pointer-events-none" />
+              </div>
+
+              {/* Top Anime Header Overlay */}
+              <div className="relative z-10 p-3 flex items-center justify-between">
+                <span className="rounded-lg bg-black/70 backdrop-blur-md px-2.5 py-1 text-[11px] font-bold text-primary border border-primary/30">
+                  {currentShot.type || "لقطة سينمائية"}
+                </span>
+                <span className="rounded-lg bg-black/70 backdrop-blur-md px-2 py-1 text-[10px] font-mono text-dim">
+                  {currentShot.timeframe}
+                </span>
+              </div>
+
+              {/* Live VU / Audio Level Meter around frame */}
+              {recording && (
+                <div className="relative z-10 px-4 py-2 bg-black/75 backdrop-blur-md border-y border-red-500/40">
+                  <div className="flex items-center justify-between text-[10px] text-red-400 font-bold mb-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
+                      <span>تسجيل مباشر…</span>
+                    </span>
+                    <span className="font-mono">{formatElapsed(elapsed)}</span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+                    <div
+                      ref={levelRef}
+                      className="h-full w-0 bg-gradient-to-r from-green-500 via-yellow-400 to-red-500 transition-all duration-75"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom Dialogue Subtitle Preview */}
+              <div className="relative z-10 p-3 space-y-2">
+                <div className="rounded-xl bg-black/85 backdrop-blur-md p-3 border border-border/80 shadow-lg text-center">
+                  <p className="text-xs sm:text-sm font-bold text-white leading-relaxed line-clamp-3">
+                    {getShotCleanDialogue(currentShot)}
+                  </p>
+                </div>
+
+                {/* Instant Playback Button if recorded */}
+                {currentShot.customAudioId && (
+                  <button
+                    type="button"
+                    onClick={() => void togglePlayShotAudio(currentShot)}
+                    className={cn(
+                      "w-full flex h-9 items-center justify-center gap-2 rounded-xl text-xs font-bold transition shadow-md",
+                      playingShotNumber === currentShot.shotNumber
+                        ? "bg-accent text-black"
+                        : "bg-surface/90 backdrop-blur-md text-fg border border-border/70 hover:border-accent"
+                    )}
+                  >
+                    {playingShotNumber === currentShot.shotNumber ? (
+                      <>
+                        <Pause className="h-3.5 w-3.5 fill-current" />
+                        <span>إيقاف المعاينة</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                        <span>استماع لصوت هذا المشهد (ماسترينج جاهز)</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Teleprompter & Script Prompter Card (7 cols on lg) */}
+          <div className="lg:col-span-7 flex flex-col justify-between rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-4 sm:p-6 shadow-xl space-y-4">
+            <div className="space-y-4">
+              {/* Vocal Cue / Director's Note */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border/60">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted">توجيه الراوي والمشاعر:</span>
+                  <span className="rounded-lg bg-gold/15 text-gold border border-gold/30 px-2.5 py-0.5 text-xs font-bold">
+                    {currentShot.vocalCue || currentShot.mood || "حماس وتشويق سينمائي"}
                   </span>
-                ) : (
-                  <span className="text-xs text-dim bg-surface px-2 py-0.5 rounded-md">
-                    لم يُسجل صوت لهذا المشهد بعد
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-dim font-mono">
+                  <span>المدة المقدرة:</span>
+                  <span className="text-fg font-bold">
+                    {currentShot.audioDurationSec
+                      ? `${currentShot.audioDurationSec.toFixed(1)} ث (مسجل)`
+                      : `${currentShot.durationSec || (currentShot.endTimeSec - currentShot.startTimeSec) || 5} ث`}
                   </span>
+                </div>
+              </div>
+
+              {/* Big High-Contrast Teleprompter Screen */}
+              <div className="rounded-2xl border-2 border-primary/30 bg-card p-5 sm:p-7 shadow-inner space-y-3 min-h-[220px] flex flex-col justify-center">
+                <span className="text-[11px] font-bold text-primary/70 tracking-wider uppercase">
+                  نص الحوار والسيناريو للقراءة:
+                </span>
+                <p className="text-lg sm:text-2xl font-bold leading-relaxed text-fg text-right select-text break-words">
+                  {getShotCleanDialogue(currentShot)}
+                </p>
+                {currentShot.textOverlay && currentShot.textOverlay !== currentShot.voiceoverEgyptian && (
+                  <p className="text-xs text-muted pt-2 border-t border-border/50">
+                    نص الشاشة: <span className="text-dim font-medium">{currentShot.textOverlay}</span>
+                  </p>
                 )}
               </div>
 
-              <p className="text-sm leading-relaxed text-fg bg-surface/80 p-3 rounded-xl border border-border/60 break-words">
-                {selectedShot.voiceoverEgyptian || "لا يوجد نص تعليق مكتوب لهذا المشهد."}
-              </p>
-
-              {/* Shot audio test if available */}
-              {selectedShot.customAudioId && (
-                <div className="flex items-center gap-2 pt-1 text-xs text-muted">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!selectedShot.customAudioId) return;
-                      const asset = await getAsset(selectedShot.customAudioId);
-                      if (asset?.blob) {
-                        await audioEngine.playBlobAudio(asset.blob);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent/15 border border-accent/40 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/25 transition"
-                  >
-                    <Play className="h-3 w-3 fill-current" />
-                    <span>تشغيل صوت هذا المشهد الآن</span>
-                  </button>
+              {/* Live Status and Timer */}
+              <div className="flex items-center justify-between bg-surface/70 px-4 py-3 rounded-xl border border-border/70">
+                <div className="flex items-center gap-3">
+                  {recording ? (
+                    <span className="flex items-center gap-2 text-sm font-bold text-red-500 animate-pulse">
+                      <span className="h-3 w-3 rounded-full bg-red-500" />
+                      <span>جارٍ التسجيل الآن…</span>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted">جاهز للتسجيل</span>
+                  )}
                 </div>
-              )}
+
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-dim" />
+                  <span className="font-mono text-base font-bold text-fg" dir="ltr">
+                    {formatElapsed(elapsed)}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-2 w-full sm:w-auto shrink-0 justify-center">
-              <button
-                type="button"
-                onClick={() => void generateVoiceForShot(selectedShot.shotNumber)}
-                disabled={singleGenLoading}
-                className="flex h-11 flex-1 md:flex-initial items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-60 shadow-md"
-              >
-                {singleGenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                توليد صوت هذا المشهد
-              </button>
-
-              {previewUrl && (
+            {/* The Hero Controls Bar (Requested: تسجيل تلقائي يبدأ وينتهي عند الضغط على التالي) */}
+            <div className="space-y-3 pt-3 border-t border-border/60">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                {/* Previous Button */}
                 <button
                   type="button"
-                  onClick={() => void saveRecordingToShot(selectedShot.shotNumber)}
-                  className="flex h-11 flex-1 md:flex-initial items-center justify-center gap-2 rounded-xl bg-accent px-4 text-xs font-bold text-black transition hover:brightness-110 shadow-md"
+                  onClick={() => {
+                    if (recording) void handleStopRecordingOnly();
+                    if (!isFirstShot) setActiveShotIndex(activeShotIndex - 1);
+                  }}
+                  disabled={isFirstShot}
+                  className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-xs font-bold text-fg transition hover:border-primary/50 disabled:opacity-40 shrink-0"
                 >
-                  ربط التسجيل بهذا المشهد
+                  <ChevronRight className="h-4 w-4" />
+                  <span>المشهد السابق</span>
                 </button>
-              )}
+
+                {/* Primary Action Button */}
+                {!recording ? (
+                  <button
+                    type="button"
+                    onClick={() => void startRecording(activeShotIndex)}
+                    className="flex-1 flex h-14 items-center justify-center gap-2.5 rounded-2xl bg-primary px-6 text-sm font-bold text-black transition hover:brightness-110 shadow-xl"
+                  >
+                    <Circle className="h-5 w-5 fill-current text-black animate-pulse" />
+                    <span>
+                      {currentShot.customAudioId
+                        ? `إعادة تسجيل المشهد #${currentShot.shotNumber}`
+                        : `بدء تسجيل المشهد #${currentShot.shotNumber}`}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void handleNextShot(true)}
+                    className="flex-1 flex h-14 items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-accent to-primary px-6 text-sm font-extrabold text-black transition hover:brightness-110 shadow-2xl animate-pulse"
+                  >
+                    <FastForward className="h-5 w-5" />
+                    <span>
+                      {isLastShot
+                        ? "حفظ وإنهاء تسجيل جميع المشاهد ✨"
+                        : "حفظ وتسجيل المشهد التالي تلقائياً ⏭️"}
+                    </span>
+                  </button>
+                )}
+
+                {/* Next Button (Without recording) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recording) {
+                      void handleNextShot(false);
+                    } else if (!isLastShot) {
+                      setActiveShotIndex(activeShotIndex + 1);
+                    }
+                  }}
+                  disabled={isLastShot && !recording}
+                  className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-xs font-bold text-fg transition hover:border-primary/50 disabled:opacity-40 shrink-0"
+                >
+                  <span>{recording ? "إيقاف وحفظ" : "المشهد التالي"}</span>
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Sub-actions during or outside recording */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <div className="flex items-center gap-2">
+                  {recording && (
+                    <button
+                      type="button"
+                      onClick={() => void handleStopRecordingOnly()}
+                      className="flex h-9 items-center gap-1.5 rounded-xl border border-danger/50 bg-danger/10 px-3 text-xs font-bold text-danger hover:bg-danger hover:text-white transition"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                      <span>إيقاف مؤقت للتسجيل</span>
+                    </button>
+                  )}
+
+                  {currentShot.customAudioId && !recording && (
+                    <button
+                      type="button"
+                      onClick={() => void handleRerecordCurrentShot()}
+                      className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-xs font-semibold text-muted hover:text-fg hover:border-primary/50 transition"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>إعادة تسجيل هذا المشهد</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Auto-advance toggle */}
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-muted select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoAdvance}
+                    onChange={(e) => setAutoAdvance(e.target.checked)}
+                    className="rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span>بدء التسجيل للمشهد التالي تلقائياً عند الضغط على التالي</span>
+                </label>
+              </div>
             </div>
-          </div>
-        )}
-      </section>
-
-      {/* Main Recording Station */}
-      <section className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-5 shadow-lg">
-        <h1 className="text-base font-bold text-fg">تسجيل التعليق المباشر عبر الميكروفون</h1>
-        <p className="mt-1 text-sm text-muted">سجّل بصوتك أو ولّد التعليق الصوتي لجميع المشاهد دفعة واحدة.</p>
-
-        <div className="mt-5 flex flex-col items-center gap-4">
-          <div className="text-center">
-            <p className="font-mono text-4xl font-bold text-fg" dir="ltr">
-              {formatElapsed(elapsed)}
-            </p>
-            <div className="mx-auto mt-2 h-2 w-56 overflow-hidden rounded-full bg-card">
-              <div ref={levelRef} className="h-full w-0 rounded-full bg-primary transition-[width] duration-75" />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap justify-center items-center gap-3">
-            {recording ? (
-              <button
-                type="button"
-                onClick={stopRecording}
-                className="flex h-14 items-center gap-2 rounded-2xl bg-danger px-6 font-semibold text-white transition hover:brightness-110 shadow-lg"
-              >
-                <Square className="h-5 w-5" />
-                إيقاف التسجيل
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void startRecording()}
-                className="flex h-14 items-center gap-2 rounded-2xl bg-primary px-6 font-semibold text-black transition hover:brightness-110 shadow-lg"
-              >
-                <Circle className="h-5 w-5 fill-current" />
-                بدء التسجيل
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void generateVoice()}
-              disabled={generating}
-              className="flex h-14 items-center gap-2 rounded-2xl border border-border bg-card px-6 font-medium text-fg transition hover:border-primary/50 disabled:opacity-60"
-            >
-              {generating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Wand2 className="h-5 w-5 text-accent" />}
-              توليد كل المشاهد بالذكاء الاصطناعي
-            </button>
           </div>
         </div>
+      )}
 
-        {previewUrl && !recording && (
-          <div className="mt-5 space-y-3 rounded-2xl border border-border bg-card p-4">
-            <audio controls src={previewUrl} className="w-full" />
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void saveRecording()}
-                className="h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-black transition hover:brightness-110"
-              >
-                حفظ كتسجيل عام للمشروع
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveRecordingToShot(selectedShotNumber)}
-                className="h-11 rounded-xl border border-border bg-surface px-5 text-sm font-semibold text-fg transition hover:border-primary"
-              >
-                ربط بالمشهد #{selectedShotNumber} فقط
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
+      {/* Completion & Next Tabs Transition Section */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-3xl border border-border bg-surface/80 p-5 shadow-lg">
+        <div className="space-y-1 text-right w-full sm:w-auto">
+          <h3 className="text-sm font-bold text-fg">
+            معالجة ودمج الأصوات بالكامل (Mastering & Timeline Sync)
+          </h3>
+          <p className="text-xs text-muted">
+            يتم ضبط وتحديث توقيتات الفيديو تلقائياً ليتطابق كل مشهد بدقة مع طول صوتك المسجل.
+          </p>
+        </div>
 
-      {project.audioRecordId && (
-        <section className="flex items-center gap-3 rounded-2xl border border-border bg-surface/70 p-4">
-          <Mic className="h-5 w-5 text-accent" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-fg">يوجد تعليق صوتي محفوظ للمشروع</p>
-            <p className="text-xs text-dim">المدة: {Math.round(project.audioRecordDurationSec ?? 0)} ث على {project.shots.length} مشهد</p>
-          </div>
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
           <button
             type="button"
-            onClick={() => void playSaved()}
-            className="h-10 rounded-xl border border-border px-4 text-sm font-medium text-fg transition hover:border-primary/50"
+            onClick={() => void masterAndStitchAllShots()}
+            disabled={isProcessingAudio || shotsRecordedCount === 0}
+            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-accent px-5 text-xs sm:text-sm font-bold text-black transition hover:brightness-110 disabled:opacity-50 shadow-md"
           >
-            تشغيل
+            {isProcessingAudio ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            <span>ماسترينج ودمج كل المشاهد ({shotsRecordedCount})</span>
           </button>
-        </section>
-      )}
+
+          <Link
+            href="/hook"
+            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs sm:text-sm font-bold text-black transition hover:brightness-110 shadow-md"
+          >
+            <span>الانتقال لمقطع الشورتس (الهوك) 🚀</span>
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
 
-function ShotThumbnailView({ shot }: { shot: StoryShot }) {
+function SceneThumbnailView({ shot }: { shot: StoryShot }) {
   const imageUrl = useImageUrl(shot.customImageId);
   if (imageUrl) {
     // eslint-disable-next-line @next/next/no-img-element
