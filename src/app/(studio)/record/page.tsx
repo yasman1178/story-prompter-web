@@ -13,13 +13,17 @@ import {
   Layers,
   Loader2,
   Mic,
+  MicOff,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   Sliders,
   Sparkles,
   Square,
+  Upload,
   Wand2,
+  X,
 } from "lucide-react";
 import { useStudio } from "@/lib/store";
 import { getAsset, putAsset } from "@/lib/db";
@@ -54,6 +58,87 @@ async function blobDuration(blob: Blob): Promise<number> {
   });
 }
 
+// Resilient helper to request microphone with fallbacks
+async function getMediaStreamWithFallback(): Promise<MediaStream> {
+  // First, verify mediaDevices availability
+  if (typeof navigator === "undefined") {
+    throw new Error("NAVIGATOR_UNDEFINED");
+  }
+
+  // Check if navigator.mediaDevices exists
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    // 1. Try with preferred constraints
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+    } catch (firstErr: unknown) {
+      const name = (firstErr as { name?: string })?.name;
+      // If user explicitly denied permission, throw immediately so we can show proper UI
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        throw firstErr;
+      }
+      console.warn("High-spec mic constraints failed, attempting basic { audio: true }", firstErr);
+    }
+
+    // 2. Try minimal constraint
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (secondErr: unknown) {
+      const name = (secondErr as { name?: string })?.name;
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        throw secondErr;
+      }
+      console.warn("Basic getUserMedia failed, checking legacy getUserMedia", secondErr);
+    }
+  }
+
+  // 3. Try legacy vendor prefixes for older mobile browsers
+  const legacyGetUserMedia =
+    (navigator as unknown as { getUserMedia?: (c: unknown, s: (stream: MediaStream) => void, e: (err: unknown) => void) => void }).getUserMedia ||
+    (navigator as unknown as { webkitGetUserMedia?: (c: unknown, s: (stream: MediaStream) => void, e: (err: unknown) => void) => void }).webkitGetUserMedia ||
+    (navigator as unknown as { mozGetUserMedia?: (c: unknown, s: (stream: MediaStream) => void, e: (err: unknown) => void) => void }).mozGetUserMedia;
+
+  if (legacyGetUserMedia) {
+    return new Promise((resolve, reject) => {
+      legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
+    });
+  }
+
+  throw new Error("MEDIA_DEVICES_NOT_SUPPORTED");
+}
+
+// Create MediaRecorder with safe mime type detection
+function createSafeMediaRecorder(stream: MediaStream): MediaRecorder {
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("MEDIA_RECORDER_NOT_SUPPORTED");
+  }
+
+  const candidateMimes = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+    "audio/aac",
+  ];
+
+  for (const mime of candidateMimes) {
+    try {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mime)) {
+        return new MediaRecorder(stream, { mimeType: mime });
+      }
+    } catch {
+      // test next candidate
+    }
+  }
+
+  // Default browser format fallback without specifying mimeType
+  return new MediaRecorder(stream);
+}
+
 export default function RecordPage() {
   const project = useStudio((s) => s.project);
   const hydrated = useStudio((s) => s.hydrated);
@@ -71,6 +156,12 @@ export default function RecordPage() {
   const [playingShotNumber, setPlayingShotNumber] = useState<number | null>(null);
   const [stopAudioPlayback, setStopAudioPlayback] = useState<(() => void) | null>(null);
 
+  // Mic permission & diagnostics state
+  const [micStatus, setMicStatus] = useState<"idle" | "granted" | "denied" | "unsupported">("idle");
+  const [micErrorMessage, setMicErrorMessage] = useState<string | null>(null);
+  const [isTestingMic, setIsTestingMic] = useState(false);
+  const [showPermissionGuide, setShowPermissionGuide] = useState(false);
+
   // Batch AI voice generation state
   const [generatingAi, setGeneratingAi] = useState(false);
   const [aiBatchProgress, setAiBatchProgress] = useState<{
@@ -80,6 +171,7 @@ export default function RecordPage() {
     percent: number;
   } | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -88,6 +180,7 @@ export default function RecordPage() {
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
   const levelRef = useRef<HTMLDivElement>(null);
+  const sceneLevelRef = useRef<HTMLDivElement>(null);
   const isTransitioningRef = useRef(false);
 
   const shots = project?.shots || [];
@@ -108,7 +201,7 @@ export default function RecordPage() {
   // Elapsed timer update
   useEffect(() => {
     if (!recording) return;
-    const id = setInterval(() => setElapsed(Date.now() - startedAtRef.current), 150);
+    const id = setInterval(() => setElapsed(Date.now() - startedAtRef.current), 100);
     return () => clearInterval(id);
   }, [recording]);
 
@@ -158,44 +251,107 @@ export default function RecordPage() {
     return raw || "لا يوجد نص محدد لهذا المشهد.";
   }
 
-  // Start Mic Audio Stream
+  // Start Mic Audio Stream with complete resilience
   async function initMicStream(): Promise<MediaStream> {
     if (streamRef.current && streamRef.current.active) {
-      return streamRef.current;
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-    streamRef.current = stream;
-
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const audioCtx = new AudioCtx();
-    audioCtxRef.current = audioCtx;
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    analyserRef.current = analyser;
-    audioCtx.createMediaStreamSource(stream).connect(analyser);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tick = () => {
-      analyser.getByteTimeDomainData(data);
-      let peak = 0;
-      for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
-      if (levelRef.current) {
-        const pct = Math.min(100, Math.round((peak / 128) * 120));
-        levelRef.current.style.width = `${pct}%`;
+      const audioTracks = streamRef.current.getAudioTracks();
+      if (audioTracks.length > 0 && audioTracks[0].readyState === "live") {
+        return streamRef.current;
       }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    tick();
+    }
+
+    const stream = await getMediaStreamWithFallback();
+    streamRef.current = stream;
+    setMicStatus("granted");
+    setMicErrorMessage(null);
+    setShowPermissionGuide(false);
+
+    // Setup visualizer safely in a separate try/catch so it can NEVER break recording
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
+          audioCtxRef.current = new AudioCtx();
+        }
+        const audioCtx = audioCtxRef.current;
+        if (audioCtx.state === "suspended") {
+          void audioCtx.resume();
+        }
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        analyserRef.current = analyser;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteTimeDomainData(data);
+          let peak = 0;
+          for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128));
+          const pct = Math.min(100, Math.round((peak / 128) * 125));
+          if (levelRef.current) levelRef.current.style.width = `${pct}%`;
+          if (sceneLevelRef.current) sceneLevelRef.current.style.width = `${pct}%`;
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+      }
+    } catch (e) {
+      console.warn("Visualizer audio context init bypassed:", e);
+    }
 
     return stream;
+  }
+
+  // Test microphone permission explicitly
+  async function testMicrophonePermission() {
+    setIsTestingMic(true);
+    setMicErrorMessage(null);
+    try {
+      const stream = await initMicStream();
+      setMicStatus("granted");
+      setShowPermissionGuide(false);
+      showFeedback("تم تفعيل وتأكيد الاتصال بالميكروفون بنجاح! جاهز للتسجيل 🎙️");
+      return stream;
+    } catch (err: unknown) {
+      handleMicError(err);
+      return null;
+    } finally {
+      setIsTestingMic(false);
+    }
+  }
+
+  function handleMicError(err: unknown) {
+    const errorName = (err as { name?: string })?.name || "";
+    console.error("Microphone access failed:", err);
+
+    if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
+      setMicStatus("denied");
+      setMicErrorMessage(
+        "منع المتصفح الوصول إلى الميكروفون. يرجى تفعيل إذن الميكروفون من إعدادات الموقع في Chrome أعلاه."
+      );
+      setShowPermissionGuide(true);
+      showFeedback("إذن الميكروفون محظور في المتصفح. اضغط على أيقونة الإعدادات للسماح.");
+    } else if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+      setMicStatus("unsupported");
+      setMicErrorMessage("لم يتم العثور على ميكروفون متاح بالجهاز. يمكنك رفع ملف صوتي بدلاً من ذلك.");
+      setShowPermissionGuide(true);
+      showFeedback("لم يتم العثور على ميكروفون في هذا الجهاز.");
+    } else if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+      setMicStatus("denied");
+      setMicErrorMessage("الميكروفون قيد الاستخدام بواسطة تطبيق آخر في هاتفك. يرجى إغلاق التطبيقات الأخرى.");
+      setShowPermissionGuide(true);
+      showFeedback("الميكروفون مشغول بواسطة تطبيق آخر.");
+    } else {
+      setMicStatus("denied");
+      setMicErrorMessage(
+        "تعذر الوصول للميكروفون في هذا المتصفح. يمكنك تفعيل الإذن من إعدادات المتصفح أو رفع ملف صوتي جاهز."
+      );
+      setShowPermissionGuide(true);
+      showFeedback("تعذّر تشغيل الميكروفون. يرجى مراجعة إعدادات الموقع أو رفع صوت.");
+    }
   }
 
   // Start recording for target shot
@@ -210,10 +366,7 @@ export default function RecordPage() {
 
       const stream = await initMicStream();
       chunksRef.current = [];
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      const recorder = createSafeMediaRecorder(stream);
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -225,8 +378,8 @@ export default function RecordPage() {
       setElapsed(0);
       setRecording(true);
       setActiveShotIndex(targetIndex);
-    } catch {
-      showFeedback("تعذّر الوصول إلى الميكروفون. يرجى التأكد من منح الإذن.");
+    } catch (err: unknown) {
+      handleMicError(err);
     }
   }
 
@@ -275,6 +428,24 @@ export default function RecordPage() {
 
       await assignShotAudio(targetShot.shotNumber, finalBlob, durationSec);
       return { blob: finalBlob, durationSec };
+    } finally {
+      setIsProcessingAudio(false);
+    }
+  }
+
+  // Upload custom audio file for current shot
+  async function handleAudioFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !currentShot) return;
+
+    try {
+      setIsProcessingAudio(true);
+      showFeedback(`جارٍ معالجة وماسترينج ملف الصوت للمشهد #${currentShot.shotNumber}…`);
+      const { durationSec } = await processAndSaveShotAudio(currentShot, file);
+      showFeedback(`تم ربط وضبط صوت المشهد #${currentShot.shotNumber} (${durationSec.toFixed(1)} ث) بنجاح!`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch {
+      showFeedback("تعذّر رفع أو معالجة الملف الصوتي.");
     } finally {
       setIsProcessingAudio(false);
     }
@@ -513,7 +684,16 @@ export default function RecordPage() {
   const progressPercent = Math.round((shotsRecordedCount / shots.length) * 100);
 
   return (
-    <div className="space-y-4 sm:space-y-6 w-full max-w-full">
+    <div className="space-y-4 sm:space-y-6 w-full max-w-full pb-24 lg:pb-8">
+      {/* Hidden file input for custom scene audio upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        onChange={(e) => void handleAudioFileSelect(e)}
+        className="hidden"
+      />
+
       {/* Top Banner & Quick Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl sm:rounded-3xl border border-border bg-surface/80 p-4 sm:p-5 shadow-lg">
         <div className="space-y-1">
@@ -533,14 +713,39 @@ export default function RecordPage() {
           </p>
         </div>
 
-        {/* Global Progress & Enhancer Switch */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        {/* Global Progress & Diagnostics Switch */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Mic Test Button */}
+          <button
+            type="button"
+            onClick={() => void testMicrophonePermission()}
+            disabled={isTestingMic || recording}
+            className={cn(
+              "flex h-9 sm:h-10 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition shadow-sm",
+              micStatus === "granted"
+                ? "bg-accent/15 border-accent text-accent"
+                : micStatus === "denied"
+                ? "bg-danger/15 border-danger text-danger"
+                : "bg-card border-border text-fg hover:border-primary/50"
+            )}
+            title="فحص واختبار إذن الميكروفون"
+          >
+            {isTestingMic ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : micStatus === "granted" ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-accent" />
+            ) : (
+              <Mic className="h-3.5 w-3.5 text-primary" />
+            )}
+            <span>{micStatus === "granted" ? "الميكروفون متصل ✓" : "فحص الميكروفون"}</span>
+          </button>
+
           {/* Anime Voice Enhancer Toggle */}
           <button
             type="button"
             onClick={() => toggleAnimeVoiceEnhancer()}
             className={cn(
-              "flex h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold transition border",
+              "flex h-9 sm:h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold transition border",
               project.enableAnimeVoiceEnhancer
                 ? "bg-primary/20 border-primary text-primary shadow-sm"
                 : "bg-card border-border text-dim hover:text-fg"
@@ -548,7 +753,8 @@ export default function RecordPage() {
             title="تطبيق فلتر صوت راوي الأنمي: Bass Boost 250Hz +5dB مع زيادة الإيقاع 1.08x"
           >
             <Sliders className="h-3.5 w-3.5 text-primary" />
-            <span>فلتر صوت الأنمي (Bass Boost 250Hz)</span>
+            <span className="hidden sm:inline">فلتر الأنمي (Bass Boost)</span>
+            <span className="sm:hidden">فلتر أنمي</span>
             <span
               className={cn(
                 "h-2 w-2 rounded-full",
@@ -562,7 +768,7 @@ export default function RecordPage() {
             type="button"
             onClick={() => void generateVoiceWithAi()}
             disabled={generatingAi}
-            className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-fg transition hover:border-primary/50 disabled:opacity-50"
+            className="flex h-9 sm:h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-fg transition hover:border-primary/50 disabled:opacity-50"
           >
             {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5 text-accent" />}
             <span className="hidden sm:inline">توليد تلقائي بالذكاء الاصطناعي</span>
@@ -570,6 +776,86 @@ export default function RecordPage() {
           </button>
         </div>
       </div>
+
+      {/* Dedicated Microphone Permission Troubleshooting Card */}
+      {showPermissionGuide && (
+        <div className="rounded-2xl border-2 border-danger/50 bg-danger/10 p-4 sm:p-5 shadow-lg space-y-3 relative animate-fadeIn">
+          <button
+            type="button"
+            onClick={() => setShowPermissionGuide(false)}
+            className="absolute top-3 left-3 text-muted hover:text-fg p-1 rounded-lg"
+          >
+            <X className="h-4 w-4" />
+          </button>
+
+          <div className="flex items-start gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-danger text-white">
+              <MicOff className="h-5 w-5" />
+            </div>
+            <div className="space-y-1.5 flex-1">
+              <h3 className="text-sm sm:text-base font-bold text-fg">
+                تعذّر الوصول إلى الميكروفون في متصفحك (إذن الميكروفون مطلوب)
+              </h3>
+              <p className="text-xs text-muted leading-relaxed">
+                {micErrorMessage ||
+                  "يمنع متصفح Chrome الوصول للميكروفون افتراضياً حتى تمنحه الإذن. اتبع الخطوات السريعة التالية:"}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-2 text-xs">
+            <div className="rounded-xl border border-border/70 bg-card/80 p-3 space-y-1">
+              <span className="font-bold text-primary flex items-center gap-1.5">
+                <span>1.</span>
+                <span>أيقونة القفل / الضبط 🔒</span>
+              </span>
+              <p className="text-muted text-[11px] leading-relaxed">
+                اضغط على علامة القفل أو الضبط بجوار رابط الموقع في شريط عنوان Chrome أعلى الصفحة.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border/70 bg-card/80 p-3 space-y-1">
+              <span className="font-bold text-primary flex items-center gap-1.5">
+                <span>2.</span>
+                <span>أذونات الموقع (Permissions)</span>
+              </span>
+              <p className="text-muted text-[11px] leading-relaxed">
+                اضغط على &ldquo;الميكروفون (Microphone)&rdquo; وقم بتغييره إلى <strong>سماح (Allow)</strong>.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border/70 bg-card/80 p-3 space-y-1">
+              <span className="font-bold text-primary flex items-center gap-1.5">
+                <span>3.</span>
+                <span>إعادة المحاولة فوراً</span>
+              </span>
+              <p className="text-muted text-[11px] leading-relaxed">
+                اضغط على زر &ldquo;إعادة طلب الإذن&rdquo; بالأسفل لتبدأ التسجيل مباشرة.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => void testMicrophonePermission()}
+              className="flex h-10 items-center gap-2 rounded-xl bg-danger px-4 text-xs font-bold text-white hover:brightness-110 shadow-md transition"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>إعادة فحص وطلب إذن الميكروفون الآن</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-xs font-bold text-fg hover:border-primary/50 shadow-sm transition"
+            >
+              <Upload className="h-3.5 w-3.5 text-accent" />
+              <span>أو رفع تسجيل صوتي جاهز من هاتفك للمشهد</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* AI Batch Progress Banner */}
       {aiBatchProgress && (
@@ -590,8 +876,7 @@ export default function RecordPage() {
         </div>
       )}
 
-      {/* Progress Strip */}
-
+      {/* Progress Strip & Thumbnail Navigator */}
       <div className="rounded-2xl border border-border/70 bg-card/60 p-3 sm:p-4 space-y-2">
         <div className="flex items-center justify-between text-xs font-bold">
           <span className="text-fg flex items-center gap-2">
@@ -655,99 +940,203 @@ export default function RecordPage() {
       {/* Main Interactive Stage: Video / Scene on Right, Teleprompter on Left */}
       {currentShot && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch">
-          {/* Visual Scene Canvas Stage (5 cols on lg) */}
-          <div className="lg:col-span-5 flex flex-col rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-4 sm:p-5 shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between pb-3 border-b border-border/60">
-              <div className="flex items-center gap-2">
-                <span className="rounded-lg bg-primary/20 px-2.5 py-1 text-xs font-bold text-primary font-mono">
-                  المشهد #{currentShot.shotNumber}
-                </span>
-                <span className="text-xs text-dim">من {shots.length}</span>
-              </div>
-
-              {currentShot.customAudioId ? (
-                <span className="flex items-center gap-1.5 text-xs font-bold text-accent bg-accent/15 px-2.5 py-1 rounded-lg">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>مسجل ({(currentShot.audioDurationSec || 0).toFixed(1)} ث)</span>
-                </span>
-              ) : (
-                <span className="text-xs text-muted bg-surface px-2.5 py-1 rounded-lg">
-                  بانتظار التسجيل
-                </span>
-              )}
-            </div>
-
-            {/* Visual Frame in 9:16 vertical shorts aspect ratio */}
-            <div className="mt-4 relative mx-auto w-full max-w-[280px] sm:max-w-[320px] aspect-[9/16] rounded-2xl overflow-hidden border-2 border-border/80 shadow-2xl bg-black flex flex-col justify-between">
-              {/* Image Preview */}
-              <div className="absolute inset-0">
-                <SceneThumbnailView shot={currentShot} />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/60 pointer-events-none" />
-              </div>
-
-              {/* Top Anime Header Overlay */}
-              <div className="relative z-10 p-3 flex items-center justify-between">
-                <span className="rounded-lg bg-black/70 backdrop-blur-md px-2.5 py-1 text-[11px] font-bold text-primary border border-primary/30">
-                  {currentShot.type || "لقطة سينمائية"}
-                </span>
-                <span className="rounded-lg bg-black/70 backdrop-blur-md px-2 py-1 text-[10px] font-mono text-dim">
-                  {currentShot.timeframe}
-                </span>
-              </div>
-
-              {/* Live VU / Audio Level Meter around frame */}
-              {recording && (
-                <div className="relative z-10 px-4 py-2 bg-black/75 backdrop-blur-md border-y border-red-500/40">
-                  <div className="flex items-center justify-between text-[10px] text-red-400 font-bold mb-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
-                      <span>تسجيل مباشر…</span>
-                    </span>
-                    <span className="font-mono">{formatElapsed(elapsed)}</span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-                    <div
-                      ref={levelRef}
-                      className="h-full w-0 bg-gradient-to-r from-green-500 via-yellow-400 to-red-500 transition-all duration-75"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Bottom Dialogue Subtitle Preview */}
-              <div className="relative z-10 p-3 space-y-2">
-                <div className="rounded-xl bg-black/85 backdrop-blur-md p-3 border border-border/80 shadow-lg text-center">
-                  <p className="text-xs sm:text-sm font-bold text-white leading-relaxed line-clamp-3">
-                    {getShotCleanDialogue(currentShot)}
-                  </p>
+          {/* Visual Scene Canvas Stage (5 cols on lg) - Here is the requested interactive location! */}
+          <div className="lg:col-span-5 flex flex-col justify-between rounded-3xl border border-border bg-gradient-to-br from-surface to-card p-4 sm:p-5 shadow-xl relative overflow-hidden space-y-4">
+            <div>
+              {/* Header inside the scene card */}
+              <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-lg bg-primary/20 px-2.5 py-1 text-xs font-bold text-primary font-mono">
+                    المشهد #{currentShot.shotNumber}
+                  </span>
+                  <span className="text-xs text-dim">من {shots.length}</span>
                 </div>
 
-                {/* Instant Playback Button if recorded */}
-                {currentShot.customAudioId && (
-                  <button
-                    type="button"
-                    onClick={() => void togglePlayShotAudio(currentShot)}
-                    className={cn(
-                      "w-full flex h-9 items-center justify-center gap-2 rounded-xl text-xs font-bold transition shadow-md",
-                      playingShotNumber === currentShot.shotNumber
-                        ? "bg-accent text-black"
-                        : "bg-surface/90 backdrop-blur-md text-fg border border-border/70 hover:border-accent"
-                    )}
-                  >
-                    {playingShotNumber === currentShot.shotNumber ? (
-                      <>
-                        <Pause className="h-3.5 w-3.5 fill-current" />
-                        <span>إيقاف المعاينة</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="h-3.5 w-3.5 fill-current" />
-                        <span>استماع لصوت هذا المشهد (ماسترينج جاهز)</span>
-                      </>
-                    )}
-                  </button>
+                {currentShot.customAudioId ? (
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-accent bg-accent/15 px-2.5 py-1 rounded-lg">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>مسجل ({(currentShot.audioDurationSec || 0).toFixed(1)} ث)</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted bg-surface px-2.5 py-1 rounded-lg">
+                    بانتظار التسجيل
+                  </span>
                 )}
               </div>
+
+              {/* Visual Frame in 9:16 vertical shorts aspect ratio */}
+              <div className="mt-3 relative mx-auto w-full max-w-[280px] sm:max-w-[320px] aspect-[9/16] rounded-2xl overflow-hidden border-2 border-border/80 shadow-2xl bg-black flex flex-col justify-between">
+                {/* Image Preview */}
+                <div className="absolute inset-0">
+                  <SceneThumbnailView shot={currentShot} />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/60 pointer-events-none" />
+                </div>
+
+                {/* Top Anime Header Overlay */}
+                <div className="relative z-10 p-3 flex items-center justify-between">
+                  <span className="rounded-lg bg-black/75 backdrop-blur-md px-2.5 py-1 text-[11px] font-bold text-primary border border-primary/30">
+                    {currentShot.type || "لقطة سينمائية"}
+                  </span>
+                  <span className="rounded-lg bg-black/75 backdrop-blur-md px-2 py-1 text-[10px] font-mono text-dim">
+                    {currentShot.timeframe}
+                  </span>
+                </div>
+
+                {/* Live VU / Audio Level Meter in Frame when recording */}
+                {recording && (
+                  <div className="relative z-10 px-4 py-2 bg-black/85 backdrop-blur-md border-y border-red-500/50">
+                    <div className="flex items-center justify-between text-[10px] text-red-400 font-bold mb-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-ping" />
+                        <span>تسجيل مباشر للصوت…</span>
+                      </span>
+                      <span className="font-mono text-xs">{formatElapsed(elapsed)}</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-white/20">
+                      <div
+                        ref={sceneLevelRef}
+                        className="h-full w-0 bg-gradient-to-r from-green-500 via-yellow-400 to-red-500 transition-all duration-75"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Bottom Dialogue Subtitle Preview */}
+                <div className="relative z-10 p-3 space-y-2">
+                  <div className="rounded-xl bg-black/85 backdrop-blur-md p-3 border border-border/80 shadow-lg text-center">
+                    <p className="text-xs sm:text-sm font-bold text-white leading-relaxed line-clamp-3">
+                      {getShotCleanDialogue(currentShot)}
+                    </p>
+                  </div>
+
+                  {/* Instant Playback Button if recorded */}
+                  {currentShot.customAudioId && (
+                    <button
+                      type="button"
+                      onClick={() => void togglePlayShotAudio(currentShot)}
+                      className={cn(
+                        "w-full flex h-9 items-center justify-center gap-2 rounded-xl text-xs font-bold transition shadow-md",
+                        playingShotNumber === currentShot.shotNumber
+                          ? "bg-accent text-black"
+                          : "bg-surface/90 backdrop-blur-md text-fg border border-border/70 hover:border-accent"
+                      )}
+                    >
+                      {playingShotNumber === currentShot.shotNumber ? (
+                        <>
+                          <Pause className="h-3.5 w-3.5 fill-current" />
+                          <span>إيقاف المعاينة</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-3.5 w-3.5 fill-current" />
+                          <span>استماع لصوت هذا المشهد (ماسترينج جاهز)</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* REQUESTED: "هنشوف في المكان دة زرار بداية التسجيل والتحكم في الانتقال للمشهد التالي" */}
+            {/* Primary Action Controls Hub placed directly with the scene view */}
+            <div className="rounded-2xl border border-primary/30 bg-card/90 p-3 sm:p-4 space-y-2.5 shadow-inner">
+              <div className="flex items-center justify-between text-xs font-bold text-muted pb-1 border-b border-border/50">
+                <span className="text-primary flex items-center gap-1.5">
+                  <Mic className="h-3.5 w-3.5" />
+                  <span>تحكم التسجيل والانتقال للمشهد #{currentShot.shotNumber}</span>
+                </span>
+                <span className="font-mono text-fg">{formatElapsed(elapsed)}</span>
+              </div>
+
+              {/* Main Record / Next Hero Button */}
+              {!recording ? (
+                <button
+                  type="button"
+                  onClick={() => void startRecording(activeShotIndex)}
+                  className="w-full flex h-13 sm:h-14 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-primary via-gold to-accent px-5 text-sm sm:text-base font-extrabold text-black transition hover:brightness-110 shadow-xl active:scale-[0.98]"
+                >
+                  <Circle className="h-5 w-5 fill-black text-black animate-pulse" />
+                  <span>
+                    {currentShot.customAudioId
+                      ? `إعادة تسجيل صوت المشهد #${currentShot.shotNumber}`
+                      : `بدء تسجيل صوت المشهد #${currentShot.shotNumber}`}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleNextShot(true)}
+                  className="w-full flex h-13 sm:h-14 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-red-500 via-orange-500 to-accent px-5 text-sm sm:text-base font-extrabold text-white transition hover:brightness-110 shadow-2xl animate-pulse active:scale-[0.98]"
+                >
+                  <FastForward className="h-5 w-5" />
+                  <span>
+                    {isLastShot
+                      ? "حفظ وإنهاء تسجيل كل المشاهد ✨"
+                      : "حفظ وتسجيل المشهد التالي تلقائياً ⏭️"}
+                  </span>
+                </button>
+              )}
+
+              {/* Navigation controls row: Previous, Upload audio, Next */}
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recording) void handleStopRecordingOnly();
+                    if (!isFirstShot) setActiveShotIndex(activeShotIndex - 1);
+                  }}
+                  disabled={isFirstShot}
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-2 text-xs font-bold text-fg transition hover:border-primary/50 disabled:opacity-35"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  <span>السابق</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-10 items-center justify-center gap-1 rounded-xl border border-border bg-surface px-2 text-xs font-semibold text-muted hover:text-fg hover:border-primary/50 transition"
+                  title="رفع ملف صوتي مسجل من هاتفك لهذا المشهد"
+                >
+                  <Upload className="h-3.5 w-3.5 text-accent" />
+                  <span>رفع صوت</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recording) {
+                      void handleNextShot(false);
+                    } else if (!isLastShot) {
+                      setActiveShotIndex(activeShotIndex + 1);
+                    }
+                  }}
+                  disabled={isLastShot && !recording}
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-2 text-xs font-bold text-fg transition hover:border-primary/50 disabled:opacity-35"
+                >
+                  <span>{recording ? "إيقاف وحفظ" : "التالي"}</span>
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Active Recording Actions */}
+              {recording && (
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
+                  <span className="text-[11px] text-red-400 font-bold flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
+                    <span>تسجيل نشط مشهد #{currentShot.shotNumber}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleStopRecordingOnly()}
+                    className="flex h-8 items-center gap-1 rounded-lg border border-danger/60 bg-danger/10 px-2.5 text-[11px] font-bold text-danger hover:bg-danger hover:text-white transition"
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                    <span>إيقاف مؤقت</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -774,16 +1163,17 @@ export default function RecordPage() {
               </div>
 
               {/* Big High-Contrast Teleprompter Screen */}
-              <div className="rounded-2xl border-2 border-primary/30 bg-card p-5 sm:p-7 shadow-inner space-y-3 min-h-[220px] flex flex-col justify-center">
-                <span className="text-[11px] font-bold text-primary/70 tracking-wider uppercase">
-                  نص الحوار والسيناريو للقراءة:
-                </span>
-                <p className="text-lg sm:text-2xl font-bold leading-relaxed text-fg text-right select-text break-words">
+              <div className="rounded-2xl border-2 border-primary/30 bg-card p-5 sm:p-7 shadow-inner space-y-3 min-h-[240px] flex flex-col justify-center">
+                <div className="flex items-center justify-between text-[11px] font-bold text-primary/70 tracking-wider uppercase">
+                  <span>نص الحوار والسيناريو للقراءة بصوتك:</span>
+                  <span className="font-mono text-dim">مشهد #{currentShot.shotNumber}</span>
+                </div>
+                <p className="text-xl sm:text-3xl font-extrabold leading-relaxed sm:leading-loose text-fg text-right select-text break-words">
                   {getShotCleanDialogue(currentShot)}
                 </p>
                 {currentShot.textOverlay && currentShot.textOverlay !== currentShot.voiceoverEgyptian && (
                   <p className="text-xs text-muted pt-2 border-t border-border/50">
-                    نص الشاشة: <span className="text-dim font-medium">{currentShot.textOverlay}</span>
+                    نص الشاشة المكتوب: <span className="text-dim font-medium">{currentShot.textOverlay}</span>
                   </p>
                 )}
               </div>
@@ -794,10 +1184,13 @@ export default function RecordPage() {
                   {recording ? (
                     <span className="flex items-center gap-2 text-sm font-bold text-red-500 animate-pulse">
                       <span className="h-3 w-3 rounded-full bg-red-500" />
-                      <span>جارٍ التسجيل الآن…</span>
+                      <span>جارٍ التسجيل الصوتي الآن…</span>
                     </span>
                   ) : (
-                    <span className="text-xs text-muted">جاهز للتسجيل</span>
+                    <span className="text-xs text-muted flex items-center gap-1.5">
+                      <Mic className="h-3.5 w-3.5 text-primary" />
+                      <span>جاهز لتسجيل المشهد #{currentShot.shotNumber}</span>
+                    </span>
                   )}
                 </div>
 
@@ -808,9 +1201,19 @@ export default function RecordPage() {
                   </span>
                 </div>
               </div>
+
+              {/* VU meter under teleprompter */}
+              {recording && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface">
+                  <div
+                    ref={levelRef}
+                    className="h-full w-0 bg-gradient-to-r from-green-500 via-yellow-400 to-red-500 transition-all duration-75"
+                  />
+                </div>
+              )}
             </div>
 
-            {/* The Hero Controls Bar (Requested: تسجيل تلقائي يبدأ وينتهي عند الضغط على التالي) */}
+            {/* The Hero Controls Bar under Teleprompter */}
             <div className="space-y-3 pt-3 border-t border-border/60">
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 {/* Previous Button */}
@@ -856,7 +1259,7 @@ export default function RecordPage() {
                   </button>
                 )}
 
-                {/* Next Button (Without recording) */}
+                {/* Next Button */}
                 <button
                   type="button"
                   onClick={() => {
@@ -898,6 +1301,15 @@ export default function RecordPage() {
                       <span>إعادة تسجيل هذا المشهد</span>
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex h-9 items-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-xs font-semibold text-muted hover:text-fg hover:border-primary/50 transition"
+                  >
+                    <Upload className="h-3.5 w-3.5 text-accent" />
+                    <span>رفع ملف صوتي بديل</span>
+                  </button>
                 </div>
 
                 {/* Auto-advance toggle */}
@@ -951,6 +1363,74 @@ export default function RecordPage() {
           </Link>
         </div>
       </div>
+
+      {/* Floating Sticky Mobile Controls Bar (Guarantees buttons are always visible on phone) */}
+      {currentShot && (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur-lg border-t border-border p-2.5 sm:p-3 shadow-2xl">
+          <div className="flex items-center justify-between gap-2 max-w-lg mx-auto">
+            {/* Prev button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (recording) void handleStopRecordingOnly();
+                if (!isFirstShot) setActiveShotIndex(activeShotIndex - 1);
+              }}
+              disabled={isFirstShot}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-fg disabled:opacity-30"
+              aria-label="المشهد السابق"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+
+            {/* Main Record / Next button */}
+            {!recording ? (
+              <button
+                type="button"
+                onClick={() => void startRecording(activeShotIndex)}
+                className="flex-1 flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-3 text-xs sm:text-sm font-extrabold text-black shadow-lg"
+              >
+                <Circle className="h-4 w-4 fill-black text-black animate-pulse" />
+                <span className="truncate">
+                  {currentShot.customAudioId
+                    ? `إعادة تسجيل #${currentShot.shotNumber}`
+                    : `تسجيل مشهد #${currentShot.shotNumber}`}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleNextShot(true)}
+                className="flex-1 flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-accent px-3 text-xs sm:text-sm font-extrabold text-white shadow-xl animate-pulse"
+              >
+                <FastForward className="h-4 w-4" />
+                <span className="truncate">
+                  {isLastShot ? "إنهاء وحفظ" : "حفظ والتالي ⏭️"}
+                </span>
+                <span className="font-mono text-[11px] bg-black/40 px-1.5 py-0.5 rounded">
+                  {formatElapsed(elapsed)}
+                </span>
+              </button>
+            )}
+
+            {/* Next button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (recording) {
+                  void handleNextShot(false);
+                } else if (!isLastShot) {
+                  setActiveShotIndex(activeShotIndex + 1);
+                }
+              }}
+              disabled={isLastShot && !recording}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-fg disabled:opacity-30"
+              aria-label="المشهد التالي"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
