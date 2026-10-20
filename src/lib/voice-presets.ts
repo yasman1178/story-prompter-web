@@ -56,24 +56,6 @@ export const VOICE_PRESETS: Record<string, VoicePreset> = {
     volume: "+5%",
     usageAr: "زئير الوحوش وتماثيل المعبد والكيانات الجبارة",
   },
-  storyteller: {
-    id: "storyteller",
-    nameAr: "راوي حكايات الأنمي (The Storyteller)",
-    voice: "ar-EG-ShakirNeural",
-    rate: "+8%",
-    pitch: "+2Hz",
-    volume: "+4%",
-    usageAr: "راوي سينمائي مصري دافي وعميق بحماس مكتوم وتشويق سينمائي",
-  },
-  hype: {
-    id: "hype",
-    nameAr: "وضع الحماس الأقصى (Hype Mode)",
-    voice: "ar-EG-ShakirNeural",
-    rate: "+12%",
-    pitch: "+4Hz",
-    volume: "+5%",
-    usageAr: "مشاهد الذروة والقتال الخاطف وارتفاع الأدرينالين",
-  },
   system: {
     id: "system",
     nameAr: "هامس النظام الغامض",
@@ -86,18 +68,11 @@ export const VOICE_PRESETS: Record<string, VoicePreset> = {
 };
 
 export function resolveVoicePreset(cueOrId?: string): VoicePreset {
-  if (!cueOrId) return VOICE_PRESETS.storyteller || VOICE_PRESETS.narrator;
+  if (!cueOrId) return VOICE_PRESETS.narrator;
   const normalized = cueOrId.trim().toLowerCase();
 
   if (VOICE_PRESETS[normalized]) {
     return VOICE_PRESETS[normalized];
-  }
-
-  if (normalized.includes("storyteller") || normalized.includes("حكاية") || normalized.includes("راوي")) {
-    return VOICE_PRESETS.storyteller;
-  }
-  if (normalized.includes("hype") || normalized.includes("epic") || normalized.includes("reveal")) {
-    return VOICE_PRESETS.hype;
   }
 
   // Fuzzy match Arabic descriptions to presets

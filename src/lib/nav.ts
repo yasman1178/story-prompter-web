@@ -1,4 +1,4 @@
-import { BookOpen, Clapperboard, Film, Flame, Mic, Music, Upload } from "lucide-react";
+import { BookOpen, Clapperboard, Film, Flame, Mic, Music, Sparkles, Upload } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface StudioTab {
@@ -9,11 +9,11 @@ export interface StudioTab {
 
 export const STUDIO_TABS: StudioTab[] = [
   { href: "/project", labelAr: "المشاهد", icon: Clapperboard },
-  { href: "/record", labelAr: "تسجيل المشاهد", icon: Mic },
-  { href: "/hook", labelAr: "مقطع الشورتس", icon: Flame },
-  { href: "/audio", labelAr: "الموسيقى والصوت", icon: Music },
+  { href: "/hook", labelAr: "فيديو الخطاف", icon: Flame },
+  { href: "/record", labelAr: "التسجيل", icon: Mic },
+  { href: "/audio", labelAr: "الصوت والموسيقى", icon: Music },
+  { href: "/sfx", labelAr: "مكتبة المؤثرات", icon: Sparkles },
   { href: "/video", labelAr: "فيديو MP4", icon: Film },
   { href: "/publish", labelAr: "النشر", icon: Upload },
   { href: "/guide", labelAr: "الدليل", icon: BookOpen },
 ];
-

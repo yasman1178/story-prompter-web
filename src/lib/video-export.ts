@@ -27,36 +27,32 @@ export interface CompressionProfile {
   videoBitrate: number;
   audioBitrate: number;
   badge: string;
-  fps: number;
 }
 
 export const COMPRESSION_PROFILES: Record<CompressionPreset, CompressionProfile> = {
   compact: {
     id: "compact",
-    labelAr: "توربو فائق السرعة (24 إطار/ث - سريع وخفيف)",
-    descriptionAr: "أسرع وضع للرندر، يوفر 35% من الوقت والجهد، مثالي للشورتس ومشاركة الواتساب",
+    labelAr: "مضغوط وموفر (سريع وخفيف)",
+    descriptionAr: "أصغر حجم (~8-12 MB للدقيقة)، مثالي للشورتس ومشاركة الواتساب",
     videoBitrate: 1_250_000,
     audioBitrate: 96_000,
-    badge: "الأسرع ⚡",
-    fps: 24,
+    badge: "توفير 65%",
   },
   balanced: {
     id: "balanced",
-    labelAr: "متوازن (30 إطار/ث - موصى به)",
-    descriptionAr: "جودة ممتازة متوازنة مع سرعة عالية وحجم مناسب (~16-20 MB للدقيقة)",
+    labelAr: "متوازن (موصى به)",
+    descriptionAr: "جودة ممتازة متوازنة مع حجم مناسب (~16-20 MB للدقيقة)",
     videoBitrate: 2_200_000,
     audioBitrate: 128_000,
     badge: "موصى به",
-    fps: 30,
   },
   high: {
     id: "high",
-    labelAr: "جودة سينمائية كاملة (30 إطار/ث)",
+    labelAr: "جودة سينمائية كاملة",
     descriptionAr: "أعلى وضوح وتفاصيل مع حجم ملف أكبر (~28-35 MB للدقيقة)",
     videoBitrate: 3_600_000,
     audioBitrate: 160_000,
     badge: "أعلى دقة",
-    fps: 30,
   },
 };
 
@@ -74,14 +70,9 @@ export interface ExportInput {
   bgmTrack?: BgmTrack | null;
   voiceVolume: number;
   bgmVolume: number;
-  sfxVolume?: number;
-  isVoiceMuted?: boolean;
-  isBgmMuted?: boolean;
-  isSfxMuted?: boolean;
   compressionPreset?: CompressionPreset;
   onProgress?: (ratio: number, stage: string) => void;
   signal?: AbortSignal;
-  decodedBuffers?: Map<number, AudioBuffer>;
 }
 
 export interface ExportResult {
@@ -465,196 +456,165 @@ export function drawFrame(
   const targetH = explicitH ?? dims.height;
   const progress = Math.min(1, localSec / Math.max(1, duration));
 
-  const isMasterVfxDisabled = project.masterVfxDisabled === true;
+  // Retrieve VFX settings (per shot or project-level default)
+  const vfx = shot.vfxSettings || project.vfxSettings || {
+    parallaxDepth: 65,
+    dynamicRelighting: 85,
+    runeParticles: 75,
+    motionIntensity: 80,
+    preset: "action" as const,
+  };
+  const parallaxDepth = (vfx.parallaxDepth ?? 65) / 100;
+  const motionIntensity = (vfx.motionIntensity ?? 80) / 100;
 
-  if (isMasterVfxDisabled) {
-    ctx.save();
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, targetW, targetH);
+  // 1. Camera Motions & Visual Beats (v18 Standard)
+  let zoom = 1 + progress * 0.14 * (0.4 + motionIntensity * 0.7);
+  let panX = 0;
 
-    // 100% Still, static crisp image with zero movement, shake, or parallax
-    if (image) {
-      drawCover(ctx, image.bitmap, 1.0, 0, targetW, targetH);
-      if (image.foregroundBitmap) {
-        drawForegroundCutout(
-          ctx,
-          image.foregroundBitmap,
-          "static",
-          localSec,
-          duration,
-          0,
-          0,
-          targetW,
-          targetH
-        );
-      }
+  if (shot.cameraMotion) {
+    switch (shot.cameraMotion) {
+      case "zoom_in":
+        zoom = 1.0 + progress * 0.22 * motionIntensity;
+        break;
+      case "zoom_out":
+        zoom = Math.max(1.0, 1.24 - progress * 0.18 * motionIntensity);
+        break;
+      case "pan_left":
+        zoom = 1.08;
+        panX = (0.5 - progress) * 50 * motionIntensity;
+        break;
+      case "pan_right":
+        zoom = 1.08;
+        panX = (progress - 0.5) * 50 * motionIntensity;
+        break;
+      case "shake":
+        zoom = 1.10;
+        break;
+      case "static":
+        zoom = 1.05;
+        break;
+    }
+  } else if (project.enableKenBurns !== false) {
+    const moveType = shot.shotNumber % 3;
+    if (moveType === 0) {
+      zoom = 1.0 + progress * 0.16 * motionIntensity;
+    } else if (moveType === 1) {
+      zoom = Math.max(1.0, (1.0 + 0.15 * motionIntensity) - progress * 0.13 * motionIntensity);
     } else {
-      drawSceneArt(ctx, shot, 1.0, targetW, targetH);
+      zoom = 1.0 + 0.08 * motionIntensity;
+      panX = (progress - 0.5) * 36 * motionIntensity;
+    }
+  }
+
+  // Initial 0.8s Impact Hook for high-energy start
+  const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
+  zoom += hookPunch;
+
+  // v18 Beats visual pacing (resets attention every 2.5 - 3 seconds)
+  let hasBeatPulse = false;
+  if (shot.beats && shot.beats.length > 0) {
+    for (const b of shot.beats) {
+      const diff = localSec - b.atSec;
+      if (diff >= 0 && diff < 0.35) {
+        const beatPhase = diff / 0.35;
+        zoom += Math.sin(beatPhase * Math.PI) * 0.07;
+        hasBeatPulse = true;
+        break;
+      }
+    }
+  }
+  if (!hasBeatPulse) {
+    const punchPhase = (localSec % 2.8) / 0.26;
+    if (punchPhase < 1.0) {
+      zoom += Math.sin(punchPhase * Math.PI) * 0.05;
+    }
+  }
+
+  // 3D Parallax Depth displacement
+  const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
+
+  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook
+  const isHookShot1 = shot.shotNumber === 1 && localSec < 0.45;
+  const isImpact =
+    isHookShot1 ||
+    shot.cameraMotion === "shake" ||
+    shot.type.includes("انغلاق") ||
+    shot.type.includes("زئير") ||
+    shot.type.includes("ليزر") ||
+    shot.type.includes("ارتطام") ||
+    shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
+    shot.sceneType === "THRONE_STATUE_RED_EYES";
+
+  let shakeX = 0;
+  let shakeY = 0;
+  if (isHookShot1) {
+    const intensity = (1 - localSec / 0.45) * 16;
+    shakeX = Math.sin(localSec * 75) * intensity;
+    shakeY = Math.cos(localSec * 65) * intensity;
+  } else if (isImpact && localSec < 0.35) {
+    const intensity = (1 - localSec / 0.35) * 12;
+    shakeX = Math.sin(localSec * 60) * intensity;
+    shakeY = Math.cos(localSec * 50) * intensity;
+  }
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, targetW, targetH);
+
+  // Draw visual artwork with smart cover and parallax (Split-Layer Compositing v19)
+  if (image) {
+    drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
+    if (image.foregroundBitmap) {
+      drawForegroundCutout(
+        ctx,
+        image.foregroundBitmap,
+        shot.foregroundAnimation || "floating",
+        localSec,
+        duration,
+        motionIntensity,
+        parallaxShiftX,
+        targetW,
+        targetH
+      );
     }
   } else {
-    // Retrieve VFX settings (per shot or project-level default)
-    const vfx = shot.vfxSettings || project.vfxSettings || {
-      parallaxDepth: 65,
-      dynamicRelighting: 85,
-      runeParticles: 75,
-      motionIntensity: 80,
-      preset: "action" as const,
-    };
-    const parallaxDepth = (vfx.parallaxDepth ?? 65) / 100;
-    const motionIntensity = (vfx.motionIntensity ?? 80) / 100;
+    drawSceneArt(ctx, shot, zoom, targetW, targetH);
+  }
 
-    // 1. Camera Motions & Visual Beats (v18 Standard)
-    let zoom = 1 + progress * 0.14 * (0.4 + motionIntensity * 0.7);
-    let panX = 0;
+  // Draw Anime VFX Spatial Layers (slash trails, shadow aura, venom fangs)
+  drawSpatialLayers(ctx, shot, localSec, targetW, targetH);
 
-    if (shot.cameraMotion) {
-      switch (shot.cameraMotion) {
-        case "zoom_in":
-          zoom = 1.0 + progress * 0.22 * motionIntensity;
-          break;
-        case "zoom_out":
-          zoom = Math.max(1.0, 1.24 - progress * 0.18 * motionIntensity);
-          break;
-        case "pan_left":
-          zoom = 1.08;
-          panX = (0.5 - progress) * 50 * motionIntensity;
-          break;
-        case "pan_right":
-          zoom = 1.08;
-          panX = (progress - 0.5) * 50 * motionIntensity;
-          break;
-        case "shake":
-          zoom = 1.10;
-          break;
-        case "static":
-          zoom = 1.05;
-          break;
-      }
-    } else if (project.enableKenBurns !== false) {
-      const moveType = shot.shotNumber % 3;
-      if (moveType === 0) {
-        zoom = 1.0 + progress * 0.16 * motionIntensity;
-      } else if (moveType === 1) {
-        zoom = Math.max(1.0, (1.0 + 0.15 * motionIntensity) - progress * 0.13 * motionIntensity);
-      } else {
-        zoom = 1.0 + 0.08 * motionIntensity;
-        panX = (progress - 0.5) * 36 * motionIntensity;
-      }
-    }
-
-    // Initial 0.8s Impact Hook for high-energy start
-    const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
-    zoom += hookPunch;
-
-    // v18 Beats visual pacing (resets attention every 2.5 - 3 seconds)
-    let hasBeatPulse = false;
-    if (shot.beats && shot.beats.length > 0) {
-      for (const b of shot.beats) {
-        const diff = localSec - b.atSec;
-        if (diff >= 0 && diff < 0.35) {
-          const beatPhase = diff / 0.35;
-          zoom += Math.sin(beatPhase * Math.PI) * 0.07;
-          hasBeatPulse = true;
-          break;
-        }
-      }
-    }
-    if (!hasBeatPulse) {
-      const punchPhase = (localSec % 2.8) / 0.26;
-      if (punchPhase < 1.0) {
-        zoom += Math.sin(punchPhase * Math.PI) * 0.05;
-      }
-    }
-
-    // 3D Parallax Depth displacement
-    const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
-
-    // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook (Disabled by default unless user enables it)
-    const shakeAllowed = project.enableCameraShake === true;
-    const isHookShot1 = shakeAllowed && shot.shotNumber === 1 && localSec < 0.45;
-    const isImpact =
-      shakeAllowed &&
-      (isHookShot1 ||
-        shot.cameraMotion === "shake" ||
-        shot.type.includes("انغلاق") ||
-        shot.type.includes("زئير") ||
-        shot.type.includes("ليزر") ||
-        shot.type.includes("ارتطام") ||
-        shot.sceneType === "STONE_DOOR_SLAM_SHOCK" ||
-        shot.sceneType === "THRONE_STATUE_RED_EYES");
-
-    let shakeX = 0;
-    let shakeY = 0;
-    if (shakeAllowed) {
-      if (isHookShot1) {
-        const intensity = (1 - localSec / 0.45) * 16;
-        shakeX = Math.sin(localSec * 75) * intensity;
-        shakeY = Math.cos(localSec * 65) * intensity;
-      } else if (isImpact && localSec < 0.35) {
-        const intensity = (1 - localSec / 0.35) * 12;
-        shakeX = Math.sin(localSec * 60) * intensity;
-        shakeY = Math.cos(localSec * 50) * intensity;
-      }
-    }
-
+  // 2b. Dynamic Relighting (spotlight / character aura reacting to mood)
+  const relightIntensity = (vfx.dynamicRelighting ?? 85) / 100;
+  if (relightIntensity > 0) {
     ctx.save();
-    ctx.translate(shakeX, shakeY);
+    ctx.globalCompositeOperation = "screen";
+    const lightFocus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.42 };
+    const lx = lightFocus.x * targetW;
+    const ly = lightFocus.y * targetH;
+    const pulse = 0.85 + Math.sin(localSec * 5) * 0.15;
+    const rad = Math.min(targetW, targetH) * 0.52 * pulse;
 
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, targetW, targetH);
-
-    // Draw visual artwork with smart cover and parallax (Split-Layer Compositing v19)
-    if (image) {
-      drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
-      if (image.foregroundBitmap) {
-        drawForegroundCutout(
-          ctx,
-          image.foregroundBitmap,
-          shot.foregroundAnimation || "floating",
-          localSec,
-          duration,
-          motionIntensity,
-          parallaxShiftX,
-          targetW,
-          targetH
-        );
-      }
+    const lightGrad = ctx.createRadialGradient(lx, ly, 15, lx, ly, rad);
+    const isGold = shot.colorTheme.includes("gold") || shot.mood.includes("حماس") || shot.type.includes("تحول");
+    if (isGold) {
+      lightGrad.addColorStop(0, `rgba(255, 225, 130, ${0.45 * relightIntensity})`);
+      lightGrad.addColorStop(0.4, `rgba(245, 158, 11, ${0.2 * relightIntensity})`);
+      lightGrad.addColorStop(1, "rgba(245, 158, 11, 0)");
     } else {
-      drawSceneArt(ctx, shot, zoom, targetW, targetH);
+      lightGrad.addColorStop(0, `rgba(0, 229, 255, ${0.42 * relightIntensity})`);
+      lightGrad.addColorStop(0.4, `rgba(14, 165, 233, ${0.18 * relightIntensity})`);
+      lightGrad.addColorStop(1, "rgba(14, 165, 233, 0)");
     }
 
-    // Draw Anime VFX Spatial Layers (slash trails, shadow aura, venom fangs)
-    drawSpatialLayers(ctx, shot, localSec, targetW, targetH);
-
-    // 2b. Dynamic Relighting (spotlight / character aura reacting to mood)
-    const relightIntensity = (vfx.dynamicRelighting ?? 85) / 100;
-    if (relightIntensity > 0) {
-      ctx.save();
-      ctx.globalCompositeOperation = "screen";
-      const lightFocus = shot.vfxSpatialLayers?.lightFocus ?? { x: 0.5, y: 0.42 };
-      const lx = lightFocus.x * targetW;
-      const ly = lightFocus.y * targetH;
-      const pulse = 0.85 + Math.sin(localSec * 5) * 0.15;
-      const rad = Math.min(targetW, targetH) * 0.52 * pulse;
-
-      const lightGrad = ctx.createRadialGradient(lx, ly, 15, lx, ly, rad);
-      const isGold = shot.colorTheme.includes("gold") || shot.mood.includes("حماس") || shot.type.includes("تحول");
-      if (isGold) {
-        lightGrad.addColorStop(0, `rgba(255, 225, 130, ${0.45 * relightIntensity})`);
-        lightGrad.addColorStop(0.4, `rgba(245, 158, 11, ${0.2 * relightIntensity})`);
-        lightGrad.addColorStop(1, "rgba(245, 158, 11, 0)");
-      } else {
-        lightGrad.addColorStop(0, `rgba(0, 229, 255, ${0.42 * relightIntensity})`);
-        lightGrad.addColorStop(0.4, `rgba(14, 165, 233, ${0.18 * relightIntensity})`);
-        lightGrad.addColorStop(1, "rgba(14, 165, 233, 0)");
-      }
-
-      ctx.fillStyle = lightGrad;
-      ctx.beginPath();
-      ctx.arc(lx, ly, rad, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
+    ctx.fillStyle = lightGrad;
+    ctx.beginPath();
+    ctx.arc(lx, ly, rad, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // 2c. Manga / Anime Dynamic Action Speedlines
   const isActionMoment =
@@ -782,7 +742,6 @@ export function drawFrame(
     }
     ctx.restore();
   }
-}
 
   // Localized bottom reading contrast scrim strictly behind subtitle text (preserving middle of the canvas)
   const sheen = ctx.createLinearGradient(0, targetH * 0.80, 0, targetH);
@@ -792,11 +751,33 @@ export function drawFrame(
   ctx.fillStyle = sheen;
   ctx.fillRect(0, targetH * 0.80, targetW, targetH * 0.20);
 
+  // 6. Scene Stamp Header Badge (Book / Part & Shot Number)
+  const stampText = shot.bookOrPart
+    ? `${shot.bookOrPart} · المشهد #${shot.shotNumber}`
+    : `المشهد #${shot.shotNumber}`;
+  ctx.save();
+  ctx.font = "bold 24px Cairo, sans-serif";
+  ctx.textAlign = "center";
+  const stampMetrics = ctx.measureText(stampText);
+  const badgeW = stampMetrics.width + 42;
+  const badgeH = 44;
+  const badgeX = (targetW - badgeW) / 2;
+  const badgeY = 32;
+
+  ctx.fillStyle = "rgba(10, 15, 26, 0.78)";
+  ctx.strokeStyle = "rgba(0, 229, 255, 0.45)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 22);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#00e5ff";
+  ctx.fillText(stampText, targetW / 2, badgeY + 30);
+  ctx.restore();
+
   // 7. RPG Translucent Scroll Text Overlay (Custom Coordinate & Anime Styling)
-  const subtitlesEnabled = project.showSubtitlesInVideo !== false;
-  const caption = subtitlesEnabled
-    ? (shot.voiceoverEgyptian?.trim() || shot.textOverlay?.trim() || "")
-    : (shot.textOverlay?.trim() || "");
+  const caption = project.showSubtitlesInVideo ? shot.voiceoverEgyptian : shot.textOverlay;
   if (caption) {
     const textPos = shot.textOverlayPos || project.defaultTextOverlayPos || { x: 0.5, y: 0.78 };
     const maxTextWidth = Math.min(targetW - 90, 620);
@@ -828,38 +809,42 @@ export function drawFrame(
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // Distinctive Modern Anime Neon Vertical Accent Strip on left edge
-    const stripW = 6;
-    const stripGrad = ctx.createLinearGradient(bx + 3, by, bx + 3, by + boxHeight);
-    stripGrad.addColorStop(0, "#22d3ee");
-    stripGrad.addColorStop(1, "#3b82f6");
-    ctx.save();
-    ctx.shadowColor = "#00e5ff";
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = stripGrad;
+    // Corner RPG Notches in Gold Accent
+    const notch = 10;
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 2.5;
+    // Top-left
     ctx.beginPath();
-    ctx.roundRect(bx + 3, by + 3, stripW, boxHeight - 6, [8, 0, 0, 8]);
-    ctx.fill();
-    ctx.restore();
+    ctx.moveTo(bx + 4, by + 4 + notch);
+    ctx.lineTo(bx + 4, by + 4);
+    ctx.lineTo(bx + 4 + notch, by + 4);
+    ctx.stroke();
+    // Top-right
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - 4 - notch, by + 4);
+    ctx.lineTo(bx + bw - 4, by + 4);
+    ctx.lineTo(bx + bw - 4, by + 4 + notch);
+    ctx.stroke();
+    // Bottom-left
+    ctx.beginPath();
+    ctx.moveTo(bx + 4, by + boxHeight - 4 - notch);
+    ctx.lineTo(bx + 4, by + boxHeight - 4);
+    ctx.lineTo(bx + 4 + notch, by + boxHeight - 4);
+    ctx.stroke();
+    // Bottom-right
+    ctx.beginPath();
+    ctx.moveTo(bx + bw - 4 - notch, by + boxHeight - 4);
+    ctx.lineTo(bx + bw - 4, by + boxHeight - 4);
+    ctx.lineTo(bx + bw - 4, by + boxHeight - 4 - notch);
+    ctx.stroke();
 
-    // Top Header Inside Caption Box: "الحوار الحالي" + Tone Badge
-    const displayTone = shot.audioModulation?.emotionalTone || shot.vocalCue || "Hype Mode";
-    ctx.font = "bold 14px Cairo, sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillStyle = "#22d3ee";
-    ctx.fillText("الحوار الحالي", bx + bw - 20, by + 24);
-
-    // Tone Badge on left
-    const toneText =
-      displayTone.toLowerCase().includes("hype") ||
-      displayTone.toLowerCase().includes("excit") ||
-      displayTone.includes("حماس")
-        ? `🔥 ${displayTone}`
-        : `⚡ ${displayTone}`;
-    ctx.font = "bold 13px Cairo, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#fde047";
-    ctx.fillText(toneText, bx + 22, by + 24);
+    // Vocal Cue Tag if present
+    if (shot.vocalCue) {
+      ctx.font = "bold 15px Cairo, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillText(`🎙️ ${shot.vocalCue}`, bx + bw - 20, by + 24);
+    }
 
     // Determine anime aesthetic theme color for text highlighting
     const shotTheme = (shot.colorTheme + " " + shot.mood + " " + shot.type + " " + shot.voiceoverEgyptian).toLowerCase();
@@ -924,7 +909,6 @@ export function drawFrame(
 
     ctx.font = "700 36px Cairo, sans-serif";
     ctx.textAlign = "center";
-    ctx.direction = "rtl";
     let textY = by + (shot.vocalCue ? 62 : 52);
 
     let globalWordCounter = 0;
@@ -960,69 +944,12 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // 7. Modern Anime Top Channel Header Bar
+  // Channel Watermark
   if (project.showChannelWatermark) {
-    ctx.save();
-    const headW = Math.min(targetW - 50, 480);
-    const headH = 50;
-    const headX = (targetW - headW) / 2;
-    const headY = 28;
-
-    // Glass pill background
-    ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.8)";
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.roundRect(headX, headY, headW, headH, 20);
-    ctx.fill();
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Glowing Amber-Red Circle with White Bolt ⚡
-    const boltCircleX = headX + headW - 28;
-    const boltCircleY = headY + 25;
-    const circleGrad = ctx.createLinearGradient(
-      boltCircleX - 16,
-      boltCircleY - 16,
-      boltCircleX + 16,
-      boltCircleY + 16
-    );
-    circleGrad.addColorStop(0, "#f59e0b");
-    circleGrad.addColorStop(1, "#dc2626");
-    ctx.fillStyle = circleGrad;
-    ctx.shadowColor = "#f59e0b";
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.arc(boltCircleX, boltCircleY, 15, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Bolt icon
-    ctx.font = "bold 15px Cairo, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText("⚡", boltCircleX, boltCircleY + 1);
-
-    // Channel Name
     ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    ctx.font = "bold 17px Cairo, sans-serif";
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(project.channelName || "محب أنمي", boltCircleX - 22, headY + 26);
-
-    // Mode Badge on left side
-    const toneLabel = shot.audioModulation?.emotionalTone || shot.vocalCue || "Hype Mode";
-    const modeBadgeText = `🎙️ ${toneLabel}`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.font = "bold 13px Cairo, sans-serif";
-    ctx.fillStyle = "#fbbf24";
-    ctx.fillText(modeBadgeText, headX + 18, headY + 26);
-
-    ctx.restore();
+    ctx.font = "700 26px Cairo, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(project.channelName, targetW - 36, 58);
   }
 
   // 8. Anime-themed Like & Subscribe CTA Overlay with custom positioning
@@ -1134,15 +1061,13 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // Transitions (only if VFX not disabled)
-  if (!isMasterVfxDisabled) {
-    if (project.transitionType === "FLASH_CUT" && localSec < 0.12) {
-      ctx.fillStyle = `rgba(255,255,255,${1 - localSec / 0.12})`;
-      ctx.fillRect(0, 0, targetW, targetH);
-    } else if (project.transitionType === "SMOOTH_FADE" && localSec < 0.45) {
-      ctx.fillStyle = `rgba(0,0,0,${1 - localSec / 0.45})`;
-      ctx.fillRect(0, 0, targetW, targetH);
-    }
+  // Transitions
+  if (project.transitionType === "FLASH_CUT" && localSec < 0.12) {
+    ctx.fillStyle = `rgba(255,255,255,${1 - localSec / 0.12})`;
+    ctx.fillRect(0, 0, targetW, targetH);
+  } else if (project.transitionType === "SMOOTH_FADE" && localSec < 0.45) {
+    ctx.fillStyle = `rgba(0,0,0,${1 - localSec / 0.45})`;
+    ctx.fillRect(0, 0, targetW, targetH);
   }
 
   ctx.restore();
@@ -1198,20 +1123,11 @@ async function buildMixedAudio(
   voiceBlob: Blob | null | undefined,
   bgmTrack: BgmTrack | null | undefined,
   voiceVolume: number,
-  bgmVolume: number,
-  sfxVolume: number = 0.8,
-  isVoiceMuted: boolean = false,
-  isBgmMuted: boolean = false,
-  isSfxMuted: boolean = false,
-  decodedBuffers?: Map<number, AudioBuffer>
+  bgmVolume: number
 ): Promise<AudioBuffer> {
   const timeline = computeProjectTimeline(project);
   const durationSec = Math.max(1, timeline.totalDurationSec);
   const offline = new OfflineAudioContext(2, Math.ceil(AUDIO_SAMPLE_RATE * durationSec), AUDIO_SAMPLE_RATE);
-
-  const effVoiceVolume = isVoiceMuted ? 0 : voiceVolume;
-  const effBgmVolume = (isBgmMuted || !project.isBgmEnabled) ? 0 : bgmVolume;
-  const effSfxVolume = (isSfxMuted || project.isSfxEnabled === false) ? 0 : sfxVolume;
 
   // 1. Check if individual shots have their own linked audio
   let hasShotAudio = false;
@@ -1220,25 +1136,20 @@ async function buildMixedAudio(
     const shot = item.shot;
     if (shot.customAudioId) {
       try {
-        let decoded = decodedBuffers?.get(shot.shotNumber);
-        if (!decoded) {
-          const asset = await getImage(shot.customAudioId);
-          if (asset?.blob) {
-            decoded = await decodeInContext(asset.blob, offline);
-          }
-        }
-        if (decoded) {
+        const asset = await getImage(shot.customAudioId);
+        if (asset?.blob) {
           hasShotAudio = true;
+          const decoded = await decodeInContext(asset.blob, offline);
           const src = offline.createBufferSource();
           src.buffer = decoded;
           const gain = offline.createGain();
-          gain.gain.value = effVoiceVolume;
+          gain.gain.value = voiceVolume;
           src.connect(gain);
           gain.connect(offline.destination);
           src.start(item.startSec);
         }
       } catch {
-        // ignore individual shot audio failure
+        // ignore
       }
     }
   }
@@ -1250,7 +1161,7 @@ async function buildMixedAudio(
       const src = offline.createBufferSource();
       src.buffer = voice;
       const gain = offline.createGain();
-      gain.gain.value = effVoiceVolume;
+      gain.gain.value = voiceVolume;
       src.connect(gain);
       gain.connect(offline.destination);
       src.start(0);
@@ -1259,8 +1170,8 @@ async function buildMixedAudio(
     }
   }
 
-  // 3. Background Music with Automatic Audio Ducking, Trim, and Fade In/Out
-  if (effBgmVolume > 0 && bgmTrack) {
+  // 3. Background Music with Automatic Audio Ducking under voice narration
+  if (project.isBgmEnabled && bgmTrack) {
     try {
       const bgm = await getBgmBuffer(bgmTrack);
       const src = offline.createBufferSource();
@@ -1268,103 +1179,65 @@ async function buildMixedAudio(
       src.loop = true;
       const gain = offline.createGain();
 
-      const normalVol = effBgmVolume * 0.7;
-      const duckStrength = project.bgmDuckingStrength ?? 0.25;
-      const duckedVol = normalVol * duckStrength; // Smoothly ducks down while narrator speaks
-      const fadeInSec = Math.max(0.05, project.bgmFadeInSec ?? 1.0);
-      const fadeOutSec = Math.max(0.05, project.bgmFadeOutSec ?? 1.5);
-
-      // Initial volume and Fade In
-      gain.gain.setValueAtTime(0.0001, 0);
-      gain.gain.linearRampToValueAtTime(normalVol, Math.min(durationSec, fadeInSec));
+      const normalVol = bgmVolume * 0.7;
+      const duckedVol = bgmVolume * 0.22; // Smoothly ducks down while narrator speaks
 
       if (hasShotAudio) {
+        gain.gain.setValueAtTime(normalVol, 0);
         for (const item of timeline.items) {
           if (item.shot.customAudioId) {
-            const duckStart = Math.max(0, item.startSec - 0.12);
-            gain.gain.setValueAtTime(normalVol, duckStart);
+            const startD = Math.max(0, item.startSec - 0.12);
+            gain.gain.setValueAtTime(normalVol, startD);
             gain.gain.linearRampToValueAtTime(duckedVol, item.startSec);
             gain.gain.setValueAtTime(duckedVol, Math.max(item.startSec, item.endSec - 0.15));
             gain.gain.linearRampToValueAtTime(normalVol, item.endSec);
           }
         }
       } else if (voiceBlob) {
-        gain.gain.linearRampToValueAtTime(duckedVol, 0.2);
-      }
-
-      // Fade Out at the end of the video
-      const fadeOutStart = Math.max(0, durationSec - fadeOutSec);
-      if (fadeOutStart > 0 && fadeOutStart < durationSec) {
-        gain.gain.setValueAtTime(normalVol, fadeOutStart);
-        gain.gain.linearRampToValueAtTime(0.0001, durationSec);
+        gain.gain.setValueAtTime(duckedVol, 0);
+      } else {
+        gain.gain.setValueAtTime(normalVol, 0);
       }
 
       src.connect(gain);
       gain.connect(offline.destination);
-
-      // Support custom Trim start offset
-      const trimStart = project.bgmTrimStartSec || 0;
-      src.start(0, trimStart);
+      src.start(0);
       src.stop(durationSec);
     } catch {
       // ignore bgm failure
     }
   }
 
-  // 3b. Custom Ambient Audio Bed under voice
-  if (project.customAudioBedId) {
-    try {
-      const bedAsset = await getImage(project.customAudioBedId);
-      if (bedAsset?.blob) {
-        const bedBuffer = await decodeInContext(bedAsset.blob, offline);
-        const bedSrc = offline.createBufferSource();
-        bedSrc.buffer = bedBuffer;
-        bedSrc.loop = true;
-        const bedGain = offline.createGain();
-        const bedVol = typeof project.customAudioBedVolume === "number" ? project.customAudioBedVolume : 0.25;
-        bedGain.gain.value = bedVol;
-        bedSrc.connect(bedGain);
-        bedGain.connect(offline.destination);
-        bedSrc.start(0);
-        bedSrc.stop(durationSec);
-      }
-    } catch {
-      // ignore audio bed failure
-    }
-  }
-
   // 4. Per-shot Synchronized SFX sound effects
-  if (effSfxVolume > 0 && (project.isSfxEnabled !== false)) {
-    for (let i = 0; i < timeline.items.length; i++) {
-      const item = timeline.items[i];
-      const shot = item.shot;
-      const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
-      if (shot.assignedSfxId || rawSfxText) {
-        try {
-          let sfxItem = SFX_CATALOG.find(
-            (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
-          );
-          if (!sfxItem && rawSfxText) {
-            const matchedId = matchSfxToCatalog(rawSfxText);
-            if (matchedId) {
-              sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
-            }
+  for (let i = 0; i < timeline.items.length; i++) {
+    const item = timeline.items[i];
+    const shot = item.shot;
+    const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
+    if (shot.assignedSfxId || rawSfxText) {
+      try {
+        let sfxItem = SFX_CATALOG.find(
+          (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
+        );
+        if (!sfxItem && rawSfxText) {
+          const matchedId = matchSfxToCatalog(rawSfxText);
+          if (matchedId) {
+            sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
           }
-          if (sfxItem) {
-            const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
-            const src = offline.createBufferSource();
-            src.buffer = sfxBuffer;
-            const gain = offline.createGain();
-            const effVol = ((shot.sfxVolumePercent || 80) / 100) * effSfxVolume;
-            gain.gain.value = effVol;
-            src.connect(gain);
-            gain.connect(offline.destination);
-            const trigger = item.startSec + (shot.sfxTriggerSec || 0);
-            src.start(Math.max(0, trigger));
-          }
-        } catch {
-          // ignore sfx failure
         }
+        if (sfxItem) {
+          const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
+          const src = offline.createBufferSource();
+          src.buffer = sfxBuffer;
+          const gain = offline.createGain();
+          const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85;
+          gain.gain.value = effVol;
+          src.connect(gain);
+          gain.connect(offline.destination);
+          const trigger = item.startSec + (shot.sfxTriggerSec || 0);
+          src.start(Math.max(0, trigger));
+        }
+      } catch {
+        // ignore sfx failure
       }
     }
   }
@@ -1445,11 +1318,10 @@ async function exportWithWebCodecs(
   const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
   const videoBitrate = profile.videoBitrate;
   const audioBitrate = profile.audioBitrate;
-  const fps = profile.fps ?? VIDEO_FPS;
 
   const timeline = computeProjectTimeline(project);
   const totalSec = timeline.totalDurationSec;
-  const totalFrames = Math.max(1, Math.round(totalSec * fps));
+  const totalFrames = Math.max(1, Math.round(totalSec * VIDEO_FPS));
   const hasAudio =
     Boolean(input.voiceBlob) ||
     project.isBgmEnabled ||
@@ -1471,7 +1343,7 @@ async function exportWithWebCodecs(
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
-    video: { codec: "avc", width: targetW, height: targetH, frameRate: fps },
+    video: { codec: "avc", width: targetW, height: targetH, frameRate: VIDEO_FPS },
     audio:
       hasAudio && audioOk
         ? { codec: "aac", numberOfChannels: 2, sampleRate: AUDIO_SAMPLE_RATE }
@@ -1491,35 +1363,36 @@ async function exportWithWebCodecs(
     width: targetW,
     height: targetH,
     bitrate: videoBitrate,
-    framerate: fps,
+    framerate: VIDEO_FPS,
   });
 
-  onProgress?.(0.05, "ترميز الفيديو فائق السرعة…");
+  onProgress?.(0.05, "ترميز الفيديو…");
 
   for (let frame = 0; frame < totalFrames; frame++) {
     checkAborted(signal);
-    const t = frame / fps;
+    const t = frame / VIDEO_FPS;
     const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
     drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
 
-    // Streamlined queue throttling to keep GPU/RAM fed without unnecessary pauses
-    while (videoEncoder.encodeQueueSize > 8) {
+    // STRICT QUEUE THROTTLING TO PREVENT AW SNAP / OOM CRASH:
+    // Never allow more than 2 uncompressed frames to pile up in GPU/RAM memory!
+    while (videoEncoder.encodeQueueSize > 2) {
       checkAborted(signal);
-      await new Promise((r) => setTimeout(r, 1));
+      await new Promise((r) => setTimeout(r, 8));
     }
 
-    const timestamp = Math.round((frame / fps) * 1_000_000);
-    const videoFrame = new VideoFrame(canvas, { timestamp, duration: Math.round(1_000_000 / fps) });
-    const keyFrame = frame % (fps * 2) === 0;
+    const timestamp = Math.round((frame / VIDEO_FPS) * 1_000_000);
+    const videoFrame = new VideoFrame(canvas, { timestamp, duration: Math.round(1_000_000 / VIDEO_FPS) });
+    const keyFrame = frame % (VIDEO_FPS * 2) === 0;
     videoEncoder.encode(videoFrame, { keyFrame });
     videoFrame.close();
 
-    // Responsive event loop yield for browser stability
-    if (frame % 24 === 0) {
+    // Periodically yield to event loop so browser engine can run garbage collection
+    if (frame % 6 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
 
-    if (frame % 15 === 0 || frame === totalFrames - 1) {
+    if (frame % 15 === 0) {
       onProgress?.(
         0.05 + (frame / totalFrames) * 0.65,
         `ترميز الفيديو (${Math.round((frame / totalFrames) * 100)}%)…`
@@ -1531,18 +1404,7 @@ async function exportWithWebCodecs(
 
   if (hasAudio && audioOk) {
     onProgress?.(0.72, "معالجة ومزامنة الصوت…");
-    const mixed = await buildMixedAudio(
-      project,
-      input.voiceBlob,
-      input.bgmTrack,
-      input.voiceVolume,
-      input.bgmVolume,
-      input.sfxVolume ?? 0.8,
-      input.isVoiceMuted ?? false,
-      input.isBgmMuted ?? false,
-      input.isSfxMuted ?? false,
-      input.decodedBuffers
-    );
+    const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => {
@@ -1622,31 +1484,19 @@ async function exportWithMediaRecorder(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas_unavailable");
 
-  const preset = input.compressionPreset ?? "balanced";
-  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
-  const videoBitrate = profile.videoBitrate;
-  const fps = profile.fps ?? VIDEO_FPS;
-
-  const stream = canvas.captureStream(fps);
+  const stream = canvas.captureStream(VIDEO_FPS);
 
   const audioCtx = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
   const dest = audioCtx.createMediaStreamDestination();
-  const mixed = await buildMixedAudio(
-    project,
-    input.voiceBlob,
-    input.bgmTrack,
-    input.voiceVolume,
-    input.bgmVolume,
-    input.sfxVolume ?? 0.8,
-    input.isVoiceMuted ?? false,
-    input.isBgmMuted ?? false,
-    input.isSfxMuted ?? false,
-    input.decodedBuffers
-  );
+  const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
   const source = audioCtx.createBufferSource();
   source.buffer = mixed;
   source.connect(dest);
   for (const track of dest.stream.getAudioTracks()) stream.addTrack(track);
+
+  const preset = input.compressionPreset ?? "balanced";
+  const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
+  const videoBitrate = profile.videoBitrate;
 
   const { mime, extension } = pickRecorderMime();
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: videoBitrate });
@@ -1692,59 +1542,18 @@ async function exportWithMediaRecorder(
   return { blob: new Blob(chunks, { type: mime }), extension };
 }
 
-export async function calibrateProjectWithActualAudios(project: StoryProject): Promise<{
-  calibratedProject: StoryProject;
-  decodedBuffers: Map<number, AudioBuffer>;
-}> {
-  const decodedBuffers = new Map<number, AudioBuffer>();
-  const offline = new OfflineAudioContext(2, 48000, 48000);
-
-  const updatedShots = await Promise.all(
-    project.shots.map(async (shot) => {
-      if (shot.customAudioId) {
-        try {
-          const asset = await getImage(shot.customAudioId);
-          if (asset?.blob) {
-            const buf = await decodeInContext(asset.blob, offline);
-            decodedBuffers.set(shot.shotNumber, buf);
-            const actualDur = buf.duration;
-            return {
-              ...shot,
-              actualAudioDurationSec: actualDur,
-              audioDurationSec: actualDur,
-            };
-          }
-        } catch {
-          // ignore error
-        }
-      }
-      return shot;
-    })
-  );
-
-  const calibrated = {
-    ...project,
-    shots: updatedShots,
-  };
-  return { calibratedProject: calibrated, decodedBuffers };
-}
-
 export async function exportStoryVideo(input: ExportInput): Promise<ExportResult> {
-  const baseProject = input.shotRange
+  const effectiveProject = input.shotRange
     ? sliceProjectRange(input.project, input.shotRange.startShot, input.shotRange.endShot)
     : input.project;
 
-  input.onProgress?.(0.01, "فحص ومعايرة أطوال الصوت الحقيقية لكل مشهد بدقة…");
-  const { calibratedProject, decodedBuffers } = await calibrateProjectWithActualAudios(baseProject);
-
   const effectiveInput: ExportInput = {
     ...input,
-    project: calibratedProject,
-    decodedBuffers,
+    project: effectiveProject,
   };
 
-  const images = await loadShotImages(calibratedProject.shots);
-  effectiveInput.onProgress?.(0.04, "تحضير كادرات المشاهد…");
+  const images = await loadShotImages(effectiveProject.shots);
+  effectiveInput.onProgress?.(0.02, "تحضير المشاهد…");
 
   try {
     const result = await exportWithWebCodecs(effectiveInput, images);

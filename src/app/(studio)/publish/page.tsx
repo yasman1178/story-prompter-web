@@ -183,14 +183,25 @@ export default function PublishPage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={downloadJson}
-            className="flex h-11 items-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-4 text-xs sm:text-sm font-semibold text-primary transition hover:bg-primary hover:text-black hover:shadow-[0_0_15px_rgba(0,229,255,0.4)] active:scale-95"
-          >
-            <Download className="h-4 w-4" />
-            <span>تصدير المشروع JSON (v18)</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <a
+              href="/SYSTEM_ARCHITECTURE_ANALYSIS.md"
+              download="SYSTEM_ARCHITECTURE_ANALYSIS.md"
+              className="flex h-11 items-center gap-2 rounded-xl border border-accent/50 bg-accent/10 px-4 text-xs sm:text-sm font-semibold text-accent transition hover:bg-accent hover:text-black hover:shadow-[0_0_15px_rgba(16,185,129,0.4)] active:scale-95"
+              title="تحميل مستند التحليل المعماري والهندسي الشامل للأيجنت (.MD)"
+            >
+              <Download className="h-4 w-4" />
+              <span>تحميل وثيقة تحليل النظام للأيجنت (.MD)</span>
+            </a>
+            <button
+              type="button"
+              onClick={downloadJson}
+              className="flex h-11 items-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-4 text-xs sm:text-sm font-semibold text-primary transition hover:bg-primary hover:text-black hover:shadow-[0_0_15px_rgba(0,229,255,0.4)] active:scale-95"
+            >
+              <Download className="h-4 w-4" />
+              <span>تصدير المشروع JSON (v18)</span>
+            </button>
+          </div>
         </div>
       </section>
 

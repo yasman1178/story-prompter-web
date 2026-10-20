@@ -6,6 +6,8 @@ import {
   Bot,
   Check,
   Copy,
+  Download,
+  FileCode,
   Flame,
   Layers,
   Play,
@@ -269,7 +271,22 @@ export default function GuidePage() {
   const [copiedGuide, setCopiedGuide] = useState(false);
   const [copiedAgent, setCopiedAgent] = useState(false);
   const [copiedStoryteller, setCopiedStoryteller] = useState(false);
-  const [activeTab, setActiveTab] = useState<"guide" | "agent" | "storyteller">("storyteller");
+  const [copiedArchitecture, setCopiedArchitecture] = useState(false);
+  const [activeTab, setActiveTab] = useState<"guide" | "agent" | "storyteller" | "architecture">("storyteller");
+  const [architectureText, setArchitectureText] = useState("");
+  const [loadingArch, setLoadingArch] = useState(false);
+
+  function selectTab(tab: "guide" | "agent" | "storyteller" | "architecture") {
+    setActiveTab(tab);
+    if (tab === "architecture" && !architectureText) {
+      setLoadingArch(true);
+      fetch("/SYSTEM_ARCHITECTURE_ANALYSIS.md")
+        .then((r) => r.text())
+        .then((txt) => setArchitectureText(txt))
+        .catch(() => setArchitectureText("تعذّر تحميل ملف التحليل."))
+        .finally(() => setLoadingArch(false));
+    }
+  }
 
   const filteredSfx = useMemo(() => {
     if (!query.trim()) return SFX_CATALOG;
@@ -313,6 +330,22 @@ export default function GuidePage() {
     }
   }
 
+  async function copyArchitecturePrompt() {
+    try {
+      let text = architectureText;
+      if (!text) {
+        const res = await fetch("/SYSTEM_ARCHITECTURE_ANALYSIS.md");
+        text = await res.text();
+        setArchitectureText(text);
+      }
+      await navigator.clipboard.writeText(text);
+      setCopiedArchitecture(true);
+      setTimeout(() => setCopiedArchitecture(false), 2500);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
       {/* Hero Header */}
@@ -340,7 +373,17 @@ export default function GuidePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <a
+              href="/SYSTEM_ARCHITECTURE_ANALYSIS.md"
+              download="SYSTEM_ARCHITECTURE_ANALYSIS.md"
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3.5 text-xs font-bold text-primary hover:bg-primary hover:text-black transition shrink-0 shadow-sm"
+              title="تحميل وثيقة التحليل المعماري والهندسي الشامل للأيجنت (.MD)"
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">تحميل تحليل النظام للأيجنت (.MD)</span>
+              <span className="sm:hidden">تحميل .MD للأيجنت</span>
+            </a>
             <button
               type="button"
               onClick={copyStorytellerPrompt}
@@ -364,7 +407,7 @@ export default function GuidePage() {
         <div className="mt-4 flex items-center gap-2 border-t border-border/50 pt-3 flex-wrap">
           <button
             type="button"
-            onClick={() => setActiveTab("storyteller")}
+            onClick={() => selectTab("storyteller")}
             className={cn(
               "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
               activeTab === "storyteller"
@@ -378,7 +421,7 @@ export default function GuidePage() {
 
           <button
             type="button"
-            onClick={() => setActiveTab("guide")}
+            onClick={() => selectTab("guide")}
             className={cn(
               "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
               activeTab === "guide"
@@ -392,7 +435,7 @@ export default function GuidePage() {
 
           <button
             type="button"
-            onClick={() => setActiveTab("agent")}
+            onClick={() => selectTab("agent")}
             className={cn(
               "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
               activeTab === "agent"
@@ -402,6 +445,20 @@ export default function GuidePage() {
           >
             <Bot className="h-3.5 w-3.5" />
             <span>برومبت نظام الوكيل الذكي (AI Script Agent)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectTab("architecture")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
+              activeTab === "architecture"
+                ? "bg-cyan-400 text-black shadow-sm"
+                : "border border-border bg-card text-muted hover:text-fg"
+            )}
+          >
+            <FileCode className="h-3.5 w-3.5" />
+            <span>تحليل النظام الشامل للأيجنت (.MD)</span>
           </button>
         </div>
       </section>
@@ -760,6 +817,58 @@ export default function GuidePage() {
             </div>
           </section>
         </>
+      )}
+
+      {/* Tab 4: Comprehensive System Architecture & AI Agent Analysis (.MD) */}
+      {activeTab === "architecture" && (
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-card via-surface to-surface p-4 sm:p-5 shadow-lg space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/40">
+                  <FileCode className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-fg">
+                    وثيقة التحليل المعماري والهندسي الشامل للأيجنت (.MD)
+                  </h2>
+                  <p className="text-xs text-muted">
+                    ملف توثيق تفصيلي كامل وموسع يشرح كل أجزاء النظام، معمارية الصوت والكانفس، ومواصفات الـ JSON الجاهزة للتحليل.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href="/SYSTEM_ARCHITECTURE_ANALYSIS.md"
+                  download="SYSTEM_ARCHITECTURE_ANALYSIS.md"
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 text-xs font-bold text-black hover:brightness-110 transition shadow-md"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>تحميل الملف (.MD)</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={copyArchitecturePrompt}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl border border-cyan-500/50 bg-cyan-500/10 px-4 text-xs font-bold text-cyan-400 hover:bg-cyan-400 hover:text-black transition"
+                >
+                  {copiedArchitecture ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
+                  <span>{copiedArchitecture ? "تم نسخ المستند!" : "نسخ المحتوى"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-inner">
+            {loadingArch ? (
+              <p className="text-center py-12 text-sm text-muted">جارٍ تحميل وثيقة التحليل…</p>
+            ) : (
+              <pre className="max-h-[600px] overflow-auto rounded-xl bg-bg/90 p-4 text-xs font-mono text-fg leading-relaxed whitespace-pre-wrap select-all border border-border/70 scrollbar-thin">
+                {architectureText || "اضغط على زر التحميل بالأعلى لتحميل الملف مباشرة إلى جهازك."}
+              </pre>
+            )}
+          </div>
+        </section>
       )}
     </div>
   );
