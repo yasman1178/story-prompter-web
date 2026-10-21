@@ -134,6 +134,7 @@ interface StudioState {
   clearShotImage: (shotNumber: number) => Promise<void>;
   swapShotImages: (shotNumberA: number, shotNumberB: number) => void;
   shiftShotImage: (shotNumber: number, direction: "up" | "down") => void;
+  reorderImagesSmartly: () => void;
   reorderImagesOrdinally: () => void;
 
   setVoiceVolume: (v: number) => void;
@@ -169,10 +170,55 @@ export function cleanBaseName(fileName: string): string {
   return withoutPath.replace(/\.[^.]+$/, "").trim().toLowerCase();
 }
 
-export function extractNumericSuffix(fileName: string): number | null {
+export function normalizeImageKey(fileName: string): string {
   const base = cleanBaseName(fileName);
-  const match = base.match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  return base
+    .replace(/(?:_|\b)(?:v|ver|version)\d+(?:\.\d+)?(?:_|\b|$)/gi, "")
+    .replace(/(?:_|\b)(?:ch|chapter|ep|episode)\d+(?:_|\b|$)/gi, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+export function extractPreciseShotNumber(fileName: string): number | null {
+  if (!fileName) return null;
+  const base = cleanBaseName(fileName);
+
+  // 1. Explicit shot / scene prefix (highest priority)
+  // Matches: shot_02, shot-02, shot02, scene_02, scene-02, scene02, s_02, s02
+  const prefixMatch = base.match(/(?:^|[^a-z0-9])(?:shot|scene|مشهد|s)[_\s-]*0*(\d{1,4})(?:[^a-z0-9]|$)/i);
+  if (prefixMatch) {
+    const num = parseInt(prefixMatch[1], 10);
+    if (!Number.isNaN(num) && num > 0) return num;
+  }
+
+  // 2. Leading number prefix: e.g. "02_something.png", "2 - background.jpg", "02.png"
+  const leadingMatch = base.match(/^0*(\d{1,4})(?:[_\s.-]|$)/);
+  if (leadingMatch) {
+    const num = parseInt(leadingMatch[1], 10);
+    if (!Number.isNaN(num) && num > 0) return num;
+  }
+
+  // 3. Fallback: Strip common secondary tags (version like _v24, chapters like _ch171819, resolutions, layer tags)
+  const cleaned = base
+    .replace(/(?:_|\b)(?:v|ver|version)\d+(?:\.\d+)?(?:_|\b|$)/gi, "_")
+    .replace(/(?:_|\b)(?:ch|chapter|ep|episode)\d+(?:_|\b|$)/gi, "_")
+    .replace(/(?:_|\b)(?:1080p|720p|4k|8k|16x9|9x16|1x1)(?:_|\b|$)/gi, "_")
+    .replace(/(?:_|\b)(?:fg|cutout|bg|background|foreground)(?:_|\b|$)/gi, "_")
+    .trim();
+
+  // Check if a number exists in the remaining cleaned string
+  const fallbackMatch = cleaned.match(/(?:^|[^0-9])0*(\d{1,4})(?:[^0-9]|$)/);
+  if (fallbackMatch) {
+    const num = parseInt(fallbackMatch[1], 10);
+    if (!Number.isNaN(num) && num > 0) return num;
+  }
+
+  return null;
+}
+
+export function extractNumericSuffix(fileName: string): number | null {
+  return extractPreciseShotNumber(fileName);
 }
 
 export function candidateMatchesShot(shot: StoryShot, name: string): boolean {
@@ -183,9 +229,13 @@ export function candidateMatchesShot(shot: StoryShot, name: string): boolean {
     const wantedBase = cleanBaseName(wanted);
     if (name.toLowerCase() === wanted.toLowerCase()) return true;
     if (base === wantedBase) return true;
+    if (normalizeImageKey(name) === normalizeImageKey(wanted)) return true;
   }
-  const n = shot.shotNumber;
-  return new RegExp(`(^|[^0-9])0*${n}([^0-9]|$)`).test(base);
+  const extracted = extractPreciseShotNumber(name);
+  if (extracted !== null && extracted === shot.shotNumber) {
+    return true;
+  }
+  return false;
 }
 
 export const useStudio = create<StudioState>((set, get) => ({
@@ -689,7 +739,8 @@ export const useStudio = create<StudioState>((set, get) => ({
           id,
           name: file.name,
           base: cleanBaseName(file.name),
-          num: extractNumericSuffix(file.name),
+          norm: normalizeImageKey(file.name),
+          num: extractPreciseShotNumber(file.name),
         };
       })
     );
@@ -713,12 +764,16 @@ export const useStudio = create<StudioState>((set, get) => ({
     let matchedNumberCount = 0;
     let matchedOrdinalCount = 0;
 
-    // Phase 1: Match by exact JSON imageFilename (ignoring directory prefix & extension)
+    // Phase 1: Match by exact or normalized JSON imageFilename (e.g. shot_02_ch171819_v24.png == shot_02_ch171819_v26.png)
     const phase1Shots = shotsCopy.map((shot) => {
       if (!shot.imageFilename) return shot;
       const wantedBase = cleanBaseName(shot.imageFilename);
+      const wantedNorm = normalizeImageKey(shot.imageFilename);
       const hitIdx = remainingCandidates.findIndex(
-        (c) => c.base === wantedBase || c.name.toLowerCase() === shot.imageFilename?.toLowerCase()
+        (c) =>
+          c.base === wantedBase ||
+          c.name.toLowerCase() === shot.imageFilename?.toLowerCase() ||
+          c.norm === wantedNorm
       );
       if (hitIdx >= 0) {
         const [hit] = remainingCandidates.splice(hitIdx, 1);
@@ -733,12 +788,11 @@ export const useStudio = create<StudioState>((set, get) => ({
       return shot;
     });
 
-    // Phase 2: Match by shot.shotNumber extracted from filename
+    // Phase 2: Match strictly by extracted shotNumber from prefix (e.g. shot_02 matches shot 2)
     const phase2Shots = phase1Shots.map((shot) => {
       if (shot.customImageId) return shot;
       const n = shot.shotNumber;
-      const regex = new RegExp(`(^|[^0-9])0*${n}([^0-9]|$)`);
-      const hitIdx = remainingCandidates.findIndex((c) => regex.test(c.base) || c.num === n);
+      const hitIdx = remainingCandidates.findIndex((c) => c.num === n);
       if (hitIdx >= 0) {
         const [hit] = remainingCandidates.splice(hitIdx, 1);
         matchedNumberCount++;
@@ -752,7 +806,8 @@ export const useStudio = create<StudioState>((set, get) => ({
       return shot;
     });
 
-    // Phase 3: Strict ordinal sequential matching following shotNumber ascending (1, 2, 3...)
+    // Phase 3: Smart ordinal sequential gap filler for remaining shots without images
+    remainingCandidates.sort((a, b) => naturalCompare(a.name, b.name));
     let r = 0;
     const phase3Shots = phase2Shots.map((shot) => {
       if (!shot.customImageId && r < remainingCandidates.length) {
@@ -772,8 +827,13 @@ export const useStudio = create<StudioState>((set, get) => ({
     let matchedFgCount = 0;
     const finalShots = phase3Shots.map((shot) => {
       const n = shot.shotNumber;
-      const regex = new RegExp(`(^|[^0-9])0*${n}([^0-9]|$)`);
-      const fgHitIdx = fgCandidates.findIndex((c) => regex.test(c.base) || c.num === n);
+      const fgHitIdx = fgCandidates.findIndex(
+        (c) =>
+          c.num === n ||
+          c.name.toLowerCase().includes(`shot_${n}`) ||
+          c.name.toLowerCase().includes(`shot${n}`) ||
+          c.name.toLowerCase().includes(`scene_${n}`)
+      );
       if (fgHitIdx >= 0) {
         const [fgHit] = fgCandidates.splice(fgHitIdx, 1);
         matchedFgCount++;
@@ -910,6 +970,111 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({
       project: { ...project, shots: newShots },
       feedback: `تمت إعادة الترتيب التسلسلي الصارم لـ ${assigned.length} صورة وفق حقل shot_number (1، 2، 3...)!`,
+    });
+  },
+
+  reorderImagesSmartly: () => {
+    const project = get().project;
+    if (!project) return;
+
+    // Collect all assigned images
+    const assigned = project.shots
+      .filter((s) => Boolean(s.customImageId))
+      .map((s) => ({
+        id: s.customImageId!,
+        name: s.matchedFileName || `shot_${s.shotNumber}.jpg`,
+        base: cleanBaseName(s.matchedFileName || `shot_${s.shotNumber}.jpg`),
+        norm: normalizeImageKey(s.matchedFileName || `shot_${s.shotNumber}.jpg`),
+        num: extractPreciseShotNumber(s.matchedFileName || `shot_${s.shotNumber}.jpg`),
+      }));
+
+    if (assigned.length === 0) {
+      set({ feedback: "لا توجد صور معينة في المشروع لإعادة فرزها." });
+      return;
+    }
+
+    // Sort shots strictly by shotNumber ascending
+    const shotsCopy = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    const remaining = [...assigned];
+
+    let matchedJsonCount = 0;
+    let matchedNumberCount = 0;
+    let matchedOrdinalCount = 0;
+
+    // Tier 1: Match by exact or normalized JSON imageFilename (ignoring _vXX differences)
+    const tier1Shots = shotsCopy.map((shot) => {
+      if (!shot.imageFilename) {
+        return {
+          ...shot,
+          customImageId: undefined,
+          matchedFileName: undefined,
+          imageMatchMethod: undefined,
+        };
+      }
+      const wantedBase = cleanBaseName(shot.imageFilename);
+      const wantedNorm = normalizeImageKey(shot.imageFilename);
+      const hitIdx = remaining.findIndex(
+        (c) =>
+          c.base === wantedBase ||
+          c.name.toLowerCase() === shot.imageFilename?.toLowerCase() ||
+          c.norm === wantedNorm
+      );
+      if (hitIdx >= 0) {
+        const [hit] = remaining.splice(hitIdx, 1);
+        matchedJsonCount++;
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "json_filename" as const,
+        };
+      }
+      return {
+        ...shot,
+        customImageId: undefined,
+        matchedFileName: undefined,
+        imageMatchMethod: undefined,
+      };
+    });
+
+    // Tier 2: Match strictly by shotNumber extracted from prefix (e.g. shot_02 matches shot 2)
+    const tier2Shots = tier1Shots.map((shot) => {
+      if (shot.customImageId) return shot;
+      const n = shot.shotNumber;
+      const hitIdx = remaining.findIndex((c) => c.num === n);
+      if (hitIdx >= 0) {
+        const [hit] = remaining.splice(hitIdx, 1);
+        matchedNumberCount++;
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "shot_number" as const,
+        };
+      }
+      return shot;
+    });
+
+    // Tier 3: Smart Ordinal gap filler (fill any remaining unmatched shots sequentially with leftover images)
+    remaining.sort((a, b) => naturalCompare(a.name, b.name));
+    let r = 0;
+    const finalShots = tier2Shots.map((shot) => {
+      if (!shot.customImageId && r < remaining.length) {
+        const hit = remaining[r++];
+        matchedOrdinalCount++;
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "ordinal" as const,
+        };
+      }
+      return shot;
+    });
+
+    set({
+      project: { ...project, shots: finalShots },
+      feedback: `تمت إعادة الفرز الذكي لـ ${assigned.length} صورة (${matchedJsonCount} بمطابقة اسم JSON، ${matchedNumberCount} برقم shot_XX، ${matchedOrdinalCount} تسلسلياً) وتصحيح التداخل!`,
     });
   },
 

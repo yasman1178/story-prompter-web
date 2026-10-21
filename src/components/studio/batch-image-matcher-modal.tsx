@@ -9,6 +9,7 @@ import {
   FolderUp,
   Layers,
   RefreshCw,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -31,6 +32,7 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
   const clearShotImage = useStudio((s) => s.clearShotImage);
   const clearShotForegroundImage = useStudio((s) => s.clearShotForegroundImage);
   const shiftShotImage = useStudio((s) => s.shiftShotImage);
+  const reorderImagesSmartly = useStudio((s) => s.reorderImagesSmartly);
   const reorderImagesOrdinally = useStudio((s) => s.reorderImagesOrdinally);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +79,10 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
       ordinalMatch,
       manualMatch,
     };
+  }, [sortedShots]);
+
+  const missingShotNumbers = useMemo(() => {
+    return sortedShots.filter((s) => !s.customImageId).map((s) => s.shotNumber);
   }, [sortedShots]);
 
   const displayedShots = useMemo(() => {
@@ -201,13 +207,33 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
                 عناصر أمامية (FG): <strong className="font-mono">{stats.withFg}</strong>
               </span>
               {stats.missingImage > 0 && (
-                <span className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-amber-400 border border-amber-500/30">
+                <button
+                  type="button"
+                  onClick={() => setFilter("NEEDS_BG")}
+                  className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition cursor-pointer text-right"
+                  title={`المشاهد الشاغرة: ${missingShotNumbers.map((n) => `#${n}`).join(", ")}`}
+                >
                   بحاجة لخلفية: <strong className="font-mono">{stats.missingImage}</strong>
-                </span>
+                  {missingShotNumbers.length > 0 && (
+                    <span className="text-[10px] text-amber-300/80 mr-1.5 font-mono">
+                      (مثل #{missingShotNumbers.slice(0, 3).join(", #")}{missingShotNumbers.length > 3 ? "..." : ""})
+                    </span>
+                  )}
+                </button>
               )}
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={reorderImagesSmartly}
+                className="flex items-center gap-1.5 rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-400 hover:bg-emerald-500 hover:text-black transition shadow-sm"
+                title="إعادة فرز ومطابقة الصور الحالية بذكاء وفق بادئة shot_XX وتجاهل أرقام الإصدارات لمنع التداخل وسد النواقص"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>إعادة فرز ذكي (shot_XX)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={reorderImagesOrdinally}
@@ -269,9 +295,14 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
           {/* Explanation badge */}
           <div className="rounded-xl border border-border/60 bg-card/60 p-2.5 text-xs text-muted flex items-start gap-2">
             <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-            <p className="leading-relaxed">
-              <strong>نظام الطبقات المنفصلة (Split-Layer):</strong> يمكنك رفع صور الخلفيات والعناصر الأمامية معاً في مجلد واحد؛ الملفات التي تحتوي على <span className="font-mono text-accent">_fg</span> أو <span className="font-mono text-accent">cutout</span> ستُربط كطبقة عنصر أمامي متحرك مع بارالاكس ثلاثي الأبعاد، بينما الصور الأخرى ستُربط كخلفيات مشهد.
-            </p>
+            <div className="space-y-1 leading-relaxed">
+              <p>
+                <strong>نظام المطابقة الذكية الدقيقة:</strong> يتعرف النظام تلقائياً على بادئات المشاهد مثل <span className="font-mono text-primary font-bold">shot_02</span> أو <span className="font-mono text-primary font-bold">scene_02</span> ويتجاهل أرقام الإصدارات مثل <span className="font-mono text-dim">_v24</span> و <span className="font-mono text-dim">_v26</span> و <span className="font-mono text-dim">_ch171819</span> لمنع التداخل وسد النواقص.
+              </p>
+              <p className="text-[11px] text-dim">
+                <strong>الطبقات المنفصلة (Split-Layer):</strong> الملفات التي تحتوي على <span className="font-mono text-accent">_fg</span> أو <span className="font-mono text-accent">cutout</span> تُربط تلقائياً كعناصر أمامية متحركة.
+              </p>
+            </div>
           </div>
         </div>
 
