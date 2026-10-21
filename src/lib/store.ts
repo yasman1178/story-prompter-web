@@ -53,6 +53,10 @@ interface Settings {
   voiceVolume: number;
   bgmVolume: number;
   sfxVolume: number;
+  isVoiceMuted?: boolean;
+  isBgmMuted?: boolean;
+  isSfxMuted?: boolean;
+  masterVfxDisabled?: boolean;
 }
 
 interface StudioState {
@@ -63,6 +67,12 @@ interface StudioState {
   voiceVolume: number;
   bgmVolume: number;
   sfxVolume: number;
+
+  isVoiceMuted: boolean;
+  isBgmMuted: boolean;
+  isSfxMuted: boolean;
+
+  masterVfxDisabled: boolean;
 
   feedback: string | null;
 
@@ -80,6 +90,9 @@ interface StudioState {
   toggleBgm: (enabled: boolean) => void;
   selectBgm: (id: number) => void;
   setCustomBgm: (imageId: string, title: string) => void;
+  setCustomAudioBed: (id: string, title: string, volume?: number) => void;
+  clearCustomAudioBed: () => void;
+  setCustomAudioBedVolume: (volume: number) => void;
   setVoice: (shortName: string, labelAr: string) => void;
   selectShot: (index: number) => void;
   setShotImage: (shotNumber: number, imageId: string) => void;
@@ -92,9 +105,13 @@ interface StudioState {
   clearShotAudio: (shotNumber: number) => Promise<void>;
   assignShotSfx: (shotNumber: number, sfxId: number, nameAr: string, volume: number, triggerSec?: number) => void;
   updateShotVoiceover: (shotNumber: number, text: string) => void;
+  updateShotActualDuration: (shotNumber: number, durationSec: number) => void;
   optimizeShotVoiceover: (shotNumber: number) => void;
   optimizeProjectVoiceovers: () => void;
   toggleDazzlingCTA: (enabled: boolean) => void;
+  toggleModernAnimeOverlay: (enabled?: boolean) => void;
+  toggleAnimeVoiceEnhancer: (enabled?: boolean) => void;
+  toggleCameraShake: (enabled?: boolean) => void;
   setShotVfxSettings: (shotNumber: number, settings: Partial<VfxSettings>) => void;
   setProjectVfxSettings: (settings: Partial<VfxSettings>) => void;
   applyVfxPreset: (preset: VfxPresetId, shotNumber?: number) => void;
@@ -102,6 +119,7 @@ interface StudioState {
   setShotCtaPos: (shotNumber: number, pos: OverlayPosition) => void;
   setDefaultTextOverlayPos: (pos: OverlayPosition) => void;
   setDefaultCtaPos: (pos: OverlayPosition) => void;
+  setMasterVfxDisabled: (disabled: boolean) => void;
   toggleVFX: (
     key:
       | "enableVFXParticles"
@@ -121,6 +139,13 @@ interface StudioState {
   setVoiceVolume: (v: number) => void;
   setBgmVolume: (v: number) => void;
   setSfxVolume: (v: number) => void;
+  setVoiceMuted: (muted: boolean) => void;
+  setBgmMuted: (muted: boolean) => void;
+  setSfxMuted: (muted: boolean) => void;
+
+  setBgmTrimming: (startSec: number, endSec: number) => void;
+  setBgmFade: (fadeInSec: number, fadeOutSec: number) => void;
+  setBgmDuckingStrength: (strength: number) => void;
 
   showFeedback: (message: string) => void;
   clearFeedback: () => void;
@@ -172,6 +197,11 @@ export const useStudio = create<StudioState>((set, get) => ({
   bgmVolume: 0.6,
   sfxVolume: 0.8,
 
+  isVoiceMuted: false,
+  isBgmMuted: false,
+  isSfxMuted: false,
+  masterVfxDisabled: false,
+
   feedback: null,
 
   hydrate: async () => {
@@ -187,6 +217,10 @@ export const useStudio = create<StudioState>((set, get) => ({
         voiceVolume: settings?.voiceVolume ?? 1,
         bgmVolume: settings?.bgmVolume ?? 0.6,
         sfxVolume: settings?.sfxVolume ?? 0.8,
+        isVoiceMuted: settings?.isVoiceMuted ?? false,
+        isBgmMuted: settings?.isBgmMuted ?? false,
+        isSfxMuted: settings?.isSfxMuted ?? false,
+        masterVfxDisabled: settings?.masterVfxDisabled ?? false,
         hydrated: true,
       });
     } catch {
@@ -268,6 +302,37 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({
       project: { ...project, customBgmId: imageId, customBgmTitle: title, isBgmEnabled: true },
       feedback: `تم تحديد الملف الصوتي: ${title}`,
+    });
+  },
+
+  setCustomAudioBed: (id, title, volume) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        customAudioBedId: id,
+        customAudioBedTitle: title,
+        customAudioBedVolume: typeof volume === "number" ? clamp(volume, 0, 1) : project.customAudioBedVolume ?? 0.25,
+      },
+      feedback: `تم تحديد الملف الصوتي الإضافي: ${title}`,
+    });
+  },
+
+  clearCustomAudioBed: () => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: { ...project, customAudioBedId: undefined, customAudioBedTitle: undefined },
+      feedback: "تم إزالة الملف الصوتي الإضافي",
+    });
+  },
+
+  setCustomAudioBedVolume: (volume) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: { ...project, customAudioBedVolume: clamp(volume, 0, 1) },
     });
   },
 
@@ -430,6 +495,17 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({ project: { ...project, shots } });
   },
 
+  updateShotActualDuration: (shotNumber, durationSec) => {
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) =>
+      s.shotNumber === shotNumber
+        ? { ...s, actualAudioDurationSec: durationSec, audioDurationSec: durationSec }
+        : s
+    );
+    set({ project: { ...project, shots } });
+  },
+
   optimizeShotVoiceover: (shotNumber) => {
     const project = get().project;
     if (!project) return;
@@ -477,6 +553,36 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({
       project: { ...project, enableDazzlingCTA: enabled },
       feedback: enabled ? "تم تفعيل زر الإعجاب والاشتراك المبهر 🔔" : "تم إخفاء زر الإعجاب والاشتراك",
+    });
+  },
+
+  toggleModernAnimeOverlay: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const val = typeof enabled === "boolean" ? enabled : !project.enableModernAnimeOverlay;
+    set({
+      project: { ...project, enableModernAnimeOverlay: val },
+      feedback: val ? "تم تفعيل واجهة الأنمي والمانهوا المودرن" : "تم إخفاء واجهة الأنمي",
+    });
+  },
+
+  toggleAnimeVoiceEnhancer: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const val = typeof enabled === "boolean" ? enabled : !project.enableAnimeVoiceEnhancer;
+    set({
+      project: { ...project, enableAnimeVoiceEnhancer: val },
+      feedback: val ? "تم تفعيل محسن الصوت السينمائي" : "تم تعطيل محسن الصوت",
+    });
+  },
+
+  toggleCameraShake: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const val = typeof enabled === "boolean" ? enabled : !project.enableCameraShake;
+    set({
+      project: { ...project, enableCameraShake: val },
+      feedback: val ? "تم تفعيل اهتزاز الكاميرا السينمائي" : "تم إيقاف اهتزاز الكاميرا",
     });
   },
 
@@ -550,6 +656,15 @@ export const useStudio = create<StudioState>((set, get) => ({
     const project = get().project;
     if (!project) return;
     set({ project: { ...project, defaultCtaPos: pos } });
+  },
+
+  setMasterVfxDisabled: (disabled) => {
+    const project = get().project;
+    set({
+      masterVfxDisabled: disabled,
+      project: project ? { ...project, masterVfxDisabled: disabled } : null,
+      feedback: disabled ? "تم تعطيل جميع المؤثرات البصرية (وضع الصورة الثابتة)" : "تم تفعيل المؤثرات البصرية",
+    });
   },
 
   toggleVFX: (key, value) => {
@@ -801,6 +916,44 @@ export const useStudio = create<StudioState>((set, get) => ({
   setVoiceVolume: (v) => set({ voiceVolume: clamp(v, 0, 1) }),
   setBgmVolume: (v) => set({ bgmVolume: clamp(v, 0, 1) }),
   setSfxVolume: (v) => set({ sfxVolume: clamp(v, 0, 1) }),
+  setVoiceMuted: (muted) => set({ isVoiceMuted: muted }),
+  setBgmMuted: (muted) => set({ isBgmMuted: muted }),
+  setSfxMuted: (muted) => set({ isSfxMuted: muted }),
+
+  setBgmTrimming: (startSec, endSec) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        bgmTrimStartSec: Math.max(0, startSec),
+        bgmTrimEndSec: Math.max(startSec, endSec),
+      },
+    });
+  },
+
+  setBgmFade: (fadeInSec, fadeOutSec) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        bgmFadeInSec: Math.max(0, fadeInSec),
+        bgmFadeOutSec: Math.max(0, fadeOutSec),
+      },
+    });
+  },
+
+  setBgmDuckingStrength: (strength) => {
+    const project = get().project;
+    if (!project) return;
+    set({
+      project: {
+        ...project,
+        bgmDuckingStrength: clamp(strength, 0, 1),
+      },
+    });
+  },
 
   showFeedback: (message) => set({ feedback: message }),
   clearFeedback: () => set({ feedback: null }),
@@ -816,7 +969,16 @@ export function initStudioPersistence() {
   useStudio.getState().hydrate();
   const unsub = useStudio.subscribe((state, prev) => {
     if (!state.hydrated) return;
-    if (state.project === prev.project && state.voiceVolume === prev.voiceVolume && state.bgmVolume === prev.bgmVolume && state.sfxVolume === prev.sfxVolume) {
+    if (
+      state.project === prev.project &&
+      state.voiceVolume === prev.voiceVolume &&
+      state.bgmVolume === prev.bgmVolume &&
+      state.sfxVolume === prev.sfxVolume &&
+      state.isVoiceMuted === prev.isVoiceMuted &&
+      state.isBgmMuted === prev.isBgmMuted &&
+      state.isSfxMuted === prev.isSfxMuted &&
+      state.masterVfxDisabled === prev.masterVfxDisabled
+    ) {
       return;
     }
     if (persistTimer) clearTimeout(persistTimer);
@@ -826,6 +988,10 @@ export function initStudioPersistence() {
         voiceVolume: state.voiceVolume,
         bgmVolume: state.bgmVolume,
         sfxVolume: state.sfxVolume,
+        isVoiceMuted: state.isVoiceMuted,
+        isBgmMuted: state.isBgmMuted,
+        isSfxMuted: state.isSfxMuted,
+        masterVfxDisabled: state.masterVfxDisabled,
       } satisfies Settings);
     }, 400);
   });

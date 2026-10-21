@@ -581,6 +581,23 @@ export const audioEngine = {
     activeTrackId = track.id;
   },
 
+  async playCustomBgm(blob: Blob, trimStartSec = 0) {
+    const audio = getContext();
+    this.stopBgm();
+    try {
+      const buffer = await decodeAudioBlob(blob);
+      const source = audio.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      source.connect(bgmGain!);
+      source.start(0, Math.max(0, trimStartSec));
+      activeSource = source;
+      activeTrackId = -999;
+    } catch (e) {
+      console.warn("Failed to play custom BGM:", e);
+    }
+  },
+
   async playBedAudio(blob: Blob, volumeMultiplier = 0.5) {
     const audio = getContext();
     this.stopBed();

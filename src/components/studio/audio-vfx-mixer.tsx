@@ -440,7 +440,7 @@ export function AudioVfxMixer({ isOpen, onClose }: AudioVfxMixerProps) {
                     step={0.5}
                     value={project?.bgmTrimStartSec ?? 0}
                     onChange={(e) =>
-                      setBgmTrimming(Number(e.target.value), project?.bgmTrimEndSec)
+                      setBgmTrimming(Number(e.target.value), project?.bgmTrimEndSec ?? 0)
                     }
                     className="w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-fg font-mono outline-none focus:border-primary"
                   />

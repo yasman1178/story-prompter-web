@@ -125,6 +125,7 @@ export default function VideoPage() {
   const [rangeStart, setRangeStart] = useState<number>(1);
   const [rangeEnd, setRangeEnd] = useState<number>(5);
   const [useRange, setUseRange] = useState<boolean>(true);
+  const [exportFormat, setExportFormat] = useState<"webm" | "mp4">("webm");
 
   const totalShotsCount = project?.shots.length ?? 0;
   const actualRangeStart = Math.max(1, Math.min(rangeStart, totalShotsCount || 1));
@@ -443,16 +444,25 @@ export default function VideoPage() {
   // Background Music with Trim and Fade
   useEffect(() => {
     if (playing && project?.isBgmEnabled) {
-      const track = findBgm(project.selectedBgmId);
       const trimStart = project.bgmTrimStartSec || 0;
-      void audioEngine.playTrack(track, trimStart);
+      if (project.customBgmId) {
+        void (async () => {
+          const asset = await getAsset(project.customBgmId!);
+          if (asset?.blob) {
+            await audioEngine.playCustomBgm(asset.blob, trimStart);
+          }
+        })();
+      } else {
+        const track = findBgm(project.selectedBgmId);
+        void audioEngine.playTrack(track, trimStart);
+      }
     } else if (!playing) {
       audioEngine.stopBgm();
     }
     return () => {
       audioEngine.stopBgm();
     };
-  }, [playing, project?.isBgmEnabled, project?.selectedBgmId, project?.bgmTrimStartSec]);
+  }, [playing, project?.isBgmEnabled, project?.selectedBgmId, project?.customBgmId, project?.bgmTrimStartSec]);
 
   // Ambient audio bed preview sync
   useEffect(() => {
@@ -666,6 +676,7 @@ export default function VideoPage() {
         isBgmMuted,
         isSfxMuted,
         compressionPreset,
+        exportFormat,
         onProgress: (ratio, s) => {
           setProgress(ratio);
           setStage(s);
@@ -1183,6 +1194,41 @@ export default function VideoPage() {
             </div>
           </div>
         )}
+
+        {/* Export Format Selector: WebM (High stability for long timelines) vs MP4 */}
+        <div className="space-y-1.5">
+          <span className="text-[11px] font-semibold text-muted block">
+            صيغة تصدير الفيديو والترميز الصوتي:
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setExportFormat("webm")}
+              className={cn(
+                "flex flex-col items-center justify-center rounded-xl p-2.5 text-center transition border text-xs",
+                exportFormat === "webm"
+                  ? "border-primary bg-primary/15 text-primary font-bold shadow-sm"
+                  : "border-border bg-card text-muted hover:border-border/80 hover:text-fg"
+              )}
+            >
+              <span className="text-xs font-bold">✨ WebM (الأعلى استقراراً للفيديوهات الطويلة)</span>
+              <span className="text-[10px] text-dim font-mono mt-0.5">Opus Audio · مزامنة صوتية بدون انقطاع</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setExportFormat("mp4")}
+              className={cn(
+                "flex flex-col items-center justify-center rounded-xl p-2.5 text-center transition border text-xs",
+                exportFormat === "mp4"
+                  ? "border-primary bg-primary/15 text-primary font-bold shadow-sm"
+                  : "border-border bg-card text-muted hover:border-border/80 hover:text-fg"
+              )}
+            >
+              <span className="text-xs font-bold">🎬 MP4 (H.264 / AAC)</span>
+              <span className="text-[10px] text-dim font-mono mt-0.5">مناسب للشورتس السريعة المتوافقة</span>
+            </button>
+          </div>
+        </div>
 
         {/* Compression preset and estimated size */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">

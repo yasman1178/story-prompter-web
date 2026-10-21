@@ -141,8 +141,15 @@ export interface DialogueLine {
   rate?: string;
 }
 
+export interface AudioModulation {
+  pitchShiftFactor?: number;
+  playbackTempo?: number;
+  emotionalTone?: string;
+}
+
 export interface StoryShot {
   shotNumber: number;
+  sceneId?: string | number;
   bookOrPart?: string;
   timeframe: string;
   startTimeSec: number;
@@ -151,6 +158,8 @@ export interface StoryShot {
   type: string;
   mood: string;
   vocalCue?: string;
+  audioModulation?: AudioModulation;
+  transitionEffect?: string;
   voiceoverEgyptian: string;
   soundDesign: string;
   colorTheme: string;
@@ -174,6 +183,7 @@ export interface StoryShot {
   imageMatchMethod?: "json_filename" | "shot_number" | "ordinal" | "manual";
   customAudioId?: string;
   audioDurationSec?: number;
+  actualAudioDurationSec?: number;
   sceneType: SceneArtType | string;
   textOverlay: string;
   sfxName: string;
@@ -229,6 +239,19 @@ export interface StoryProject {
   selectedBgmId: number;
   customBgmId?: string;
   customBgmTitle?: string;
+  customAudioBedId?: string;
+  customAudioBedTitle?: string;
+  customAudioBedVolume?: number;
+  isSfxEnabled?: boolean;
+  enableCameraShake?: boolean;
+  enableModernAnimeOverlay?: boolean;
+  enableAnimeVoiceEnhancer?: boolean;
+  masterVfxDisabled?: boolean;
+  bgmTrimStartSec?: number;
+  bgmTrimEndSec?: number;
+  bgmFadeInSec?: number;
+  bgmFadeOutSec?: number;
+  bgmDuckingStrength?: number;
   transitionType: TransitionTypeId;
   shotDurationSec: number;
   showSubtitlesInVideo: boolean;
