@@ -28,6 +28,7 @@ import {
   exportStoryVideo,
   loadShotImages,
 } from "@/lib/video-export";
+import { WordBoundary } from "@/lib/types";
 import { StoryProject } from "@/lib/types";
 import { sliceProjectRange, computeProjectTimeline } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
@@ -254,30 +255,51 @@ export default function HookStudioPage() {
     paint();
   }
 
-  // Single-click batch audio generator for selected segment
+  // Single-click batch audio generator for selected segment with parallel pool
   async function handleBatchVoiceForSegment() {
     if (!project || !hookProject || generatingVoice) return;
     setGeneratingVoice(true);
     setVoiceProgress(`بدء توليد أصوات المشاهد #${actualStart} إلى #${actualEnd}…`);
-    showFeedback(`جارٍ توليد الصوت الاحترافي للمشاهد (${actualStart} إلى ${actualEnd})…`);
+    showFeedback(`جارٍ التوليد المتوازي السريع للمشاهد (${actualStart} إلى ${actualEnd})… ⚡`);
 
     try {
-      const { assignShotAudio } = useStudio.getState();
+      const { batchAssignShotsAudio } = useStudio.getState();
       const shotsToProcess = hookProject.shots;
+      const assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[] = [];
+      let completedCount = 0;
+      const totalToProcess = shotsToProcess.length;
+      const CONCURRENCY = 3;
+      let nextIdx = 0;
 
-      for (let i = 0; i < shotsToProcess.length; i++) {
-        const shot = shotsToProcess[i];
-        setVoiceProgress(`توليد مشهد #${shot.shotNumber} (${i + 1}/${shotsToProcess.length})…`);
-        try {
-          const res = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
-          const dur = await getBlobDuration(res.blob);
-          await assignShotAudio(shot.shotNumber, res.blob, dur, res.boundaries);
-        } catch {
-          await speakWithBrowser(shot.voiceoverEgyptian);
+      const workers = Array.from({ length: Math.min(CONCURRENCY, totalToProcess) }, async () => {
+        while (nextIdx < totalToProcess) {
+          const idx = nextIdx++;
+          const shot = shotsToProcess[idx];
+          try {
+            const res = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
+            const dur = await getBlobDuration(res.blob);
+            assignments.push({
+              shotNumber: shot.shotNumber,
+              blob: res.blob,
+              durationSec: dur,
+              wordBoundaries: res.boundaries,
+            });
+          } catch {
+            await speakWithBrowser(shot.voiceoverEgyptian).catch(() => undefined);
+          }
+          completedCount++;
+          const pct = Math.round((completedCount / totalToProcess) * 100);
+          setVoiceProgress(`${completedCount} / ${totalToProcess} (${pct}%) - مشهد #${shot.shotNumber}`);
         }
+      });
+
+      await Promise.all(workers);
+
+      if (assignments.length > 0) {
+        await batchAssignShotsAudio(assignments);
       }
 
-      showFeedback(`تم بنجاح توليد ومزامنة أصوات المشاهد (${actualStart} إلى ${actualEnd})! 🎙️`);
+      showFeedback(`تم بنجاح توليد ومزامنة أصوات المشاهد (${actualStart} إلى ${actualEnd}) بسرعة فائقة! ⚡🎙️`);
       reset();
     } catch {
       showFeedback("حدث خطأ أثناء توليد الصوت.");

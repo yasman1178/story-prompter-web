@@ -42,7 +42,7 @@ import {
 } from "@/lib/video-export";
 import { cn, formatTimecode } from "@/lib/utils";
 import { computeProjectTimeline, sliceProjectRange } from "@/lib/timeline";
-import { AspectRatioType } from "@/lib/types";
+import { AspectRatioType, WordBoundary } from "@/lib/types";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { matchSfxToCatalog } from "@/lib/data";
 import { LikeSubscribeCta } from "@/components/studio/like-subscribe-cta";
@@ -119,6 +119,7 @@ export default function VideoPage() {
   const [result, setResult] = useState<{ url: string; name: string; size: number } | null>(null);
   const [compressionPreset, setCompressionPreset] = useState<CompressionPreset>("compact");
   const [generatingAllVoice, setGeneratingAllVoice] = useState(false);
+  const [skipExistingVoice, setSkipExistingVoice] = useState(true);
   const [allVoiceProgress, setAllVoiceProgress] = useState("");
 
   // Shorts Clip Range state
@@ -617,26 +618,63 @@ export default function VideoPage() {
     audioEngine.stop();
   }
 
-  async function handleBatchGenerateAllVoice() {
+  async function handleBatchGenerateAllVoice(targetScope: "range" | "all" = useRange ? "range" : "all") {
     if (!project || generatingAllVoice) return;
+
+    const shotsToProcess = targetScope === "range" && effectiveProject
+      ? effectiveProject.shots
+      : project.shots;
+
+    const filteredShots = skipExistingVoice
+      ? shotsToProcess.filter((s) => !s.customAudioId)
+      : shotsToProcess;
+
+    if (filteredShots.length === 0) {
+      showFeedback("جميع المشاهد المستهدفة مسجلة ومكتملة الصوت بالفعل! 🎉");
+      return;
+    }
+
     setGeneratingAllVoice(true);
-    setAllVoiceProgress("بدء توليد أصوات جميع المشاهد…");
-    showFeedback(`جارٍ توليد الصوت لجميع مشاهد المشروع (${project.shots.length} مشهد)…`);
+    const totalToProcess = filteredShots.length;
+    setAllVoiceProgress(`0 / ${totalToProcess} (0%)`);
+    showFeedback(`جارٍ التوليد المتوازي السريع لـ ${totalToProcess} مشهد… ⚡`);
+
     try {
-      const { assignShotAudio } = useStudio.getState();
-      const shots = project.shots;
-      for (let i = 0; i < shots.length; i++) {
-        const shot = shots[i];
-        setAllVoiceProgress(`توليد مشهد #${shot.shotNumber} (${i + 1}/${shots.length})…`);
-        try {
-          const res = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
-          const dur = await getBlobDuration(res.blob);
-          await assignShotAudio(shot.shotNumber, res.blob, dur, res.boundaries);
-        } catch {
-          await speakWithBrowser(shot.voiceoverEgyptian);
+      const { batchAssignShotsAudio } = useStudio.getState();
+      const assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[] = [];
+      let completedCount = 0;
+      const CONCURRENCY = 3;
+      let nextIdx = 0;
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, totalToProcess) }, async () => {
+        while (nextIdx < totalToProcess) {
+          const idx = nextIdx++;
+          const shot = filteredShots[idx];
+          try {
+            const res = await synthesizeSpeech(shot.voiceoverEgyptian, project.voiceName);
+            const dur = await getBlobDuration(res.blob);
+            assignments.push({
+              shotNumber: shot.shotNumber,
+              blob: res.blob,
+              durationSec: dur,
+              wordBoundaries: res.boundaries,
+            });
+          } catch {
+            await speakWithBrowser(shot.voiceoverEgyptian).catch(() => undefined);
+          }
+          completedCount++;
+          const pct = Math.round((completedCount / totalToProcess) * 100);
+          setAllVoiceProgress(`${completedCount} / ${totalToProcess} (${pct}%) - مشهد #${shot.shotNumber}`);
         }
+      });
+
+      await Promise.all(workers);
+
+      if (assignments.length > 0) {
+        await batchAssignShotsAudio(assignments);
       }
-      showFeedback(`تم بنجاح توليد أصوات جميع المشاهد الـ ${project.shots.length}! 🎙️`);
+
+      showFeedback(`تم بنجاح توليد أصوات ${assignments.length} مشهد بسرعة فائقة! ⚡🎙️`);
       reset();
     } catch {
       showFeedback("تعذّر استكمال توليد الصوت.");
@@ -1318,31 +1356,71 @@ export default function VideoPage() {
       <section className="w-full max-w-4xl grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Batch Voice Generator */}
         <div className="rounded-2xl border border-border bg-surface/75 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Mic className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-bold text-fg">توليد أصوات المشاهد دفعة واحدة</h3>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Mic className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-bold text-fg">توليد أصوات المشاهد (⚡ متوازي سريع)</h3>
+            </div>
+            <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer hover:text-fg transition select-none">
+              <input
+                type="checkbox"
+                checked={skipExistingVoice}
+                onChange={(e) => setSkipExistingVoice(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[#00e5ff] rounded"
+              />
+              <span className="text-[11px]">تخطي المسجل مسبقاً</span>
+            </label>
           </div>
           <p className="text-xs text-muted">
-            توليد تعليق Edge-TTS باللهجة المصرية لكافة مشاهد المشروع مع مزامنة حدود الكلمات تلقائياً.
+            توليد تعليق Edge-TTS باللهجة المصرية بالتوازي (3 مشاهد معاً) مع مزامنة حدود الكلمات تلقائياً.
           </p>
-          <button
-            type="button"
-            disabled={generatingAllVoice}
-            onClick={() => void handleBatchGenerateAllVoice()}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary/20 border border-primary/50 text-xs font-bold text-primary transition hover:bg-primary/30 disabled:opacity-50"
-          >
-            {generatingAllVoice ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>{allVoiceProgress || "جارٍ التوليد…"}</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>توليد صوت كافة المشاهد ({project.shots.length})</span>
-              </>
+
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            {useRange && (
+              <button
+                type="button"
+                disabled={generatingAllVoice}
+                onClick={() => void handleBatchGenerateAllVoice("range")}
+                className="flex-1 flex h-10 items-center justify-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-black transition hover:brightness-110 disabled:opacity-50 shadow-sm"
+              >
+                {generatingAllVoice ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>{allVoiceProgress || "جارٍ التوليد…"}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>توليد النطاق ({actualRangeStart} إلى {actualRangeEnd})</span>
+                  </>
+                )}
+              </button>
             )}
-          </button>
+
+            <button
+              type="button"
+              disabled={generatingAllVoice}
+              onClick={() => void handleBatchGenerateAllVoice("all")}
+              className={cn(
+                "flex h-10 items-center justify-center gap-1.5 rounded-xl border text-xs font-bold transition disabled:opacity-50",
+                useRange
+                  ? "border-border bg-card text-fg hover:border-primary/50 px-3"
+                  : "w-full border-primary/50 bg-primary/20 text-primary hover:bg-primary/30"
+              )}
+            >
+              {generatingAllVoice && !useRange ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{allVoiceProgress || "جارٍ التوليد…"}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span>توليد كافة المشاهد ({project.shots.length})</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Live CTA Component */}

@@ -164,6 +164,7 @@ export default function RecordPage() {
 
   // Batch AI voice generation state
   const [generatingAi, setGeneratingAi] = useState(false);
+  const [skipExistingVoice, setSkipExistingVoice] = useState(true);
   const [aiBatchProgress, setAiBatchProgress] = useState<{
     current: number;
     total: number;
@@ -608,57 +609,81 @@ export default function RecordPage() {
     }
   }
 
-  // Batch AI Generation fallback
+  // Batch AI Generation with 3x Parallel Worker Pool
   async function generateVoiceWithAi() {
     if (!project || generatingAi) return;
+
+    const shotsToProcess = skipExistingVoice
+      ? shots.filter((s) => !s.customAudioId)
+      : shots;
+
+    if (shotsToProcess.length === 0) {
+      showFeedback("جميع مشاهد المشروع مسجلة ومكتملة الصوت بالفعل! 🎉");
+      return;
+    }
+
     setGeneratingAi(true);
-    setAiBatchProgress({ current: 0, total: shots.length, shotNumber: shots[0]?.shotNumber ?? 1, percent: 0 });
+    const totalToProcess = shotsToProcess.length;
+    setAiBatchProgress({ current: 0, total: totalToProcess, shotNumber: shotsToProcess[0]?.shotNumber ?? 1, percent: 0 });
 
     try {
       const assignments: { shotNumber: number; blob: Blob; durationSec: number; wordBoundaries?: WordBoundary[] }[] = [];
       const buffers: Blob[] = [];
       const voiceToUse = project.voiceName || "ar-EG-ShakirNeural";
 
-      for (let i = 0; i < shots.length; i++) {
-        const shot = shots[i];
-        const text = getShotCleanDialogue(shot);
+      let completedCount = 0;
+      const CONCURRENCY = 3;
+      let nextIdx = 0;
 
-        setAiBatchProgress({
-          current: i + 1,
-          total: shots.length,
-          shotNumber: shot.shotNumber,
-          percent: Math.round(((i + 1) / shots.length) * 100),
-        });
+      const workers = Array.from({ length: Math.min(CONCURRENCY, totalToProcess) }, async () => {
+        while (nextIdx < totalToProcess) {
+          const idx = nextIdx++;
+          const shot = shotsToProcess[idx];
+          const text = getShotCleanDialogue(shot);
 
-        if (!text || text === "لا يوجد نص محدد لهذا المشهد.") continue;
-
-        let blob: Blob | null = null;
-        let boundaries: { offset: number; duration: number; text: string }[] = [];
-        const prosody = vocalCueToProsody(shot.vocalCue);
-
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const res = await synthesizeSpeech(text, voiceToUse, prosody);
-            blob = res.blob;
-            boundaries = res.boundaries || [];
-            break;
-          } catch {
-            if (attempt < 2) await new Promise((r) => setTimeout(r, 300));
+          if (!text || text === "لا يوجد نص محدد لهذا المشهد.") {
+            completedCount++;
+            continue;
           }
-        }
 
-        if (blob) {
-          buffers.push(blob);
-          const dur = await blobDuration(blob);
-          const wordBoundaries = boundaries.map((b) => ({
-            offset: b.offset,
-            duration: b.duration,
-            text: b.text,
-          }));
-          assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur, wordBoundaries });
+          let blob: Blob | null = null;
+          let boundaries: { offset: number; duration: number; text: string }[] = [];
+          const prosody = vocalCueToProsody(shot.vocalCue);
+
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const res = await synthesizeSpeech(text, voiceToUse, prosody);
+              blob = res.blob;
+              boundaries = res.boundaries || [];
+              break;
+            } catch {
+              if (attempt < 1) await new Promise((r) => setTimeout(r, 200));
+            }
+          }
+
+          if (blob) {
+            buffers.push(blob);
+            const dur = await blobDuration(blob);
+            const wordBoundaries = boundaries.map((b) => ({
+              offset: b.offset,
+              duration: b.duration,
+              text: b.text,
+            }));
+            assignments.push({ shotNumber: shot.shotNumber, blob, durationSec: dur, wordBoundaries });
+          }
+
+          completedCount++;
+          const percent = Math.round((completedCount / totalToProcess) * 100);
+          setAiBatchProgress({
+            current: completedCount,
+            total: totalToProcess,
+            shotNumber: shot.shotNumber,
+            percent,
+          });
         }
-        await new Promise((r) => setTimeout(r, 150));
-      }
+      });
+
+      await Promise.all(workers);
 
       if (assignments.length > 0) {
         await batchAssignShotsAudio(assignments);
@@ -670,7 +695,7 @@ export default function RecordPage() {
         await putAsset({ id, name: "voiceover.mp3", type: "audio/mpeg", blob: combined, createdAt: Date.now() });
         const duration = await blobDuration(combined);
         setRecordedAudio(id, duration);
-        showFeedback(`تم توليد وربط الصوت بالذكاء الاصطناعي لـ ${assignments.length} مشهد بنجاح!`);
+        showFeedback(`تم بنجاح توليد وربط الصوت لـ ${assignments.length} مشهد بالذكاء الاصطناعي بسرعة فائقة! ⚡`);
       }
     } catch {
       showFeedback("تعذّر التوليد بالذكاء الاصطناعي.");
@@ -763,16 +788,40 @@ export default function RecordPage() {
             />
           </button>
 
+          {/* Skip existing toggle */}
+          <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer hover:text-fg transition select-none bg-card px-2.5 py-1.5 rounded-xl border border-border">
+            <input
+              type="checkbox"
+              checked={skipExistingVoice}
+              onChange={(e) => setSkipExistingVoice(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[#00e5ff] rounded"
+            />
+            <span className="text-[11px]">تخطي المسجل ({shotsRecordedCount}/{shots.length})</span>
+          </label>
+
           {/* AI Batch Generation Fallback */}
           <button
             type="button"
             onClick={() => void generateVoiceWithAi()}
             disabled={generatingAi}
-            className="flex h-9 sm:h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-fg transition hover:border-primary/50 disabled:opacity-50"
+            className="flex h-9 sm:h-10 items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 text-xs font-bold text-primary transition hover:bg-primary hover:text-black disabled:opacity-50 shadow-sm"
           >
-            {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5 text-accent" />}
-            <span className="hidden sm:inline">توليد تلقائي بالذكاء الاصطناعي</span>
-            <span className="sm:hidden">توليد AI</span>
+            {generatingAi ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>
+                  {aiBatchProgress
+                    ? `${aiBatchProgress.current}/${aiBatchProgress.total} (${aiBatchProgress.percent}%)`
+                    : "جارٍ التوليد المتوازي…"}
+                </span>
+              </>
+            ) : (
+              <>
+                <Wand2 className="h-3.5 w-3.5 text-accent" />
+                <span className="hidden sm:inline">توليد متوازي بالذكاء الاصطناعي (⚡ سريع)</span>
+                <span className="sm:hidden">توليد متوازي</span>
+              </>
+            )}
           </button>
         </div>
       </div>
