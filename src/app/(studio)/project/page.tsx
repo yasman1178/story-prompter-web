@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, FileText, FileUp, FolderUp, Layers, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, FileText, FileUp, FolderUp, Layers, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { BatchImageMatcherModal } from "@/components/studio/batch-image-matcher-modal";
@@ -31,6 +31,9 @@ export default function ProjectPage() {
   const loadSample = useStudio((s) => s.loadSample);
   const optimizeProjectVoiceovers = useStudio((s) => s.optimizeProjectVoiceovers);
   const showFeedback = useStudio((s) => s.showFeedback);
+  const isCompressingImages = useStudio((s) => s.isCompressingImages);
+  const compressionProgress = useStudio((s) => s.compressionProgress);
+  const compressExistingProjectImages = useStudio((s) => s.compressExistingProjectImages);
 
   const folderRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
@@ -197,8 +200,9 @@ export default function ProjectPage() {
               <button
                 type="button"
                 onClick={() => folderRef.current?.click()}
-                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-3.5 text-xs sm:text-sm font-semibold text-fg transition hover:border-primary hover:bg-surface shadow-sm shrink-0"
-                title="تعيين وربط صور للمشاهد وفق أرقام المشاهد وأسماء الـ JSON"
+                disabled={isCompressingImages}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-3.5 text-xs sm:text-sm font-semibold text-fg transition hover:border-primary hover:bg-surface shadow-sm shrink-0 disabled:opacity-50"
+                title="تعيين وربط صور للمشاهد مع ضغط تلقائي فوري إلى WebP 720x1280"
               >
                 <FolderUp className="h-4 w-4 text-primary" />
                 <span>رفع حزمة صور</span>
@@ -213,9 +217,46 @@ export default function ProjectPage() {
                 <Layers className="h-4 w-4" />
                 <span>ترتيب ومطابقة الصور</span>
               </button>
+
+              {/* 5. Compress Current Project Images */}
+              {counts.hasImage > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void compressExistingProjectImages()}
+                  disabled={isCompressingImages}
+                  className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/10 px-3 text-xs sm:text-sm font-semibold text-sky-300 hover:bg-sky-500 hover:text-black transition shadow-sm shrink-0 disabled:opacity-50"
+                  title="ضغط جميع الصور المرتبطة حالياً بالمشروع إلى صيغة WebP خفيفة (720x1280) لتوفير الذاكرة ومنع الانهيار"
+                >
+                  {isCompressingImages ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-sky-400" />
+                  ) : (
+                    <Zap className="h-4 w-4 text-sky-400" />
+                  )}
+                  <span>ضغط صور المشروع (WebP)</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Live Compression Progress Banner */}
+        {isCompressingImages && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2.5 text-xs text-sky-200 animate-pulse">
+            <div className="flex items-center gap-2.5 min-w-0 truncate">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-sky-400" />
+              <span className="truncate">
+                جارٍ ضغط وتحسين الصور تلقائياً (WebP 720x1280 @ 82%):{" "}
+                <strong className="text-white font-mono">{compressionProgress?.fileName || "..."}</strong>
+              </span>
+            </div>
+            {compressionProgress && compressionProgress.total > 0 && (
+              <span className="shrink-0 font-mono font-bold text-sky-300 tabular-nums">
+                {compressionProgress.current} / {compressionProgress.total} (
+                {Math.round((compressionProgress.current / compressionProgress.total) * 100)}%)
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Settings Sliders & Toggles */}
         <div className="mt-4 grid gap-3 sm:grid-cols-3 pt-3 border-t border-border/50 min-w-0">

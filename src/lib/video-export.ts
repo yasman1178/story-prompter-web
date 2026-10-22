@@ -1681,7 +1681,7 @@ async function exportWithWebCodecs(
     videoFrame.close();
 
     // Periodically yield to event loop so browser engine can run garbage collection
-    if (frame % 8 === 0) {
+    if (frame % 5 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
 

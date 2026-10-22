@@ -10,12 +10,14 @@ import {
   FileImage,
   FolderUp,
   Layers,
+  Loader2,
   RefreshCw,
   Sparkles,
   Target,
   Trash2,
   Upload,
   X,
+  Zap,
 } from "lucide-react";
 import { useStudio } from "@/lib/store";
 import { SceneThumbnail } from "@/components/studio/scene-thumbnail";
@@ -40,6 +42,8 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
   const alignImagesStrictlyByShotNumber = useStudio((s) => s.alignImagesStrictlyByShotNumber);
   const reorderImagesSmartly = useStudio((s) => s.reorderImagesSmartly);
   const reorderImagesOrdinally = useStudio((s) => s.reorderImagesOrdinally);
+  const isCompressingImages = useStudio((s) => s.isCompressingImages);
+  const compressExistingProjectImages = useStudio((s) => s.compressExistingProjectImages);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fgBatchInputRef = useRef<HTMLInputElement>(null);
@@ -281,6 +285,17 @@ export function BatchImageMatcherModal({ isOpen, onClose }: BatchImageMatcherMod
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 <span>ترتيب 1، 2، 3</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void compressExistingProjectImages()}
+                disabled={isCompressingImages}
+                className="flex items-center gap-1.5 rounded-xl border border-sky-500/50 bg-sky-500/15 px-3 py-1.5 text-xs font-bold text-sky-300 hover:bg-sky-500 hover:text-black transition shadow-sm disabled:opacity-50"
+                title="ضغط وتحويل جميع الصور المرتبطة حالياً إلى صيغة WebP خفيفة (720x1280) لتوفير الذاكرة وتخفيف العبء"
+              >
+                {isCompressingImages ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                <span>ضغط للـ WebP</span>
               </button>
 
               <button

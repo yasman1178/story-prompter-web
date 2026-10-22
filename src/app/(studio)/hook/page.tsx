@@ -27,6 +27,7 @@ import {
   estimateVideoSizeMB,
   exportStoryVideo,
   loadShotImages,
+  closeShotImages,
 } from "@/lib/video-export";
 import { WordBoundary } from "@/lib/types";
 import { StoryProject } from "@/lib/types";
@@ -144,7 +145,11 @@ export default function HookStudioPage() {
     if (!project) return;
     void (async () => {
       const map = await loadShotImages(project.shots);
-      if (cancelled) return;
+      if (cancelled) {
+        closeShotImages(map);
+        return;
+      }
+      closeShotImages(imagesRef.current);
       imagesRef.current = map;
       paint();
     })();
@@ -152,6 +157,13 @@ export default function HookStudioPage() {
       cancelled = true;
     };
   }, [project, paint]);
+
+  // Clean up all GPU bitmaps on component unmount
+  useEffect(() => {
+    return () => {
+      closeShotImages(imagesRef.current);
+    };
+  }, []);
 
   // Animation loop
   useEffect(() => {

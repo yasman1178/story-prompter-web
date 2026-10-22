@@ -10,7 +10,8 @@ import {
   VfxSettings,
   WordBoundary,
 } from "@/lib/types";
-import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
+import { kvGet, kvSet, putImage, deleteImage, getImage } from "@/lib/db";
+import { compressImageToWebp, compressBatchFiles } from "@/lib/image-optimizer";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
 import { syncProjectShotTimeframes } from "@/lib/timeline";
 import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
@@ -73,6 +74,9 @@ interface StudioState {
   isSfxMuted: boolean;
 
   masterVfxDisabled: boolean;
+
+  isCompressingImages: boolean;
+  compressionProgress: { current: number; total: number; fileName: string } | null;
 
   feedback: string | null;
 
@@ -138,6 +142,7 @@ interface StudioState {
   alignImagesStrictlyByShotNumber: () => void;
   reorderImagesSmartly: () => void;
   reorderImagesOrdinally: () => void;
+  compressExistingProjectImages: () => Promise<{ processed: number; savedKB: number; totalOriginalKB: number }>;
 
   setVoiceVolume: (v: number) => void;
   setBgmVolume: (v: number) => void;
@@ -260,6 +265,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   isBgmMuted: false,
   isSfxMuted: false,
   masterVfxDisabled: false,
+
+  isCompressingImages: false,
+  compressionProgress: null,
 
   feedback: null,
 
@@ -414,8 +422,11 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 
   assignSingleImage: async (shotNumber, file) => {
+    set({ feedback: `جارٍ تحسين وضغط صورة المشهد #${shotNumber} إلى WebP...` });
+    const compressedBlob = await compressImageToWebp(file);
     const id = newId("img");
-    await putImage({ id, name: file.name, type: file.type, blob: file, createdAt: Date.now() });
+    const webpName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
+    await putImage({ id, name: webpName, type: "image/webp", blob: compressedBlob, createdAt: Date.now() });
     const project = get().project;
     if (!project) return;
     const shots = project.shots.map((s) =>
@@ -423,12 +434,19 @@ export const useStudio = create<StudioState>((set, get) => ({
         ? { ...s, customImageId: id, matchedFileName: file.name, imageMatchMethod: "manual" as const }
         : s
     );
-    set({ project: { ...project, shots }, feedback: `تم تحديث صورة المشهد #${shotNumber}` });
+    const savedPct = Math.max(0, Math.round(((file.size - compressedBlob.size) / Math.max(1, file.size)) * 100));
+    set({
+      project: { ...project, shots },
+      feedback: `تم ضغط وحفظ صورة المشهد #${shotNumber} بصيغة WebP (توفير ${savedPct}% من الحجم)! ✨`,
+    });
   },
 
   assignSingleForegroundImage: async (shotNumber, file) => {
+    set({ feedback: `جارٍ تحسين وضغط العنصر الأمامي للمشهد #${shotNumber}...` });
+    const compressedBlob = await compressImageToWebp(file);
     const id = newId("fg");
-    await putImage({ id, name: file.name, type: file.type, blob: file, createdAt: Date.now() });
+    const webpName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
+    await putImage({ id, name: webpName, type: "image/webp", blob: compressedBlob, createdAt: Date.now() });
     const project = get().project;
     if (!project) return;
     const shots = project.shots.map((s) =>
@@ -436,7 +454,11 @@ export const useStudio = create<StudioState>((set, get) => ({
         ? { ...s, customForegroundImageId: id, matchedForegroundFileName: file.name }
         : s
     );
-    set({ project: { ...project, shots }, feedback: `تم تعيين عنصر أمامي مفرغ للمشهد #${shotNumber}` });
+    const savedPct = Math.max(0, Math.round(((file.size - compressedBlob.size) / Math.max(1, file.size)) * 100));
+    set({
+      project: { ...project, shots },
+      feedback: `تم ضغط وحفظ العنصر الأمامي للمشهد #${shotNumber} بصيغة WebP مع الشفافية (توفير ${savedPct}%)! ✨`,
+    });
   },
 
   clearShotForegroundImage: async (shotNumber) => {
@@ -739,17 +761,48 @@ export const useStudio = create<StudioState>((set, get) => ({
     // 1. Natural Sort incoming files to eliminate OS file order bugs (e.g. 1, 10, 2 -> 1, 2, 10)
     const sortedFiles = [...files].sort((a, b) => naturalCompare(a.name, b.name));
 
-    // Store in IndexedDB
+    set({
+      isCompressingImages: true,
+      compressionProgress: { current: 0, total: sortedFiles.length, fileName: sortedFiles[0]?.name || "" },
+      feedback: `جارٍ ضغط وتحسين ${sortedFiles.length} صورة إلى WebP بدقة 720x1280...`,
+    });
+
+    // 2. Throttled compression to WebP (720x1280 @ 82%) to prevent Aw, Snap / memory leaks
+    let compressedList: { item: { file: File }; compressedBlob: Blob }[] = [];
+    try {
+      compressedList = await compressBatchFiles(
+        sortedFiles.map((file) => ({ file })),
+        (completed, total, fileName) => {
+          set({
+            compressionProgress: { current: completed, total, fileName },
+          });
+        }
+      );
+    } catch (err) {
+      console.warn("[assignImages] batch compression error, using raw files as fallback:", err);
+      compressedList = sortedFiles.map((file) => ({ item: { file }, compressedBlob: file }));
+    } finally {
+      set({ isCompressingImages: false, compressionProgress: null });
+    }
+
+    // Store compressed WebP in IndexedDB
     const stored = await Promise.all(
-      sortedFiles.map(async (file) => {
+      compressedList.map(async ({ item, compressedBlob }) => {
         const id = newId("img");
-        await putImage({ id, name: file.name, type: file.type, blob: file, createdAt: Date.now() });
+        const webpName = item.file.name.replace(/\.[^/.]+$/, "") + ".webp";
+        await putImage({
+          id,
+          name: webpName,
+          type: "image/webp",
+          blob: compressedBlob,
+          createdAt: Date.now(),
+        });
         return {
           id,
-          name: file.name,
-          base: cleanBaseName(file.name),
-          norm: normalizeImageKey(file.name),
-          num: extractPreciseShotNumber(file.name),
+          name: item.file.name,
+          base: cleanBaseName(item.file.name),
+          norm: normalizeImageKey(item.file.name),
+          num: extractPreciseShotNumber(item.file.name),
         };
       })
     );
@@ -869,9 +922,115 @@ export const useStudio = create<StudioState>((set, get) => ({
     const summary = feedbackDetails.length > 0 ? ` (${feedbackDetails.join("، ")})` : "";
     set({
       project: { ...project, shots: finalShots },
-      feedback: `تم تعيين ${totalMatched} صورة ومطابقتها وفق حقل shot_number والطبقات المنفصلة بنجاح${summary}!`,
+      feedback: `تم ضغط وحفظ ${totalMatched} صورة بصيغة WebP خفيفة ومطابقتها وفق حقل shot_number بنجاح${summary}! ✨`,
     });
     return totalMatched;
+  },
+
+  compressExistingProjectImages: async () => {
+    const project = get().project;
+    if (!project || project.shots.length === 0) {
+      return { processed: 0, savedKB: 0, totalOriginalKB: 0 };
+    }
+
+    const imageTasks: { shotNumber: number; id: string; isFg: boolean; name: string }[] = [];
+    const seenIds = new Set<string>();
+
+    for (const shot of project.shots) {
+      if (shot.customImageId && !seenIds.has(shot.customImageId)) {
+        seenIds.add(shot.customImageId);
+        imageTasks.push({
+          shotNumber: shot.shotNumber,
+          id: shot.customImageId,
+          isFg: false,
+          name: shot.matchedFileName || `مشهد #${shot.shotNumber}`,
+        });
+      }
+      if (shot.customForegroundImageId && !seenIds.has(shot.customForegroundImageId)) {
+        seenIds.add(shot.customForegroundImageId);
+        imageTasks.push({
+          shotNumber: shot.shotNumber,
+          id: shot.customForegroundImageId,
+          isFg: true,
+          name: shot.matchedForegroundFileName || `عنصر أمامي #${shot.shotNumber}`,
+        });
+      }
+    }
+
+    if (imageTasks.length === 0) {
+      set({ feedback: "لا توجد صور مخصصة حالياً في المشروع لضغطها." });
+      return { processed: 0, savedKB: 0, totalOriginalKB: 0 };
+    }
+
+    set({
+      isCompressingImages: true,
+      compressionProgress: { current: 0, total: imageTasks.length, fileName: imageTasks[0]?.name || "" },
+      feedback: `جارٍ فحص وضغط ${imageTasks.length} صورة حالية في المشروع إلى WebP (720x1280)...`,
+    });
+
+    let processed = 0;
+    let totalOriginalBytes = 0;
+    let totalCompressedBytes = 0;
+
+    for (let i = 0; i < imageTasks.length; i++) {
+      const task = imageTasks[i];
+      set({
+        compressionProgress: { current: i, total: imageTasks.length, fileName: task.name },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      try {
+        const stored = await getImage(task.id);
+        if (stored && stored.blob) {
+          totalOriginalBytes += stored.blob.size;
+
+          // Check if already compressed WebP < 120KB
+          if (stored.blob.type === "image/webp" && stored.blob.size < 120 * 1024) {
+            totalCompressedBytes += stored.blob.size;
+            processed++;
+            continue;
+          }
+
+          const compressed = await compressImageToWebp(stored.blob);
+          totalCompressedBytes += compressed.size;
+
+          await putImage({
+            id: stored.id,
+            name: stored.name.replace(/\.[^/.]+$/, "") + ".webp",
+            type: "image/webp",
+            blob: compressed,
+            createdAt: Date.now(),
+          });
+          processed++;
+        }
+      } catch (err) {
+        console.warn(`[compressExistingProjectImages] failed to compress ${task.name}:`, err);
+      }
+
+      if (i % 2 === 0) {
+        await new Promise((r) => setTimeout(r, 8));
+      }
+    }
+
+    set({ isCompressingImages: false, compressionProgress: null });
+
+    const savedKB = Math.max(0, Math.round((totalOriginalBytes - totalCompressedBytes) / 1024));
+    const totalOriginalKB = Math.round(totalOriginalBytes / 1024);
+    const savedPct =
+      totalOriginalBytes > 0
+        ? Math.round(((totalOriginalBytes - totalCompressedBytes) / totalOriginalBytes) * 100)
+        : 0;
+
+    const savedSummary =
+      savedKB > 1024
+        ? `${(savedKB / 1024).toFixed(1)} ميجابايت (${savedPct}%)`
+        : `${savedKB} كيلوبايت (${savedPct}%)`;
+
+    set({
+      feedback: `اكتمل تحسين وضغط ${processed} صورة في المشروع! تم تحرير ${savedSummary} من مساحة التخزين والذاكرة 🚀`,
+    });
+
+    return { processed, savedKB, totalOriginalKB };
   },
 
   clearShotImage: async (shotNumber) => {
