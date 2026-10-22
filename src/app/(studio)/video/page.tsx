@@ -39,6 +39,7 @@ import {
   estimateVideoSizeMB,
   exportStoryVideo,
   loadShotImages,
+  closeShotImages,
 } from "@/lib/video-export";
 import { cn, formatTimecode } from "@/lib/utils";
 import { computeProjectTimeline, sliceProjectRange } from "@/lib/timeline";
@@ -117,7 +118,7 @@ export default function VideoPage() {
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   const [result, setResult] = useState<{ url: string; name: string; size: number } | null>(null);
-  const [compressionPreset, setCompressionPreset] = useState<CompressionPreset>("compact");
+  const [compressionPreset, setCompressionPreset] = useState<CompressionPreset>("balanced");
   const [generatingAllVoice, setGeneratingAllVoice] = useState(false);
   const [skipExistingVoice, setSkipExistingVoice] = useState(true);
   const [allVoiceProgress, setAllVoiceProgress] = useState("");
@@ -273,15 +274,39 @@ export default function VideoPage() {
     let cancelled = false;
     if (!project) return;
     void (async () => {
-      const map = await loadShotImages(project.shots);
-      if (cancelled) return;
+      const map = await loadShotImages(project.shots, videoDims.width, videoDims.height);
+      if (cancelled) {
+        closeShotImages(map);
+        return;
+      }
+      closeShotImages(imagesRef.current);
       imagesRef.current = map;
       paint();
     })();
     return () => {
       cancelled = true;
     };
-  }, [project, paint]);
+  }, [project, videoDims.width, videoDims.height, paint]);
+
+  // Clean up all GPU bitmaps on component unmount
+  useEffect(() => {
+    return () => {
+      closeShotImages(imagesRef.current);
+    };
+  }, []);
+
+  // Pause playback preview when tab is hidden or minimized to prevent CPU/RAM burn
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && playing) {
+        setPlaying(false);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [playing]);
 
   // Stop active voice helper
   const stopActiveVoice = useCallback(() => {
@@ -686,6 +711,7 @@ export default function VideoPage() {
 
   async function handleExport() {
     if (!project || exporting) return;
+    if (playing) setPlaying(false);
     setExporting(true);
     setProgress(0);
     setResult((prev) => {
@@ -1287,15 +1313,23 @@ export default function VideoPage() {
               >
                 <span className="text-xs font-bold">
                   {presetKey === "compact"
-                    ? "⚡ خفيف وسريع (موصى به)"
+                    ? "⚡ فائق الخفة والتوفير"
                     : presetKey === "balanced"
-                    ? "⚖️ متوازن 1080p"
+                    ? "⚖️ متوازن 720p (موصى به)"
                     : "🎬 أقصى جودة سينمائية"}
                 </span>
                 <span className="text-[10px] text-dim font-mono mt-0.5">{profile.badge}</span>
               </button>
             );
           })}
+        </div>
+
+        {/* Streaming Memory Shield Reassurance Banner */}
+        <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-2.5 text-xs text-emerald-400">
+          <span className="shrink-0 text-base">🛡️</span>
+          <span className="leading-relaxed">
+            <strong>درع الذاكرة الذكي (Streaming Memory Shield) نشط:</strong> تفريغ تلقائي لحظي لذاكرة المشاهد السابقة لمنع انهيار المتصفح (Aw, Snap) وحماية الهواتف أثناء رندر المشاريع الكاملة.
+          </span>
         </div>
 
         {/* Export Action Button */}

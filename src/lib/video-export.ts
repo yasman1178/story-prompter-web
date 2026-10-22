@@ -1078,14 +1078,21 @@ export function drawFrame(
   ctx.restore();
 }
 
-export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, ShotImage>> {
+export async function loadShotImages(
+  shots: StoryShot[],
+  targetW = VIDEO_WIDTH,
+  targetH = VIDEO_HEIGHT
+): Promise<Map<number, ShotImage>> {
   const map = new Map<number, ShotImage>();
   if (!shots || shots.length === 0) return map;
 
-  // 1. Sort shots strictly by shot_number ascending (1, 2, 3...) to eliminate OS file sorting discrepancies
   const sortedShots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
+  const decodeOptions: ImageBitmapOptions = {
+    resizeWidth: targetW,
+    resizeHeight: targetH,
+    resizeQuality: "medium",
+  };
 
-  // 2. Load assets for each shot strictly mapped to shot.shotNumber (background + foreground)
   for (const shot of sortedShots) {
     let bgBitmap: ImageBitmap | undefined;
     let fgBitmap: ImageBitmap | undefined;
@@ -1094,9 +1101,13 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
       const asset = await getImage(shot.customImageId).catch(() => undefined);
       if (asset?.blob) {
         try {
-          bgBitmap = await createImageBitmap(asset.blob);
-        } catch (err) {
-          console.warn(`[loadShotImages] Failed to create bg bitmap for shot #${shot.shotNumber}:`, err);
+          bgBitmap = await createImageBitmap(asset.blob, decodeOptions);
+        } catch {
+          try {
+            bgBitmap = await createImageBitmap(asset.blob);
+          } catch (err) {
+            console.warn(`[loadShotImages] Failed to create bg bitmap for shot #${shot.shotNumber}:`, err);
+          }
         }
       }
     }
@@ -1105,9 +1116,13 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
       const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
       if (fgAsset?.blob) {
         try {
-          fgBitmap = await createImageBitmap(fgAsset.blob);
-        } catch (err) {
-          console.warn(`[loadShotImages] Failed to create fg cutout bitmap for shot #${shot.shotNumber}:`, err);
+          fgBitmap = await createImageBitmap(fgAsset.blob, decodeOptions);
+        } catch {
+          try {
+            fgBitmap = await createImageBitmap(fgAsset.blob);
+          } catch (err) {
+            console.warn(`[loadShotImages] Failed to create fg cutout bitmap for shot #${shot.shotNumber}:`, err);
+          }
         }
       }
     }
@@ -1121,6 +1136,143 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
   }
 
   return map;
+}
+
+export function closeShotImages(map: Map<number, ShotImage> | null | undefined): void {
+  if (!map) return;
+  for (const entry of map.values()) {
+    try {
+      entry.bitmap?.close?.();
+      entry.foregroundBitmap?.close?.();
+    } catch {
+      // ignore
+    }
+  }
+  map.clear();
+}
+
+/**
+ * Sliding Window Streaming Image Manager
+ * Prevents Chrome OOM / Aw, Snap crashes on mobile devices during full-length renders.
+ * Keeps only the current, previous, and next scene bitmaps in memory (~2-3 images total),
+ * instantly calling .close() on departed bitmaps to reclaim GPU/RAM memory.
+ */
+export class StreamingImageManager {
+  private activeMap = new Map<number, ShotImage>();
+  private shots: StoryShot[];
+  private targetW: number;
+  private targetH: number;
+  private loadingPromises = new Map<number, Promise<ShotImage | undefined>>();
+
+  constructor(shots: StoryShot[], targetW: number, targetH: number) {
+    this.shots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    this.targetW = targetW;
+    this.targetH = targetH;
+  }
+
+  async prepareShot(shotNumber: number): Promise<ShotImage | undefined> {
+    if (this.activeMap.has(shotNumber)) {
+      return this.activeMap.get(shotNumber);
+    }
+    if (this.loadingPromises.has(shotNumber)) {
+      return this.loadingPromises.get(shotNumber);
+    }
+
+    const p = (async () => {
+      const shot = this.shots.find((s) => s.shotNumber === shotNumber);
+      if (!shot) return undefined;
+
+      let bgBitmap: ImageBitmap | undefined;
+      let fgBitmap: ImageBitmap | undefined;
+
+      const decodeOptions: ImageBitmapOptions = {
+        resizeWidth: this.targetW,
+        resizeHeight: this.targetH,
+        resizeQuality: "medium",
+      };
+
+      if (shot.customImageId) {
+        const asset = await getImage(shot.customImageId).catch(() => undefined);
+        if (asset?.blob) {
+          try {
+            bgBitmap = await createImageBitmap(asset.blob, decodeOptions);
+          } catch {
+            try {
+              bgBitmap = await createImageBitmap(asset.blob);
+            } catch (err) {
+              console.warn(`[StreamingImageManager] Bg bitmap error for #${shotNumber}:`, err);
+            }
+          }
+        }
+      }
+
+      if (shot.customForegroundImageId) {
+        const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
+        if (fgAsset?.blob) {
+          try {
+            fgBitmap = await createImageBitmap(fgAsset.blob, decodeOptions);
+          } catch {
+            try {
+              fgBitmap = await createImageBitmap(fgAsset.blob);
+            } catch (err) {
+              console.warn(`[StreamingImageManager] Fg bitmap error for #${shotNumber}:`, err);
+            }
+          }
+        }
+      }
+
+      if (bgBitmap || fgBitmap) {
+        const entry: ShotImage = {
+          bitmap: bgBitmap || fgBitmap!,
+          foregroundBitmap: bgBitmap && fgBitmap ? fgBitmap : undefined,
+        };
+        this.activeMap.set(shotNumber, entry);
+        return entry;
+      }
+      return undefined;
+    })();
+
+    this.loadingPromises.set(shotNumber, p);
+    try {
+      const res = await p;
+      return res;
+    } finally {
+      this.loadingPromises.delete(shotNumber);
+    }
+  }
+
+  // Evict scenes outside of [current - 1, current, current + 1] to keep RAM <= 30MB
+  evictFarShots(currentShotNumber: number): void {
+    const keep = new Set([currentShotNumber - 1, currentShotNumber, currentShotNumber + 1]);
+    for (const [num, entry] of this.activeMap.entries()) {
+      if (!keep.has(num)) {
+        try {
+          entry.bitmap?.close?.();
+          entry.foregroundBitmap?.close?.();
+        } catch {
+          // ignore
+        }
+        this.activeMap.delete(num);
+      }
+    }
+  }
+
+  getShot(shotNumber: number): ShotImage | undefined {
+    return this.activeMap.get(shotNumber);
+  }
+
+  dispose(): void {
+    for (const entry of this.activeMap.values()) {
+      try {
+        entry.bitmap?.close?.();
+        entry.foregroundBitmap?.close?.();
+      } catch {
+        // ignore
+      }
+    }
+    this.activeMap.clear();
+    this.loadingPromises.clear();
+  }
 }
 
 let sharedAudioContext: AudioContext | null = null;
@@ -1439,7 +1591,7 @@ async function supportsAac(): Promise<boolean> {
 
 async function exportWithWebCodecs(
   input: ExportInput,
-  images: Map<number, ShotImage>
+  imageManager: StreamingImageManager
 ): Promise<ExportResult | null> {
   const { project, onProgress, signal } = input;
   const dims = getVideoDimensions(project.aspectRatio);
@@ -1507,7 +1659,13 @@ async function exportWithWebCodecs(
     checkAborted(signal);
     const t = frame / VIDEO_FPS;
     const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
-    drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
+
+    // Prepare current shot bitmap dynamically using sliding window
+    await imageManager.prepareShot(shot.shotNumber);
+    // Evict far scenes from GPU memory
+    imageManager.evictFarShots(shot.shotNumber);
+
+    drawFrame(ctx, project, shot, localSec, durationSec, imageManager.getShot(shot.shotNumber), targetW, targetH);
 
     // STRICT QUEUE THROTTLING TO PREVENT AW SNAP / OOM CRASH:
     // Never allow more than 2 uncompressed frames to pile up in GPU/RAM memory!
@@ -1523,7 +1681,7 @@ async function exportWithWebCodecs(
     videoFrame.close();
 
     // Periodically yield to event loop so browser engine can run garbage collection
-    if (frame % 6 === 0) {
+    if (frame % 8 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
 
@@ -1627,7 +1785,7 @@ function pickRecorderMime(requestedFormat?: "webm" | "mp4"): { mime: string; ext
 
 async function exportWithMediaRecorder(
   input: ExportInput,
-  images: Map<number, ShotImage>
+  imageManager: StreamingImageManager
 ): Promise<ExportResult> {
   const { project, onProgress, signal } = input;
   const timeline = computeProjectTimeline(project);
@@ -1684,22 +1842,32 @@ async function exportWithMediaRecorder(
 
   const startAt = performance.now();
   await new Promise<void>((resolve) => {
-    const render = () => {
+    let animId: number;
+    let isFinished = false;
+
+    const render = async () => {
+      if (isFinished) return;
       if (signal?.aborted) {
+        isFinished = true;
+        cancelAnimationFrame(animId);
         resolve();
         return;
       }
       const t = (performance.now() - startAt) / 1000;
       if (t >= totalSec) {
+        isFinished = true;
+        cancelAnimationFrame(animId);
         resolve();
         return;
       }
       const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
-      drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
+      await imageManager.prepareShot(shot.shotNumber);
+      imageManager.evictFarShots(shot.shotNumber);
+      drawFrame(ctx, project, shot, localSec, durationSec, imageManager.getShot(shot.shotNumber), targetW, targetH);
       onProgress?.(Math.min(0.95, t / totalSec), "تسجيل الفيديو…");
-      requestAnimationFrame(render);
+      animId = requestAnimationFrame(render);
     };
-    requestAnimationFrame(render);
+    animId = requestAnimationFrame(render);
   });
 
   source.stop();
@@ -1721,23 +1889,32 @@ export async function exportStoryVideo(input: ExportInput): Promise<ExportResult
     project: effectiveProject,
   };
 
-  const images = await loadShotImages(effectiveProject.shots);
-  effectiveInput.onProgress?.(0.02, "تحضير المشاهد…");
-
-  // Direct WebM export if chosen by user (recommended for long 8+ minute videos)
-  if (effectiveInput.exportFormat === "webm") {
-    return exportWithMediaRecorder(effectiveInput, images);
-  }
+  const dims = getVideoDimensions(effectiveProject.aspectRatio);
+  const imageManager = new StreamingImageManager(effectiveProject.shots, dims.width, dims.height);
+  effectiveInput.onProgress?.(0.02, "تحضير المشاهد بنظام تفريغ الذاكرة الآمن…");
 
   try {
-    const result = await exportWithWebCodecs(effectiveInput, images);
-    if (result) return result;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
-    console.warn("WebCodecs export failed, falling back to MediaRecorder:", err);
-  }
+    if (effectiveProject.shots[0]) {
+      await imageManager.prepareShot(effectiveProject.shots[0].shotNumber);
+    }
 
-  return exportWithMediaRecorder(effectiveInput, images);
+    // Direct WebM export if chosen by user (recommended for long videos)
+    if (effectiveInput.exportFormat === "webm") {
+      return await exportWithMediaRecorder(effectiveInput, imageManager);
+    }
+
+    try {
+      const result = await exportWithWebCodecs(effectiveInput, imageManager);
+      if (result) return result;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      console.warn("WebCodecs export failed, falling back to MediaRecorder:", err);
+    }
+
+    return await exportWithMediaRecorder(effectiveInput, imageManager);
+  } finally {
+    imageManager.dispose();
+  }
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
