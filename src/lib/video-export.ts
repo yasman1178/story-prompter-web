@@ -86,6 +86,7 @@ export interface ExportInput {
   isBgmMuted?: boolean;
   isSfxMuted?: boolean;
   compressionPreset?: CompressionPreset;
+  exportFormat?: "webm" | "mp4";
   onProgress?: (ratio: number, stage: string) => void;
   signal?: AbortSignal;
 }
@@ -1090,14 +1091,20 @@ export function drawFrame(
   ctx.restore();
 }
 
-export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, ShotImage>> {
+export async function loadShotImages(
+  shots: StoryShot[],
+  targetWidth?: number,
+  targetHeight?: number
+): Promise<Map<number, ShotImage>> {
   const map = new Map<number, ShotImage>();
   if (!shots || shots.length === 0) return map;
 
-  // 1. Sort shots strictly by shot_number ascending (1, 2, 3...) to eliminate OS file sorting discrepancies
   const sortedShots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
+  const resizeOptions =
+    targetWidth && targetHeight
+      ? { resizeWidth: targetWidth, resizeHeight: targetHeight }
+      : undefined;
 
-  // 2. Load assets for each shot strictly mapped to shot.shotNumber (background + foreground)
   for (const shot of sortedShots) {
     let bgBitmap: ImageBitmap | undefined;
     let fgBitmap: ImageBitmap | undefined;
@@ -1106,7 +1113,9 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
       const asset = await getImage(shot.customImageId).catch(() => undefined);
       if (asset?.blob) {
         try {
-          bgBitmap = await createImageBitmap(asset.blob);
+          bgBitmap = resizeOptions
+            ? await createImageBitmap(asset.blob, resizeOptions)
+            : await createImageBitmap(asset.blob);
         } catch (err) {
           console.warn(`[loadShotImages] Failed to create bg bitmap for shot #${shot.shotNumber}:`, err);
         }
@@ -1117,7 +1126,9 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
       const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
       if (fgAsset?.blob) {
         try {
-          fgBitmap = await createImageBitmap(fgAsset.blob);
+          fgBitmap = resizeOptions
+            ? await createImageBitmap(fgAsset.blob, resizeOptions)
+            : await createImageBitmap(fgAsset.blob);
         } catch (err) {
           console.warn(`[loadShotImages] Failed to create fg cutout bitmap for shot #${shot.shotNumber}:`, err);
         }
@@ -1133,6 +1144,23 @@ export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, Sh
   }
 
   return map;
+}
+
+export function closeShotImages(images: Map<number, ShotImage> | undefined): void {
+  if (!images) return;
+  for (const shotImg of images.values()) {
+    try {
+      shotImg.bitmap?.close?.();
+    } catch {
+      // ignore
+    }
+    try {
+      shotImg.foregroundBitmap?.close?.();
+    } catch {
+      // ignore
+    }
+  }
+  images.clear();
 }
 
 async function buildMixedAudio(

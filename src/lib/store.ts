@@ -13,10 +13,11 @@ import {
   VfxSettings,
   WordBoundary,
 } from "@/lib/types";
-import { kvGet, kvSet, putImage, deleteImage } from "@/lib/db";
+import { kvGet, kvSet, putImage, getImage, deleteImage } from "@/lib/db";
 import { clamp, formatTimeframe, uid as newId } from "@/lib/utils";
 import { syncProjectShotTimeframes } from "@/lib/timeline";
 import { optimizeEgyptianVoiceover } from "@/lib/tts-optimizer";
+import { compressImageToWebp } from "@/lib/image-optimizer";
 
 const PROJECT_KEY = "project";
 const SETTINGS_KEY = "settings";
@@ -127,7 +128,13 @@ interface StudioState {
   clearShotImage: (shotNumber: number) => Promise<void>;
   swapShotImages: (shotNumberA: number, shotNumberB: number) => void;
   shiftShotImage: (shotNumber: number, direction: "up" | "down") => void;
+  shiftAllImages: (direction: "forward" | "backward") => void;
+  alignImagesStrictlyByShotNumber: () => void;
+  reorderImagesSmartly: () => void;
   reorderImagesOrdinally: () => void;
+  isCompressingImages: boolean;
+  compressionProgress: { current: number; completed?: number; total: number; fileName: string } | null;
+  compressExistingProjectImages: () => Promise<void>;
 
   setVoiceVolume: (v: number) => void;
   setBgmVolume: (v: number) => void;
@@ -175,10 +182,26 @@ export function cleanBaseName(fileName: string): string {
   return withoutPath.replace(/\.[^.]+$/, "").trim().toLowerCase();
 }
 
-export function extractNumericSuffix(fileName: string): number | null {
+export function extractPreciseShotNumber(fileName: string): number | null {
+  if (!fileName) return null;
   const base = cleanBaseName(fileName);
-  const match = base.match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  // 1. Explicit shot_XX or scene_XX or sXX prefix
+  const prefixMatch = base.match(/(?:^|[_\-\s])(?:shot|scene|s)[_-]?(\d+)/i);
+  if (prefixMatch) return parseInt(prefixMatch[1], 10);
+  // 2. Leading digits before separator (e.g. "01_...", "1 - ...")
+  const leadingMatch = base.match(/^(\d+)[_\-\s]/);
+  if (leadingMatch) return parseInt(leadingMatch[1], 10);
+  // 3. Number not preceded by v/ver/ch/chapter/ep
+  const cleaned = base
+    .replace(/(?:v|ver|version)\d+/gi, "")
+    .replace(/(?:ch|chapter|ep|episode)\d+/gi, "");
+  const generalMatch = cleaned.match(/(\d+)/);
+  if (generalMatch) return parseInt(generalMatch[1], 10);
+  return null;
+}
+
+export function extractNumericSuffix(fileName: string): number | null {
+  return extractPreciseShotNumber(fileName);
 }
 
 export function candidateMatchesShot(shot: StoryShot, name: string): boolean {
@@ -207,6 +230,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   isBgmMuted: false,
   isSfxMuted: false,
   masterVfxDisabled: false,
+
+  isCompressingImages: false,
+  compressionProgress: null,
 
   feedback: null,
 
@@ -919,6 +945,198 @@ export const useStudio = create<StudioState>((set, get) => ({
       project: { ...project, shots: newShots },
       feedback: `تمت إعادة الترتيب التسلسلي الصارم لـ ${assigned.length} صورة وفق حقل shot_number (1، 2، 3...)!`,
     });
+  },
+
+  shiftAllImages: (direction) => {
+    const project = get().project;
+    if (!project) return;
+    const sorted = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    const images = sorted.map((s) => ({
+      id: s.customImageId,
+      name: s.matchedFileName,
+      method: s.imageMatchMethod,
+    }));
+    const shiftedImages =
+      direction === "forward"
+        ? [{ id: undefined, name: undefined, method: undefined }, ...images.slice(0, images.length - 1)]
+        : [...images.slice(1), { id: undefined, name: undefined, method: undefined }];
+
+    const newShots = sorted.map((shot, idx) => ({
+      ...shot,
+      customImageId: shiftedImages[idx].id,
+      matchedFileName: shiftedImages[idx].name,
+      imageMatchMethod: shiftedImages[idx].method ?? ("manual" as const),
+    }));
+    set({
+      project: { ...project, shots: newShots },
+      feedback: direction === "forward" ? "تمت إزاحة جميع الصور للأمام (+1)" : "تمت إزاحة جميع الصور للخلف (-1)",
+    });
+  },
+
+  alignImagesStrictlyByShotNumber: () => {
+    const project = get().project;
+    if (!project) return;
+    const assigned = project.shots
+      .filter((s) => Boolean(s.customImageId))
+      .map((s) => ({
+        id: s.customImageId!,
+        name: s.matchedFileName || `shot_${s.shotNumber}.jpg`,
+        targetShotNum: extractPreciseShotNumber(s.matchedFileName || "") ?? s.shotNumber,
+      }));
+    if (assigned.length === 0) {
+      set({ feedback: "لا توجد صور معينة في المشروع لمحاذاتها." });
+      return;
+    }
+    let alignedCount = 0;
+    const newShots = project.shots.map((shot) => {
+      const match = assigned.find((a) => a.targetShotNum === shot.shotNumber);
+      if (match) {
+        alignedCount++;
+        return {
+          ...shot,
+          customImageId: match.id,
+          matchedFileName: match.name,
+          imageMatchMethod: "shot_number" as const,
+        };
+      }
+      return {
+        ...shot,
+        customImageId: undefined,
+        matchedFileName: undefined,
+        imageMatchMethod: undefined,
+      };
+    });
+    set({
+      project: { ...project, shots: newShots },
+      feedback: `تمت المحاذاة الصارمة لـ ${alignedCount} صورة وفق أرقام المشاهد المباشرة!`,
+    });
+  },
+
+  reorderImagesSmartly: () => {
+    const project = get().project;
+    if (!project) return;
+    const assigned = project.shots
+      .filter((s) => Boolean(s.customImageId))
+      .map((s) => ({
+        id: s.customImageId!,
+        name: s.matchedFileName || `shot_${s.shotNumber}.jpg`,
+        num: extractPreciseShotNumber(s.matchedFileName || ""),
+      }));
+    if (assigned.length === 0) {
+      set({ feedback: "لا توجد صور معينة في المشروع لفرزها." });
+      return;
+    }
+    const remaining = [...assigned];
+    const sortedShots = [...project.shots].sort((a, b) => a.shotNumber - b.shotNumber);
+    // Match precise numbers first
+    const phase1Shots = sortedShots.map((shot) => {
+      const hitIdx = remaining.findIndex((img) => img.num === shot.shotNumber);
+      if (hitIdx >= 0) {
+        const [hit] = remaining.splice(hitIdx, 1);
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "shot_number" as const,
+        };
+      }
+      return {
+        ...shot,
+        customImageId: undefined,
+        matchedFileName: undefined,
+        imageMatchMethod: undefined,
+      };
+    });
+    // Fill gaps ordinally with remaining images sorted naturally
+    remaining.sort((a, b) => naturalCompare(a.name, b.name));
+    let r = 0;
+    const finalShots = phase1Shots.map((shot) => {
+      if (!shot.customImageId && r < remaining.length) {
+        const hit = remaining[r++];
+        return {
+          ...shot,
+          customImageId: hit.id,
+          matchedFileName: hit.name,
+          imageMatchMethod: "ordinal" as const,
+        };
+      }
+      return shot;
+    });
+    set({
+      project: { ...project, shots: finalShots },
+      feedback: `تم الفرز الذكي وسد نواقص المشاهد لـ ${assigned.length} صورة بنجاح!`,
+    });
+  },
+
+  compressExistingProjectImages: async () => {
+    const project = get().project;
+    if (!project) return;
+    const shotsWithImages = project.shots.filter(
+      (s) => Boolean(s.customImageId) || Boolean(s.customForegroundImageId)
+    );
+    if (shotsWithImages.length === 0) {
+      set({ feedback: "لا توجد صور في المشروع لضغطها." });
+      return;
+    }
+
+    set({
+      isCompressingImages: true,
+      compressionProgress: { current: 0, completed: 0, total: shotsWithImages.length, fileName: "" },
+    });
+    let compressedCount = 0;
+
+    try {
+      for (let i = 0; i < shotsWithImages.length; i++) {
+        const shot = shotsWithImages[i];
+        set({
+          compressionProgress: {
+            current: i + 1,
+            completed: i,
+            total: shotsWithImages.length,
+            fileName: shot.matchedFileName || `المشهد #${shot.shotNumber}`,
+          },
+        });
+
+        // Background image
+        if (shot.customImageId) {
+          const asset = await getImage(shot.customImageId).catch(() => undefined);
+          if (asset?.blob) {
+            const compressed = await compressImageToWebp(asset.blob, { maxWidth: 720, maxHeight: 1280, quality: 0.82 });
+            if (compressed !== asset.blob) {
+              await putImage({ ...asset, blob: compressed });
+              compressedCount++;
+            }
+          }
+        }
+
+        // Foreground image
+        if (shot.customForegroundImageId) {
+          const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
+          if (fgAsset?.blob) {
+            const compressed = await compressImageToWebp(fgAsset.blob, { maxWidth: 720, maxHeight: 1280, quality: 0.82 });
+            if (compressed !== fgAsset.blob) {
+              await putImage({ ...fgAsset, blob: compressed });
+              compressedCount++;
+            }
+          }
+        }
+
+        await new Promise((r) => setTimeout(r, 4));
+      }
+
+      set({
+        isCompressingImages: false,
+        compressionProgress: null,
+        feedback: `تم فحص وضغط ${compressedCount} صورة من صور المشروع بنجاح إلى صيغة WebP وتوفير الذاكرة!`,
+      });
+    } catch (err) {
+      console.error("[compressExistingProjectImages] failed:", err);
+      set({
+        isCompressingImages: false,
+        compressionProgress: null,
+        feedback: "تعذّر استكمال ضغط بعض الصور.",
+      });
+    }
   },
 
   setVoiceVolume: (v) => set({ voiceVolume: clamp(v, 0, 1) }),
