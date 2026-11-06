@@ -5,7 +5,7 @@ import { AlertTriangle, CheckCircle, FileText, FileUp, FolderUp, Layers, Loader2
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { BatchImageMatcherModal } from "@/components/studio/batch-image-matcher-modal";
-import { StoryShot, TRANSITION_TYPES } from "@/lib/types";
+import { StickmanThemeType, StoryShot, TRANSITION_TYPES } from "@/lib/types";
 import { useStudio } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { validateStoryProject } from "@/lib/story-validator";
@@ -26,6 +26,8 @@ export default function ProjectPage() {
   const setShotDuration = useStudio((s) => s.setShotDuration);
   const toggleSubtitles = useStudio((s) => s.toggleSubtitles);
   const setTransitionType = useStudio((s) => s.setTransitionType);
+  const setStickmanTheme = useStudio((s) => s.setStickmanTheme);
+  const setAspectRatio = useStudio((s) => s.setAspectRatio);
   const assignImages = useStudio((s) => s.assignImages);
   const importJson = useStudio((s) => s.importJson);
   const loadSample = useStudio((s) => s.loadSample);
@@ -299,6 +301,52 @@ export default function ProjectPage() {
               className="h-5 w-5 accent-[#00e5ff] shrink-0"
             />
           </label>
+        </div>
+
+        {/* Stickman Studio Staging & Theme Bar */}
+        <div className="mt-3.5 grid gap-3 sm:grid-cols-2 pt-3 border-t border-border/50 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted whitespace-nowrap">لوحة رسم الستيكمان:</span>
+            <select
+              value={project.stickmanTheme || "dark_chalkboard"}
+              onChange={(e) => setStickmanTheme(e.target.value as StickmanThemeType)}
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-xs sm:text-sm text-fg outline-none focus:border-primary font-medium"
+            >
+              <option value="dark_chalkboard">🖤 سبورة داكنة فحمية (Chalkboard)</option>
+              <option value="whiteboard">🤍 دفتر رسم ناصع (Whiteboard Sketch)</option>
+              <option value="blueprint">💙 مخطط هندسي أزرق (Blueprint)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted whitespace-nowrap">أبعاد الفيديو:</span>
+            <div className="flex items-center gap-1.5 w-full">
+              <button
+                type="button"
+                onClick={() => setAspectRatio("16:9")}
+                className={cn(
+                  "flex-1 h-10 rounded-xl text-xs font-bold transition border",
+                  project.aspectRatio === "16:9"
+                    ? "bg-primary text-black border-primary shadow-sm"
+                    : "bg-card text-muted border-border hover:text-fg"
+                )}
+              >
+                16:9 يوتيوب طويل
+              </button>
+              <button
+                type="button"
+                onClick={() => setAspectRatio("9:16")}
+                className={cn(
+                  "flex-1 h-10 rounded-xl text-xs font-bold transition border",
+                  project.aspectRatio === "9:16"
+                    ? "bg-primary text-black border-primary shadow-sm"
+                    : "bg-card text-muted border-border hover:text-fg"
+                )}
+              >
+                9:16 شورتس وتيك توك
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Filter & Search Bar */}

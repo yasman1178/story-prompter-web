@@ -12,6 +12,7 @@ import {
   Layers,
   Play,
   Search,
+  Sparkles,
   Volume2,
   TrendingUp,
   Zap,
@@ -95,6 +96,7 @@ const MASTER_PROMPT_V19_TEXT = `# دليل التعليمات الموحد وا�
     "title": "عنوان القصة - الفصلين 8 و 9",
     "platform": "YouTube Shorts / Reels / TikTok",
     "aspect_ratio": "9:16",
+    "stickman_theme": "dark_chalkboard",
     "total_shots": 32,
     "estimated_duration_sec": 150,
     "language": "Egyptian Arabic (Edge-TTS Pure Text)"
@@ -122,6 +124,8 @@ const MASTER_PROMPT_V19_TEXT = `# دليل التعليمات الموحد وا�
       "type": "Hook",
       "mood": "غموض وتحدي سينمائي",
       "vocal_cue": "excited",
+      "stickman_gesture": "SHOCK_FALL",
+      "stickman_prop": "exclamation",
       "text_overlay": "أضعف صياد في المتاهة!",
       "image_filename": "shot_01_bg.png",
       "background_prompt_en": "Ancient dark stone temple dungeon background, glowing cyan magic runes on pillars, eerie fog, vertical 9:16, no characters",
@@ -173,9 +177,25 @@ const AGENT_SYSTEM_PROMPT_TEXT = `# SYSTEM PROMPT FOR AI SCRIPT GENERATOR AGENT
 ## المهمة الأساسية
 عندما يزودك المستخدم بنص القصة، أو ملخص الفصل، أو الفكرة العامة:
 1. قم بتحليل الأحداث وصياغتها بالعامية المصرية بأسلوب درامي مشوق.
-2. قسم السيناريو إلى مشاهِد متتابعة (Shots) تناسب منصات الفيديوهات القصيرة (9:16).
-3. طبّق تقنية عزل الطبقات بصرياً (Split-Layer Compositing) عبر فصل الخلفية عن العنصر الأمامي (البطل/الوحش) وتحديد الحركة.
-4. أخرج النتيجة فقط وحصرياً ككود JSON يتوافق بدقة مع المواصفات التالية دون إضافة أي كلام قبل أو بعد الكود.
+2. قسم السيناريو إلى مشاهِد متتابعة (Shots) تناسب منصات الفيديوهات القصيرة (9:16) أو الفيديوهات الطويلة (16:9).
+3. حدد وضعية وإيماءة شخصية الستيكمان (Stickman Gesture & Prop) المناسبة للنص في كل لقطة.
+4. طبق مفهوم الـ 3 نبضات بصرية (3-Beat Motion Directing) والاستعارات البصرية لرفع الاحتفاظ بالمشاهد (Retention).
+5. أخرج النتيجة فقط وحصرياً ككود JSON يتوافق بدقة مع المواصفات التالية دون إضافة أي كلام قبل أو بعد الكود.
+
+### مصفوفة إيماءات الستيكمان المتاحة (Stickman Director Gestures):
+- "EXPLAIN_POINT": إشارة وشرح نحو الفكرة أو الرسم البياني
+- "THINK_PUZZLE": تفكير وحيرة مع يد على الذقن
+- "SHOCK_FALL": صدمة ورعب مع اهتزاز الجسد
+- "ACTION_BATTLE": وضعية قتالية مع سيف أو قبضات حماسية
+- "HERO_VICTORY": رفع اليدين بفوز واحتفال
+- "CONFUSED_SHRUG": رفع الكتفين بتعجب وحيرة
+- "CASUAL_TALK": محادثة هادئة وحركات يدين معبرة
+- "RUN_CHASE": ركض وهروب سريع
+- "MONEY_RICH": استعراض أرباح ودولارات
+- "SAD_CRY": حزن وخيبة أمل
+
+### عناصر الستيكمان التعبيرية (Stickman Props):
+- "lightbulb" (فكرة ولمبة) | "question" (استفهام) | "exclamation" (تعجب وصدمة) | "money" (أموال) | "chart_up" (مؤشر صاعد) | "sword" (سيف) | "sweat_drop" (عرق وتوتر) | "none"
 
 ---
 
@@ -197,11 +217,10 @@ const AGENT_SYSTEM_PROMPT_TEXT = `# SYSTEM PROMPT FOR AI SCRIPT GENERATOR AGENT
 - beast
 - system
 
-### 3. الطبقات البصرية (Split Layers)
-لكل شوت، يضم الجيسون:
-- background_prompt_en: وصف للخلفية فقط بدون الشخصية الرئيسية.
-- foreground_element_prompt_en: وصف للشخصية أو الوحش مع تعبير الوجه وتحديد كونها "isolated dynamic cutout on transparent background".
-- foreground_animation: اختر إما (floating, pulse, shake, scale_up, static).
+### 3. ثيمات وإيماءات الستيكمان (Stickman Directing)
+- حقل "stickman_theme" في كائن project_info: اختر إما ("dark_chalkboard", "whiteboard", "blueprint").
+- حقل "stickman_gesture" في كل لقطة: اختر من القائمة ("EXPLAIN_POINT", "THINK_PUZZLE", "SHOCK_FALL", "ACTION_BATTLE", "HERO_VICTORY", "CONFUSED_SHRUG", "CASUAL_TALK", "RUN_CHASE", "MONEY_RICH", "SAD_CRY").
+- حقل "stickman_prop" في كل لقطة: اختر من القائمة ("lightbulb", "question", "exclamation", "money", "chart_up", "sword", "sweat_drop", "none").
 
 ### 4. الإيقاع والمؤثرات
 - الشوت الأول يجب أن يبدأ بـ Hook سريع جداً (أقل من 8 كلمات).
@@ -210,8 +229,192 @@ const AGENT_SYSTEM_PROMPT_TEXT = `# SYSTEM PROMPT FOR AI SCRIPT GENERATOR AGENT
 
 ---
 
-## المخرجات المطلوبة
-أخرج JSON صالحاً ومكتملاً بنفس الهيكل المعتمد في دليل v19.`;
+## المخرجات المطلوبة (Strict JSON Output)
+أخرج JSON صالحاً ومكتملاً بنفس الهيكل التالي فقط دون أي نصوص إضافية:
+\`\`\`json
+{
+  "project_info": {
+    "title": "عنوان الحلقة المشوق",
+    "platform": "YouTube Shorts (9:16)",
+    "aspect_ratio": "9:16",
+    "stickman_theme": "dark_chalkboard",
+    "total_shots": 6,
+    "target_duration_minutes": 1,
+    "language": "Egyptian Arabic (Edge-TTS Pure Text)"
+  },
+  "shots": [
+    {
+      "shot_number": 1,
+      "duration_sec": 5,
+      "type": "Hook الصدمة",
+      "mood": "رعب ومفاجأة صاعقة",
+      "vocal_cue": "excited",
+      "stickman_gesture": "SHOCK_FALL",
+      "stickman_prop": "exclamation",
+      "text_overlay": "كارثة في المتاهة المزدوجة!",
+      "voiceover_egyptian": "أضعف صياد في المتاهة, وفجأة البوابة اتقفلت في وشه!",
+      "sound_design": {
+        "music": "Epic Action Tension BPM 145",
+        "sfx": [
+          { "sfx_name": "Sub Boom Impact", "sfx_volume_percent": 95, "sfx_trigger_sec": 0.0 }
+        ]
+      }
+    }
+  ]
+}
+\`\`\``;
+
+const NOTEBOOKLM_STICKMAN_PROMPT_TEXT = `# برومبت وكيل NotebookLM لمخرج فيديوهات الستيكمان (Stickman Video Director)
+# NOTEBOOKLM PROMPT FOR AUTOMATED STICKMAN PRODUCTION
+
+أنت المخرج الفني ومسؤول كتابة سيناريو فيديوهات الستيكمان التعبيرية (Stickman Explainer & Storyteller Director) لسلسلة الشورتس والفيديوهات الطويلة.
+
+## المهمة الأساسية مع مصادر NotebookLM (Sources):
+بناءً على ملفات الرواية وفصول المانها أو نصوص القصص المرفوعة لديك في هذا الـ Notebook:
+1. استخرج ملخصاً درامياً سريع الوتيرة مكتوباً بالعامية المصرية الصافية، المشوقة، الخالية من أي حشو.
+2. قسّم القصة إلى مشاهد متتابعة (Shots) محكمة ومضبوطة التوقيت (كل مشهد من 4 إلى 8 ثوانٍ).
+3. عيّن وضعية وإيماءة شخصية الستيكمان (stickman_gesture) والأداة المصاحبة (stickman_prop) بدقة لكل لقطة لتعكس مشاعر ونبرة المشهد.
+4. أخرج النتيجة النهائية ككود JSON صالح ونقي ومغلق تماماً فقط، بدون أي مقدمات أو شروحات خارج كود الـ JSON، ليكون جاهزاً للنسخ واللصق المباشر داخل استوديو الشورتس.
+
+---
+
+## 1. مصفوفة حركات شخصيات الستيكمان الإلزامية (stickman_gesture):
+اختر قيمة واحدة مطابقة بدقة من هذه القائمة لكل مشهد:
+- "EXPLAIN_POINT": للشرح وتوضيح فكرة، تفصيل سر، أو الإشارة للأمام نحو البيانات والأرقام.
+- "THINK_PUZZLE": للتفكير والغموض وتحليل الألغاز والخطط الخفية (يد على الذقن).
+- "SHOCK_FALL": للصدمات المفاجئة، الكوارث، الرعب والذهول (اهتزاز وركبتان ترتجفان).
+- "ACTION_BATTLE": للقتال، الهجوم، المعارك الحماسية، ومواجهة الوحوش (وقفة قتالية حماسية).
+- "HERO_VICTORY": لانتصار البطل، التفوق، القفز فرحاً والاحتفال بالنصر والإنجاز.
+- "CONFUSED_SHRUG": للحيرة، التساؤل، الاستغراب والشك (رفع الكتفين واليدين).
+- "CASUAL_TALK": للحوار الطبيعي والسرد الهادئ والمحادثات اليومية الممتعة.
+- "RUN_CHASE": للهروب السريع، المطاردات والاندفاع في المتاهات الخطرة.
+- "MONEY_RICH": لعرض الثراء، المكاسب المالية، الصفقات الضخمة وتجميع النقود.
+- "SAD_CRY": للحزن الشديد، الفقدان، الضعف والدموع.
+
+## 2. الأدوات التعبيرية الكرتونية المصاحبة (stickman_prop):
+اختر أداة مناسبة تعزز المشهد:
+- "lightbulb": لمبة الأفكار العبقرية والاكتشافات المفاجئة والخطط الذكية.
+- "question": علامة استفهام عائمة للحيرة والتساؤل.
+- "exclamation": علامة تعجب نيون للصدمة والتحذير من الخطر.
+- "money": أكياس وأوراق النقود للأرباح والصفقات والتجارة.
+- "chart_up": سهم بياني صاعد للنمو السريع وارتفاع القوة (Level Up).
+- "sword": سيف الطاقة والقتال والمعارك.
+- "sweat_drop": قطرة عرق كرتونية للتوتر والإحراج والارتباك.
+- "none": بدون أداة (تعتمد الحركة على الجسد واليدين فقط).
+
+## 3. ثيمات الاستوديو (stickman_theme في project_info):
+- "dark_chalkboard": سبورة سوداء كلاسيكية بإضاءة نيون (المفضل للأكشن والغموض والأنمي).
+- "whiteboard": دفتر رسم أبيض عصري بأسلوب أقلام التحديد الكرتونية الملونة.
+- "blueprint": مخطط أزرق هندسي استراتيجي.
+
+## 4. القواعد الصارمة لنص التعليق (Edge-TTS Egyptian Arabic):
+1. نص "voiceover_egyptian" يجب أن يكون عامية مصرية مشوقة وسريعة.
+2. ممنوع منعاً باتاً وضع شرطات (-, --, —) أو أقواس [ ... ] أو كلمات توجيهية داخل نص التعليق.
+3. اكتب الأرقام حروفاً بالعامية ("تلاتة"، "عشرة"، "مليون").
+4. المشهد الأول (Hook) يبدأ مباشرة من ذروة الصدمة في أقل من 8 كلمات.
+5. حقل "vocal_cue" اختر واحداً من: (narrator, tension, excited, sad, beast, system).
+
+---
+
+## 5. نموذج الـ JSON المطلوب إخراجه بدقة من NotebookLM:
+\`\`\`json
+{
+  "project_info": {
+    "title": "عنوان الحلقة المشوق",
+    "platform": "YouTube Shorts / Reels (9:16)",
+    "aspect_ratio": "9:16",
+    "stickman_theme": "dark_chalkboard",
+    "total_shots": 4,
+    "target_duration_minutes": 1,
+    "language": "Egyptian Arabic (Edge-TTS Pure Text)"
+  },
+  "series_meta": {
+    "series_name": "حكاية سيف",
+    "episode_number": 1,
+    "chapters_covered": [1],
+    "next_episode_teaser": "في الحلقة الجاية... السر اللي هيقلب الموازين!"
+  },
+  "shots": [
+    {
+      "shot_number": 1,
+      "duration_sec": 5,
+      "type": "Hook الصدمة",
+      "mood": "رعب ومفاجأة صاعقة",
+      "vocal_cue": "excited",
+      "stickman_gesture": "SHOCK_FALL",
+      "stickman_prop": "exclamation",
+      "text_overlay": "كارثة في المتاهة المزدوجة!",
+      "voiceover_egyptian": "أضعف صياد في المتاهة, وفجأة البوابة اتقفلت في وشه!",
+      "sound_design": {
+        "music": "Epic Action Tension BPM 145",
+        "sfx": [
+          { "sfx_name": "Sub Boom Impact", "sfx_volume_percent": 95, "sfx_trigger_sec": 0.0 }
+        ]
+      }
+    },
+    {
+      "shot_number": 2,
+      "duration_sec": 6,
+      "type": "تفسير اللغز",
+      "mood": "غموض وتفكير وتحليل",
+      "vocal_cue": "tension",
+      "stickman_gesture": "THINK_PUZZLE",
+      "stickman_prop": "lightbulb",
+      "text_overlay": "سر النقوش القديمة!",
+      "voiceover_egyptian": "بص على الحيطة كويس, واكتشف إن التماثيل بتتحرك بنظام سري!",
+      "sound_design": {
+        "music": "Mystic Dungeon Ambient",
+        "sfx": [
+          { "sfx_name": "Stone Door Slam", "sfx_volume_percent": 80, "sfx_trigger_sec": 1.2 }
+        ]
+      }
+    },
+    {
+      "shot_number": 3,
+      "duration_sec": 5,
+      "type": "معركة حاسمة",
+      "mood": "أكشن وقتال حماسي",
+      "vocal_cue": "excited",
+      "stickman_gesture": "ACTION_BATTLE",
+      "stickman_prop": "sword",
+      "text_overlay": "المواجهة مع زعيم الحراس!",
+      "voiceover_egyptian": "مسك خنجره بكل شجاعة, وهجم على الوحش في ثانية واحدة!",
+      "sound_design": {
+        "music": "Fast Anime Battle BPM 150",
+        "sfx": [
+          { "sfx_name": "Sword Slash Impact", "sfx_volume_percent": 90, "sfx_trigger_sec": 0.5 }
+        ]
+      }
+    },
+    {
+      "shot_number": 4,
+      "duration_sec": 5,
+      "type": "النصر والقفلة",
+      "mood": "حماس وتشويق عالي",
+      "vocal_cue": "excited",
+      "stickman_gesture": "HERO_VICTORY",
+      "stickman_prop": "chart_up",
+      "text_overlay": "الترقية المفاجئة!",
+      "voiceover_egyptian": "وده كان أول ليفل أب في حياته, بس يا ترى هيعمل إيه بعد كدة?",
+      "sound_design": {
+        "music": "Victory Fanfare Anime",
+        "sfx": [
+          { "sfx_name": "Level Up Chime", "sfx_volume_percent": 85, "sfx_trigger_sec": 0.2 }
+        ]
+      }
+    }
+  ],
+  "seo": {
+    "title_options": [
+      "كيف تحول أضعف صياد إلى أسطورة في ثوانٍ؟! ⚡",
+      "السر الخفي وراء تماثيل المتاهة الملعونة!"
+    ],
+    "description": "قصة تحول أضعف صياد بعد نجاته من أصعب متاهة في التاريخ.",
+    "hashtags": ["#ستيكمان", "#أنمي", "#شورتس", "#حكايات_الأنمي"]
+  }
+}
+\`\`\`
+`;
 
 const STORYTELLER_DIRECTOR_TEXT = `# AUDIO PROFILE: راوي حكايات الأنمي
 ## "The Storyteller"
@@ -268,15 +471,16 @@ Output Format: Strict, valid JSON array only, without markdown text wrappers if 
 
 export default function GuidePage() {
   const [query, setQuery] = useState("");
+  const [copiedNotebookLM, setCopiedNotebookLM] = useState(false);
   const [copiedGuide, setCopiedGuide] = useState(false);
   const [copiedAgent, setCopiedAgent] = useState(false);
   const [copiedStoryteller, setCopiedStoryteller] = useState(false);
   const [copiedArchitecture, setCopiedArchitecture] = useState(false);
-  const [activeTab, setActiveTab] = useState<"guide" | "agent" | "storyteller" | "architecture">("storyteller");
+  const [activeTab, setActiveTab] = useState<"notebooklm" | "storyteller" | "guide" | "agent" | "architecture">("notebooklm");
   const [architectureText, setArchitectureText] = useState("");
   const [loadingArch, setLoadingArch] = useState(false);
 
-  function selectTab(tab: "guide" | "agent" | "storyteller" | "architecture") {
+  function selectTab(tab: "notebooklm" | "storyteller" | "guide" | "agent" | "architecture") {
     setActiveTab(tab);
     if (tab === "architecture" && !architectureText) {
       setLoadingArch(true);
@@ -299,6 +503,16 @@ export default function GuidePage() {
       );
     });
   }, [query]);
+
+  async function copyNotebookLMPrompt() {
+    try {
+      await navigator.clipboard.writeText(NOTEBOOKLM_STICKMAN_PROMPT_TEXT);
+      setCopiedNotebookLM(true);
+      setTimeout(() => setCopiedNotebookLM(false), 2500);
+    } catch {
+      // ignore
+    }
+  }
 
   async function copyGuidePrompt() {
     try {
@@ -374,6 +588,15 @@ export default function GuidePage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <button
+              type="button"
+              onClick={copyNotebookLMPrompt}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-purple-500/60 bg-purple-500/15 px-3.5 text-xs font-bold text-purple-300 hover:bg-purple-500 hover:text-black transition shrink-0 shadow-md"
+              title="نسخ برومبت NotebookLM لتحويل فصول الروايات والمانها إلى ستيكمان"
+            >
+              {copiedNotebookLM ? <Check className="h-4 w-4 stroke-[3]" /> : <Sparkles className="h-4 w-4 text-purple-400" />}
+              <span>{copiedNotebookLM ? "تم نسخ برومبت NotebookLM!" : "نسخ برومبت NotebookLM (ستيكمان) ⚡"}</span>
+            </button>
             <a
               href="/SYSTEM_ARCHITECTURE_ANALYSIS.md"
               download="SYSTEM_ARCHITECTURE_ANALYSIS.md"
@@ -405,6 +628,20 @@ export default function GuidePage() {
 
         {/* View Switcher Tabs */}
         <div className="mt-4 flex items-center gap-2 border-t border-border/50 pt-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => selectTab("notebooklm")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
+              activeTab === "notebooklm"
+                ? "bg-purple-500 text-black shadow-sm font-extrabold"
+                : "border border-border bg-card text-muted hover:text-fg"
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>برومبت NotebookLM للستيكمان (مخرج الأنمي) ⚡</span>
+          </button>
+
           <button
             type="button"
             onClick={() => selectTab("storyteller")}
@@ -462,6 +699,91 @@ export default function GuidePage() {
           </button>
         </div>
       </section>
+
+      {/* Tab: NotebookLM Stickman Director View */}
+      {activeTab === "notebooklm" && (
+        <section className="rounded-2xl border border-purple-500/40 bg-gradient-to-r from-card via-surface to-surface p-4 sm:p-5 space-y-4 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/50 pb-4">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/40">
+                <Sparkles className="h-6 w-6" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-bold text-fg">
+                    برومبت NotebookLM لمخرج فيديوهات الستيكمان والأنمي
+                  </h2>
+                  <span className="rounded-md bg-purple-500/20 px-2 py-0.5 text-[10px] font-bold text-purple-300">
+                    مخصص لفصول الروايات والمانها
+                  </span>
+                </div>
+                <p className="text-xs text-muted mt-0.5">
+                  ارفع فصول الرواية أو المانها في مصادر NotebookLM (Sources)، ثم الصق هذا البرومبت في خانة الدردشة لينتج سيناريو ستيكمان كامل بملف JSON نقي جاهز للرندر الفوري.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={copyNotebookLMPrompt}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl bg-purple-500 px-5 text-xs font-bold text-black hover:brightness-110 transition shrink-0 shadow-lg font-mono"
+            >
+              {copiedNotebookLM ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
+              <span>{copiedNotebookLM ? "تم النسخ بنجاح!" : "نسخ برومبت NotebookLM بالكامل"}</span>
+            </button>
+          </div>
+
+          {/* 3 Step Interactive Workflow */}
+          <div className="grid gap-3 sm:grid-cols-3 text-xs">
+            <div className="rounded-xl border border-border bg-surface/80 p-3.5 space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-purple-400">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-purple-500/20 text-[10px]">1</span>
+                <span>رفع المصادر في NotebookLM</span>
+              </div>
+              <p className="text-muted leading-relaxed">
+                افتح مشروعك في NotebookLM وارفع ملفات الـ PDF أو Word أو TXT الخاصة بفصول الرواية أو ملخصات فصول المانها في قائمة Sources.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-surface/80 p-3.5 space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-amber-400">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500/20 text-[10px]">2</span>
+                <span>لصق البرومبت في المحادثة</span>
+              </div>
+              <p className="text-muted leading-relaxed">
+                انسخ هذا البرومبت والصقه في خانة المحادثة بـ NotebookLM. سيقوم النموذج بتحليل القصة وتعيين حركات الستيكمان بدقة حسب نبرة كل مشهد.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-surface/80 p-3.5 space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-accent">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-accent/20 text-[10px]">3</span>
+                <span>استيراد الـ JSON في الاستوديو</span>
+              </div>
+              <p className="text-muted leading-relaxed">
+                انسخ كود الـ JSON الناتج وضعه في صفحة &quot;إعداد القصة&quot; بالاستوديو. سيبدأ البطل بالحركة والحديث متزامناً مع الصوت فورياً!
+              </p>
+            </div>
+          </div>
+
+          {/* Prompt Preview Code Box */}
+          <div className="relative group">
+            <div className="absolute top-3 left-3 z-10">
+              <button
+                type="button"
+                onClick={copyNotebookLMPrompt}
+                className="flex items-center gap-1.5 rounded-lg bg-purple-600/90 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-purple-500 transition shadow"
+              >
+                {copiedNotebookLM ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedNotebookLM ? "تم النسخ!" : "نسخ البرومبت"}</span>
+              </button>
+            </div>
+            <pre className="whitespace-pre-wrap rounded-xl border border-border bg-card p-4 text-xs font-mono leading-relaxed text-fg max-h-[550px] overflow-y-auto scrollbar-thin">
+              {NOTEBOOKLM_STICKMAN_PROMPT_TEXT}
+            </pre>
+          </div>
+        </section>
+      )}
 
       {/* Tab 1: Storyteller Audio Profile & AI Director */}
       {activeTab === "storyteller" && (

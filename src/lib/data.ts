@@ -10,10 +10,14 @@ import {
   VfxSettings,
   AspectRatioType,
   VfxSpatialLayerItem,
+  StickmanGestureType,
+  StickmanPropType,
+  StickmanThemeType,
 } from "./types";
 import { formatTimeframe, uid } from "./utils";
 import { optimizeEgyptianVoiceover } from "./tts-optimizer";
 import { SFX_CATALOG } from "./sfx-catalog";
+import { inferStickmanGesture } from "./stickman-renderer";
 
 export const DEFAULT_VFX_ACTION: VfxSettings = {
   parallaxDepth: 65,
@@ -167,6 +171,48 @@ function sampleShot(
     vfxSettings: { ...DEFAULT_VFX_ACTION },
     textOverlayPos: { x: 0.5, y: 0.78 },
     ctaPos: { x: 0.5, y: 0.92 },
+    stickmanGesture: inferStickmanGesture({
+      shotNumber,
+      timeframe: formatTimeframe(startTimeSec, endTimeSec),
+      startTimeSec,
+      endTimeSec,
+      type,
+      mood,
+      vocalCue,
+      voiceoverEgyptian,
+      soundDesign,
+      colorTheme,
+      imagePromptEn,
+      sceneType,
+      textOverlay: "",
+      sfxName: sfxFileName || soundDesign,
+      sfxVolumePercent: 85,
+      sfxTriggerSec: 0,
+      soundMusic: "",
+      soundSfx: sfxFileName || "",
+      dialogueLines: [],
+    }).gesture,
+    stickmanProp: inferStickmanGesture({
+      shotNumber,
+      timeframe: formatTimeframe(startTimeSec, endTimeSec),
+      startTimeSec,
+      endTimeSec,
+      type,
+      mood,
+      vocalCue,
+      voiceoverEgyptian,
+      soundDesign,
+      colorTheme,
+      imagePromptEn,
+      sceneType,
+      textOverlay: "",
+      sfxName: sfxFileName || soundDesign,
+      sfxVolumePercent: 85,
+      sfxTriggerSec: 0,
+      soundMusic: "",
+      soundSfx: sfxFileName || "",
+      dialogueLines: [],
+    }).prop,
   };
 }
 
@@ -387,6 +433,7 @@ export function createSampleProject(): StoryProject {
       thumbnailPromptEn: "Cinematic 16:9 aspect ratio (1920x1080), extreme high-contrast anime manhwa cover art, young hunter Seif with shocked wide glowing neon cyan eyes, trembling dark purple shadow aura dagger, looming colossal ancient stone monster statues in background, volumetric fog and chiaroscuro lighting (#00E5FF vs #FF3B30), 8k, no text",
       pinnedComment: "لو كنت مكان سيف ومعاك خنجر ضعيف، كنت هتدخل المتاهة دي ولا تهرب؟! اكتب رأيك في التعليقات 👇",
     },
+    stickmanTheme: "dark_chalkboard",
   };
 }
 
@@ -660,6 +707,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
     let characterBible: StoryProject["characterBible"] | undefined;
     let globalStyleEn: string | undefined;
     let negativePromptEn: string | undefined;
+    let projInfo: Record<string, unknown> | null = null;
 
     const parsed: unknown = JSON.parse(trimmed);
 
@@ -667,7 +715,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       shotsArray = parsed;
     } else if (isObject(parsed)) {
       const root = parsed;
-      const projInfo = (isObject(root.project_info) && root.project_info) || (isObject(root.project) && root.project) || null;
+      projInfo = (isObject(root.project_info) && root.project_info) || (isObject(root.project) && root.project) || null;
       if (projInfo) {
         title = extractString(projInfo, ["title", "name", "project_title", "title_arabic"]) ?? title;
         platform = extractString(projInfo, ["platform", "aspect_ratio", "format"]) ?? platform;
@@ -974,6 +1022,36 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       // Unique non-repeating scene art type
       const sceneType = i < SCENE_ART_TYPES.length ? SCENE_ART_TYPES[i] : `PROCEDURAL_SCENE_${i + 1}`;
 
+        const anchorWord =
+          extractString(shotObj, ["anchor_word", "anchor", "key_word", "focus_word", "highlight_word"]) ?? undefined;
+
+      const parsedGesture = extractString(shotObj, ["stickman_gesture", "gesture", "pose"]) as StickmanGestureType | undefined;
+      const parsedProp = extractString(shotObj, ["stickman_prop", "prop"]) as StickmanPropType | undefined;
+      const inferred = inferStickmanGesture({
+        shotNumber: shotNum,
+        timeframe,
+        startTimeSec: startSec,
+        endTimeSec: endSec,
+        type,
+        mood,
+        vocalCue,
+        voiceoverEgyptian: voiceover,
+        soundDesign,
+        colorTheme,
+        imagePromptEn,
+        sceneType,
+        textOverlay,
+        sfxName,
+        sfxVolumePercent,
+        sfxTriggerSec,
+        soundMusic,
+        soundSfx,
+        dialogueLines,
+      });
+
+      const stickmanGesture = parsedGesture || inferred.gesture;
+      const stickmanProp = parsedProp || inferred.prop;
+
       shots.push({
         shotNumber: shotNum,
         sceneId: shotNum,
@@ -985,6 +1063,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         type,
         mood,
         vocalCue,
+        anchorWord,
         audioModulation,
         transitionEffect: transitionEffect ?? undefined,
         voiceoverEgyptian: voiceover,
@@ -1015,6 +1094,8 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         ctaPos,
         vfxSpatialLayers,
         spatialLayers: vfxSpatialLayers?.layers ?? [],
+        stickmanGesture,
+        stickmanProp,
       });
     }
 
@@ -1031,6 +1112,23 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       else if (rawAspect.includes("1:1")) detectedAspectRatio = "1:1";
       else if (rawAspect.includes("9:16")) detectedAspectRatio = "9:16";
     }
+
+    // V20 Episode Planning & Target Duration
+    const rootObj = isObject(parsed) ? parsed : {};
+    const contextObj = projInfo || rootObj;
+    const rawTargetMins = extractInt(contextObj, 0, [
+      "target_duration_minutes",
+      "target_duration_min",
+      "target_minutes",
+      "duration_target_minutes",
+    ]);
+    const targetDurationMinutes = rawTargetMins > 0 ? rawTargetMins : detectedAspectRatio === "16:9" ? 5 : 1;
+    const rawPacing = extractString(contextObj, ["narration_pacing", "pacing", "pace"]);
+    const narrationPacing = rawPacing === "energetic" || rawPacing === "calm" ? rawPacing : "normal";
+    const rawStyle = extractString(contextObj, ["narration_style", "style"]);
+    const narrationStyle = rawStyle === "narrator_dialogue" || rawStyle === "multi_voice" ? rawStyle : "narrator_only";
+    const rawMotion = extractString(contextObj, ["motion_level", "motion"]);
+    const motionLevel = rawMotion === "light" || rawMotion === "intense" ? rawMotion : "medium";
 
     // Automatically enable background music if the project or shots define music or by default
     const hasMusic = shots.some((s) => Boolean(s.soundMusic && s.soundMusic.trim()));
@@ -1078,6 +1176,19 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       generatedVoiceIds: [],
       generatedVoiceDurations: [],
       seoMetadata: seoMeta,
+      targetDurationMinutes,
+      narrationPacing,
+      narrationStyle,
+      motionLevel,
+      audioSilenceGapSec: 0.15,
+      renderResolution: "1080p",
+      renderFps: 30,
+      stickmanTheme: (() => {
+        const rawTheme = extractString(contextObj, ["stickman_theme", "theme"]);
+        return rawTheme === "whiteboard" || rawTheme === "blueprint" || rawTheme === "dark_chalkboard"
+          ? (rawTheme as StickmanThemeType)
+          : "dark_chalkboard";
+      })(),
     };
   } catch {
     return null;

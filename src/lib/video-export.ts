@@ -2,7 +2,7 @@ import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { BgmTrack, ShotRange, StoryProject, StoryShot } from "@/lib/types";
 import { getImage } from "@/lib/db";
 import { getBgmBuffer, getCatalogSfxBuffer } from "@/lib/audio-engine";
-import { drawSceneArt } from "@/lib/scene-art";
+import { drawStickmanScene } from "@/lib/stickman-renderer";
 import { SFX_CATALOG } from "@/lib/sfx-catalog";
 import { computeProjectTimeline, sliceProjectRange } from "@/lib/timeline";
 import { matchSfxToCatalog } from "@/lib/data";
@@ -12,10 +12,21 @@ export const VIDEO_HEIGHT = 1280;
 export const VIDEO_FPS = 30;
 const AUDIO_SAMPLE_RATE = 48000;
 
-export function getVideoDimensions(aspectRatio?: string): { width: number; height: number } {
-  if (aspectRatio === "16:9") return { width: 1280, height: 720 };
-  if (aspectRatio === "1:1") return { width: 1080, height: 1080 };
-  return { width: 720, height: 1280 }; // default 9:16 Shorts
+export function getVideoDimensions(
+  aspectRatio?: string,
+  resolution?: "1080p" | "720p"
+): { width: number; height: number } {
+  if (aspectRatio === "16:9") {
+    if (resolution === "720p") return { width: 1280, height: 720 };
+    return { width: 1920, height: 1080 }; // Standard Full HD for Long-form V20
+  }
+  if (aspectRatio === "1:1") {
+    if (resolution === "720p") return { width: 720, height: 720 };
+    return { width: 1080, height: 1080 };
+  }
+  // default 9:16 Shorts
+  if (resolution === "720p") return { width: 720, height: 1280 };
+  return { width: 1080, height: 1920 };
 }
 
 export type CompressionPreset = "compact" | "balanced" | "high";
@@ -74,7 +85,6 @@ export interface ExportInput {
   isVoiceMuted?: boolean;
   isBgmMuted?: boolean;
   isSfxMuted?: boolean;
-  exportFormat?: "webm" | "mp4";
   compressionPreset?: CompressionPreset;
   onProgress?: (ratio: number, stage: string) => void;
   signal?: AbortSignal;
@@ -568,8 +578,8 @@ export function drawFrame(
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, targetW, targetH);
 
-  // Draw visual artwork with smart cover and parallax (Split-Layer Compositing v19)
-  if (image) {
+  // Draw visual artwork (Image or Stickman Video Director Engine)
+  if (image && project.stickmanTheme === undefined) {
     drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
     if (image.foregroundBitmap) {
       drawForegroundCutout(
@@ -585,7 +595,9 @@ export function drawFrame(
       );
     }
   } else {
-    drawSceneArt(ctx, shot, zoom, targetW, targetH);
+    // Stickman Director Canvas 2D Engine with real-time lip sync & kinematics
+    const isSpeaking = localSec < (shot.audioDurationSec || (duration * 0.9));
+    drawStickmanScene(ctx, project, shot, localSec, duration, targetW, targetH, isSpeaking);
   }
 
   // Draw Anime VFX Spatial Layers (slash trails, shadow aura, venom fangs)
@@ -1078,21 +1090,14 @@ export function drawFrame(
   ctx.restore();
 }
 
-export async function loadShotImages(
-  shots: StoryShot[],
-  targetW = VIDEO_WIDTH,
-  targetH = VIDEO_HEIGHT
-): Promise<Map<number, ShotImage>> {
+export async function loadShotImages(shots: StoryShot[]): Promise<Map<number, ShotImage>> {
   const map = new Map<number, ShotImage>();
   if (!shots || shots.length === 0) return map;
 
+  // 1. Sort shots strictly by shot_number ascending (1, 2, 3...) to eliminate OS file sorting discrepancies
   const sortedShots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
-  const decodeOptions: ImageBitmapOptions = {
-    resizeWidth: targetW,
-    resizeHeight: targetH,
-    resizeQuality: "medium",
-  };
 
+  // 2. Load assets for each shot strictly mapped to shot.shotNumber (background + foreground)
   for (const shot of sortedShots) {
     let bgBitmap: ImageBitmap | undefined;
     let fgBitmap: ImageBitmap | undefined;
@@ -1101,13 +1106,9 @@ export async function loadShotImages(
       const asset = await getImage(shot.customImageId).catch(() => undefined);
       if (asset?.blob) {
         try {
-          bgBitmap = await createImageBitmap(asset.blob, decodeOptions);
-        } catch {
-          try {
-            bgBitmap = await createImageBitmap(asset.blob);
-          } catch (err) {
-            console.warn(`[loadShotImages] Failed to create bg bitmap for shot #${shot.shotNumber}:`, err);
-          }
+          bgBitmap = await createImageBitmap(asset.blob);
+        } catch (err) {
+          console.warn(`[loadShotImages] Failed to create bg bitmap for shot #${shot.shotNumber}:`, err);
         }
       }
     }
@@ -1116,13 +1117,9 @@ export async function loadShotImages(
       const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
       if (fgAsset?.blob) {
         try {
-          fgBitmap = await createImageBitmap(fgAsset.blob, decodeOptions);
-        } catch {
-          try {
-            fgBitmap = await createImageBitmap(fgAsset.blob);
-          } catch (err) {
-            console.warn(`[loadShotImages] Failed to create fg cutout bitmap for shot #${shot.shotNumber}:`, err);
-          }
+          fgBitmap = await createImageBitmap(fgAsset.blob);
+        } catch (err) {
+          console.warn(`[loadShotImages] Failed to create fg cutout bitmap for shot #${shot.shotNumber}:`, err);
         }
       }
     }
@@ -1138,210 +1135,16 @@ export async function loadShotImages(
   return map;
 }
 
-export function closeShotImages(map: Map<number, ShotImage> | null | undefined): void {
-  if (!map) return;
-  for (const entry of map.values()) {
-    try {
-      entry.bitmap?.close?.();
-      entry.foregroundBitmap?.close?.();
-    } catch {
-      // ignore
-    }
-  }
-  map.clear();
-}
-
-/**
- * Sliding Window Streaming Image Manager
- * Prevents Chrome OOM / Aw, Snap crashes on mobile devices during full-length renders.
- * Keeps only the current, previous, and next scene bitmaps in memory (~2-3 images total),
- * instantly calling .close() on departed bitmaps to reclaim GPU/RAM memory.
- */
-export class StreamingImageManager {
-  private activeMap = new Map<number, ShotImage>();
-  private shots: StoryShot[];
-  private targetW: number;
-  private targetH: number;
-  private loadingPromises = new Map<number, Promise<ShotImage | undefined>>();
-
-  constructor(shots: StoryShot[], targetW: number, targetH: number) {
-    this.shots = [...shots].sort((a, b) => a.shotNumber - b.shotNumber);
-    this.targetW = targetW;
-    this.targetH = targetH;
-  }
-
-  async prepareShot(shotNumber: number): Promise<ShotImage | undefined> {
-    if (this.activeMap.has(shotNumber)) {
-      return this.activeMap.get(shotNumber);
-    }
-    if (this.loadingPromises.has(shotNumber)) {
-      return this.loadingPromises.get(shotNumber);
-    }
-
-    const p = (async () => {
-      const shot = this.shots.find((s) => s.shotNumber === shotNumber);
-      if (!shot) return undefined;
-
-      let bgBitmap: ImageBitmap | undefined;
-      let fgBitmap: ImageBitmap | undefined;
-
-      const decodeOptions: ImageBitmapOptions = {
-        resizeWidth: this.targetW,
-        resizeHeight: this.targetH,
-        resizeQuality: "medium",
-      };
-
-      if (shot.customImageId) {
-        const asset = await getImage(shot.customImageId).catch(() => undefined);
-        if (asset?.blob) {
-          try {
-            bgBitmap = await createImageBitmap(asset.blob, decodeOptions);
-          } catch {
-            try {
-              bgBitmap = await createImageBitmap(asset.blob);
-            } catch (err) {
-              console.warn(`[StreamingImageManager] Bg bitmap error for #${shotNumber}:`, err);
-            }
-          }
-        }
-      }
-
-      if (shot.customForegroundImageId) {
-        const fgAsset = await getImage(shot.customForegroundImageId).catch(() => undefined);
-        if (fgAsset?.blob) {
-          try {
-            fgBitmap = await createImageBitmap(fgAsset.blob, decodeOptions);
-          } catch {
-            try {
-              fgBitmap = await createImageBitmap(fgAsset.blob);
-            } catch (err) {
-              console.warn(`[StreamingImageManager] Fg bitmap error for #${shotNumber}:`, err);
-            }
-          }
-        }
-      }
-
-      if (bgBitmap || fgBitmap) {
-        const entry: ShotImage = {
-          bitmap: bgBitmap || fgBitmap!,
-          foregroundBitmap: bgBitmap && fgBitmap ? fgBitmap : undefined,
-        };
-        this.activeMap.set(shotNumber, entry);
-        return entry;
-      }
-      return undefined;
-    })();
-
-    this.loadingPromises.set(shotNumber, p);
-    try {
-      const res = await p;
-      return res;
-    } finally {
-      this.loadingPromises.delete(shotNumber);
-    }
-  }
-
-  // Evict scenes outside of [current - 1, current, current + 1] to keep RAM <= 30MB
-  evictFarShots(currentShotNumber: number): void {
-    const keep = new Set([currentShotNumber - 1, currentShotNumber, currentShotNumber + 1]);
-    for (const [num, entry] of this.activeMap.entries()) {
-      if (!keep.has(num)) {
-        try {
-          entry.bitmap?.close?.();
-          entry.foregroundBitmap?.close?.();
-        } catch {
-          // ignore
-        }
-        this.activeMap.delete(num);
-      }
-    }
-  }
-
-  getShot(shotNumber: number): ShotImage | undefined {
-    return this.activeMap.get(shotNumber);
-  }
-
-  dispose(): void {
-    for (const entry of this.activeMap.values()) {
-      try {
-        entry.bitmap?.close?.();
-        entry.foregroundBitmap?.close?.();
-      } catch {
-        // ignore
-      }
-    }
-    this.activeMap.clear();
-    this.loadingPromises.clear();
-  }
-}
-
-let sharedAudioContext: AudioContext | null = null;
-function getSharedAudioContext(): AudioContext {
-  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    sharedAudioContext = new AudioCtx({ sampleRate: AUDIO_SAMPLE_RATE });
-  }
-  return sharedAudioContext;
-}
-
-export async function safeDecodeAudioBlob(blob: Blob): Promise<AudioBuffer> {
-  const ctx = getSharedAudioContext();
-  if (ctx.state === "suspended") {
-    await ctx.resume().catch(() => undefined);
-  }
-  const arrayBuf = await blob.arrayBuffer();
-  // decodeAudioData consumes array buffer in place, slice ensures an isolated buffer
-  return await ctx.decodeAudioData(arrayBuf.slice(0));
-}
-
-function cloneBufferIntoContext(buffer: AudioBuffer, targetCtx: BaseAudioContext): AudioBuffer {
-  const sampleRate = targetCtx.sampleRate;
-  const numChannels = buffer.numberOfChannels;
-  const length = Math.max(1, Math.round((buffer.length * sampleRate) / buffer.sampleRate));
-  const cloned = targetCtx.createBuffer(numChannels, length, sampleRate);
-
-  for (let c = 0; c < numChannels; c++) {
-    const srcData = buffer.getChannelData(c);
-    const destData = cloned.getChannelData(c);
-    if (buffer.sampleRate === sampleRate) {
-      destData.set(srcData);
-    } else {
-      const ratio = buffer.sampleRate / sampleRate;
-      for (let i = 0; i < destData.length; i++) {
-        const srcIdx = i * ratio;
-        const low = Math.floor(srcIdx);
-        const high = Math.min(srcData.length - 1, low + 1);
-        const frac = srcIdx - low;
-        destData[i] = srcData[low] * (1 - frac) + srcData[high] * frac;
-      }
-    }
-  }
-  return cloned;
-}
-
 async function buildMixedAudio(
   project: StoryProject,
   voiceBlob: Blob | null | undefined,
   bgmTrack: BgmTrack | null | undefined,
   voiceVolume: number,
-  bgmVolume: number,
-  isVoiceMuted = false,
-  isBgmMuted = false,
-  isSfxMuted = false,
-  sfxVolume = 0.8
+  bgmVolume: number
 ): Promise<AudioBuffer> {
   const timeline = computeProjectTimeline(project);
   const durationSec = Math.max(1, timeline.totalDurationSec);
   const offline = new OfflineAudioContext(2, Math.ceil(AUDIO_SAMPLE_RATE * durationSec), AUDIO_SAMPLE_RATE);
-
-  const effVoiceVol = isVoiceMuted ? 0 : Math.max(0, voiceVolume);
-  const effBgmVol = isBgmMuted ? 0 : Math.max(0, bgmVolume);
-  const effSfxVol = isSfxMuted ? 0 : Math.max(0, sfxVolume);
-
-  // Keep track of voice active intervals for Automatic Audio Ducking
-  const speechIntervals: { startSec: number; endSec: number }[] = [];
 
   // 1. Check if individual shots have their own linked audio
   let hasShotAudio = false;
@@ -1352,204 +1155,131 @@ async function buildMixedAudio(
       try {
         const asset = await getImage(shot.customAudioId);
         if (asset?.blob) {
-          const rawBuffer = await safeDecodeAudioBlob(asset.blob);
-          const clonedBuffer = cloneBufferIntoContext(rawBuffer, offline);
           hasShotAudio = true;
-
+          const decoded = await decodeInContext(asset.blob, offline);
           const src = offline.createBufferSource();
-          src.buffer = clonedBuffer;
+          src.buffer = decoded;
           const gain = offline.createGain();
-          gain.gain.value = effVoiceVol;
+          gain.gain.value = voiceVolume;
           src.connect(gain);
           gain.connect(offline.destination);
           src.start(item.startSec);
-
-          speechIntervals.push({
-            startSec: item.startSec,
-            endSec: item.startSec + (shot.audioDurationSec || rawBuffer.duration || (item.endSec - item.startSec)),
-          });
         }
-      } catch (err) {
-        console.warn(`[buildMixedAudio] Failed to load voice for shot #${shot.shotNumber}:`, err);
+      } catch {
+        // ignore
       }
     }
   }
 
   // 2. If no individual shot audios, fall back to project-wide voice recording
-  if (!hasShotAudio) {
-    let fallbackBlob = voiceBlob;
-    if (!fallbackBlob && project.audioRecordId) {
-      const asset = await getImage(project.audioRecordId).catch(() => undefined);
-      if (asset?.blob) fallbackBlob = asset.blob;
+  if (!hasShotAudio && voiceBlob) {
+    try {
+      const voice = await decodeInContext(voiceBlob, offline);
+      const src = offline.createBufferSource();
+      src.buffer = voice;
+      const gain = offline.createGain();
+      gain.gain.value = voiceVolume;
+      src.connect(gain);
+      gain.connect(offline.destination);
+      src.start(0);
+    } catch {
+      // ignore invalid voice audio
     }
+  }
 
-    if (fallbackBlob) {
+  // 3. Background Music with Automatic Audio Ducking under voice narration
+  if (project.isBgmEnabled && bgmTrack) {
+    try {
+      const bgm = await getBgmBuffer(bgmTrack);
+      const src = offline.createBufferSource();
+      src.buffer = bgm;
+      src.loop = true;
+      const gain = offline.createGain();
+
+      const normalVol = bgmVolume * 0.7;
+      const duckedVol = bgmVolume * 0.22; // Smoothly ducks down while narrator speaks
+
+      if (hasShotAudio) {
+        gain.gain.setValueAtTime(normalVol, 0);
+        for (const item of timeline.items) {
+          if (item.shot.customAudioId) {
+            const startD = Math.max(0, item.startSec - 0.12);
+            gain.gain.setValueAtTime(normalVol, startD);
+            gain.gain.linearRampToValueAtTime(duckedVol, item.startSec);
+            gain.gain.setValueAtTime(duckedVol, Math.max(item.startSec, item.endSec - 0.15));
+            gain.gain.linearRampToValueAtTime(normalVol, item.endSec);
+          }
+        }
+      } else if (voiceBlob) {
+        gain.gain.setValueAtTime(duckedVol, 0);
+      } else {
+        gain.gain.setValueAtTime(normalVol, 0);
+      }
+
+      src.connect(gain);
+      gain.connect(offline.destination);
+      src.start(0);
+      src.stop(durationSec);
+    } catch {
+      // ignore bgm failure
+    }
+  }
+
+  // 4. Per-shot Synchronized SFX sound effects
+  for (let i = 0; i < timeline.items.length; i++) {
+    const item = timeline.items[i];
+    const shot = item.shot;
+    const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
+    if (shot.assignedSfxId || rawSfxText) {
       try {
-        const rawBuffer = await safeDecodeAudioBlob(fallbackBlob);
-        const clonedBuffer = cloneBufferIntoContext(rawBuffer, offline);
-        const src = offline.createBufferSource();
-        src.buffer = clonedBuffer;
-        const gain = offline.createGain();
-        gain.gain.value = effVoiceVol;
-        src.connect(gain);
-        gain.connect(offline.destination);
-        src.start(0);
-
-        speechIntervals.push({
-          startSec: 0,
-          endSec: rawBuffer.duration,
-        });
-      } catch (err) {
-        console.warn("[buildMixedAudio] Failed to load fallback voice recording:", err);
-      }
-    }
-  }
-
-  // 3. Background Music (Custom Uploaded BGM vs Preset Synth) with Automatic Audio Ducking
-  if (project.isBgmEnabled && effBgmVol > 0) {
-    try {
-      let bgmBuffer: AudioBuffer | null = null;
-
-      // 3a. Prioritize custom uploaded BGM file (e.g. user-uploaded 8-minute or looped track)
-      if (project.customBgmId) {
-        try {
-          const asset = await getImage(project.customBgmId);
-          if (asset?.blob) {
-            const raw = await safeDecodeAudioBlob(asset.blob);
-            bgmBuffer = cloneBufferIntoContext(raw, offline);
-          }
-        } catch (err) {
-          console.warn("[buildMixedAudio] Failed to decode custom BGM, falling back to preset:", err);
-        }
-      }
-
-      // 3b. Fall back to preset synth track if no custom BGM or decode failed
-      if (!bgmBuffer && bgmTrack) {
-        try {
-          const rendered = await getBgmBuffer(bgmTrack);
-          bgmBuffer = cloneBufferIntoContext(rendered, offline);
-        } catch (err) {
-          console.warn("[buildMixedAudio] Failed to render preset BGM:", err);
-        }
-      }
-
-      if (bgmBuffer) {
-        const src = offline.createBufferSource();
-        src.buffer = bgmBuffer;
-        src.loop = true; // Seamless looping across full video duration (even 8+ minutes)
-
-        const gain = offline.createGain();
-        const baseVol = effBgmVol * 0.7;
-        const duckFactor = typeof project.bgmDuckingStrength === "number" ? project.bgmDuckingStrength : 0.22;
-        const duckedVol = baseVol * Math.max(0.05, Math.min(1, duckFactor));
-
-        // Trim start and fade
-        const trimStart = project.bgmTrimStartSec || 0;
-        const fadeIn = project.bgmFadeInSec ?? 1.0;
-        const fadeOut = project.bgmFadeOutSec ?? 1.5;
-
-        // Apply smooth ducking whenever speech intervals occur
-        if (speechIntervals.length > 0) {
-          gain.gain.setValueAtTime(fadeIn > 0 ? 0.001 : baseVol, 0);
-          if (fadeIn > 0) {
-            gain.gain.linearRampToValueAtTime(baseVol, Math.min(fadeIn, durationSec));
-          }
-
-          for (const interval of speechIntervals) {
-            const dStart = Math.max(0, interval.startSec - 0.15);
-            const dEnd = Math.min(durationSec, interval.endSec + 0.1);
-            gain.gain.setValueAtTime(baseVol, dStart);
-            gain.gain.linearRampToValueAtTime(duckedVol, interval.startSec);
-            gain.gain.setValueAtTime(duckedVol, Math.max(interval.startSec, dEnd - 0.1));
-            gain.gain.linearRampToValueAtTime(baseVol, dEnd);
-          }
-        } else {
-          gain.gain.setValueAtTime(fadeIn > 0 ? 0.001 : baseVol, 0);
-          if (fadeIn > 0) {
-            gain.gain.linearRampToValueAtTime(baseVol, Math.min(fadeIn, durationSec));
+        let sfxItem = SFX_CATALOG.find(
+          (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
+        );
+        if (!sfxItem && rawSfxText) {
+          const matchedId = matchSfxToCatalog(rawSfxText);
+          if (matchedId) {
+            sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
           }
         }
-
-        // Apply Fade Out near end of video
-        if (fadeOut > 0 && durationSec > fadeOut) {
-          const fadeStart = durationSec - fadeOut;
-          gain.gain.setValueAtTime(baseVol, fadeStart);
-          gain.gain.linearRampToValueAtTime(0.0001, durationSec);
+        if (sfxItem) {
+          const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
+          const src = offline.createBufferSource();
+          src.buffer = sfxBuffer;
+          const gain = offline.createGain();
+          const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85;
+          gain.gain.value = effVol;
+          src.connect(gain);
+          gain.connect(offline.destination);
+          const trigger = item.startSec + (shot.sfxTriggerSec || 0);
+          src.start(Math.max(0, trigger));
         }
-
-        src.connect(gain);
-        gain.connect(offline.destination);
-        src.start(0, trimStart);
-        src.stop(durationSec);
-      }
-    } catch (err) {
-      console.warn("[buildMixedAudio] BGM processing error:", err);
-    }
-  }
-
-  // 4. Custom Ambient Audio Bed Layer (if uploaded)
-  if (project.customAudioBedId && !isBgmMuted) {
-    try {
-      const bedAsset = await getImage(project.customAudioBedId);
-      if (bedAsset?.blob) {
-        const raw = await safeDecodeAudioBlob(bedAsset.blob);
-        const bedBuffer = cloneBufferIntoContext(raw, offline);
-        const bedSrc = offline.createBufferSource();
-        bedSrc.buffer = bedBuffer;
-        bedSrc.loop = true;
-
-        const bedGain = offline.createGain();
-        const bedVol = (project.customAudioBedVolume ?? 0.25) * (isBgmMuted ? 0 : 1);
-        bedGain.gain.value = bedVol;
-
-        bedSrc.connect(bedGain);
-        bedGain.connect(offline.destination);
-        bedSrc.start(0);
-        bedSrc.stop(durationSec);
-      }
-    } catch (err) {
-      console.warn("[buildMixedAudio] Audio Bed processing error:", err);
-    }
-  }
-
-  // 5. Per-shot Synchronized SFX sound effects
-  if (!isSfxMuted && effSfxVol > 0) {
-    for (let i = 0; i < timeline.items.length; i++) {
-      const item = timeline.items[i];
-      const shot = item.shot;
-      const rawSfxText = shot.sfxName || shot.soundSfx || shot.soundDesign;
-      if (shot.assignedSfxId || rawSfxText) {
-        try {
-          let sfxItem = SFX_CATALOG.find(
-            (s) => s.id === shot.assignedSfxId || (shot.sfxName && s.nameAr === shot.sfxName)
-          );
-          if (!sfxItem && rawSfxText) {
-            const matchedId = matchSfxToCatalog(rawSfxText);
-            if (matchedId) {
-              sfxItem = SFX_CATALOG.find((s) => s.id === matchedId);
-            }
-          }
-          if (sfxItem) {
-            const sfxBuffer = await getCatalogSfxBuffer(sfxItem);
-            const clonedSfx = cloneBufferIntoContext(sfxBuffer, offline);
-            const src = offline.createBufferSource();
-            src.buffer = clonedSfx;
-            const gain = offline.createGain();
-            const effVol = ((shot.sfxVolumePercent || 80) / 100) * 0.85 * effSfxVol;
-            gain.gain.value = effVol;
-            src.connect(gain);
-            gain.connect(offline.destination);
-            const trigger = item.startSec + (shot.sfxTriggerSec || 0);
-            src.start(Math.max(0, trigger));
-          }
-        } catch (err) {
-          console.warn(`[buildMixedAudio] SFX failure on shot #${shot.shotNumber}:`, err);
-        }
+      } catch {
+        // ignore sfx failure
       }
     }
   }
 
   return offline.startRendering();
+}
+
+async function decodeInContext(blob: Blob, offline: OfflineAudioContext): Promise<AudioBuffer> {
+  const data = await blob.arrayBuffer();
+  try {
+    return await offline.decodeAudioData(data.slice(0));
+  } catch {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioCtx) {
+      const fallbackCtx = new AudioCtx();
+      try {
+        return await fallbackCtx.decodeAudioData(data.slice(0));
+      } finally {
+        void fallbackCtx.close();
+      }
+    }
+    throw new Error("audio_decode_failed");
+  }
 }
 
 function pickVideoCodec(targetW = VIDEO_WIDTH, targetH = VIDEO_HEIGHT): Promise<string | null> {
@@ -1591,7 +1321,7 @@ async function supportsAac(): Promise<boolean> {
 
 async function exportWithWebCodecs(
   input: ExportInput,
-  imageManager: StreamingImageManager
+  images: Map<number, ShotImage>
 ): Promise<ExportResult | null> {
   const { project, onProgress, signal } = input;
   const dims = getVideoDimensions(project.aspectRatio);
@@ -1659,13 +1389,7 @@ async function exportWithWebCodecs(
     checkAborted(signal);
     const t = frame / VIDEO_FPS;
     const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
-
-    // Prepare current shot bitmap dynamically using sliding window
-    await imageManager.prepareShot(shot.shotNumber);
-    // Evict far scenes from GPU memory
-    imageManager.evictFarShots(shot.shotNumber);
-
-    drawFrame(ctx, project, shot, localSec, durationSec, imageManager.getShot(shot.shotNumber), targetW, targetH);
+    drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
 
     // STRICT QUEUE THROTTLING TO PREVENT AW SNAP / OOM CRASH:
     // Never allow more than 2 uncompressed frames to pile up in GPU/RAM memory!
@@ -1681,7 +1405,7 @@ async function exportWithWebCodecs(
     videoFrame.close();
 
     // Periodically yield to event loop so browser engine can run garbage collection
-    if (frame % 5 === 0) {
+    if (frame % 6 === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
 
@@ -1697,17 +1421,7 @@ async function exportWithWebCodecs(
 
   if (hasAudio && audioOk) {
     onProgress?.(0.72, "معالجة ومزامنة الصوت…");
-    const mixed = await buildMixedAudio(
-      project,
-      input.voiceBlob,
-      input.bgmTrack,
-      input.voiceVolume,
-      input.bgmVolume,
-      input.isVoiceMuted,
-      input.isBgmMuted,
-      input.isSfxMuted,
-      input.sfxVolume
-    );
+    const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => {
@@ -1755,29 +1469,15 @@ async function exportWithWebCodecs(
   return { blob: new Blob([target.buffer], { type: "video/mp4" }), extension: "mp4" };
 }
 
-function pickRecorderMime(requestedFormat?: "webm" | "mp4"): { mime: string; extension: "mp4" | "webm" } {
-  if (requestedFormat === "webm") {
-    const webmCandidates = [
-      "video/webm;codecs=vp9,opus",
-      "video/webm;codecs=vp8,opus",
-      "video/webm",
-    ];
-    for (const c of webmCandidates) {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c)) {
-        return { mime: c, extension: "webm" };
-      }
-    }
-    return { mime: "video/webm", extension: "webm" };
-  }
-
-  const mp4Candidates: { mime: string; extension: "mp4" | "webm" }[] = [
+function pickRecorderMime(): { mime: string; extension: "mp4" | "webm" } {
+  const candidates: { mime: string; extension: "mp4" | "webm" }[] = [
     { mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", extension: "mp4" },
     { mime: "video/mp4", extension: "mp4" },
     { mime: "video/webm;codecs=vp9,opus", extension: "webm" },
     { mime: "video/webm;codecs=vp8,opus", extension: "webm" },
     { mime: "video/webm", extension: "webm" },
   ];
-  for (const c of mp4Candidates) {
+  for (const c of candidates) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c.mime)) return c;
   }
   return { mime: "video/webm", extension: "webm" };
@@ -1785,7 +1485,7 @@ function pickRecorderMime(requestedFormat?: "webm" | "mp4"): { mime: string; ext
 
 async function exportWithMediaRecorder(
   input: ExportInput,
-  imageManager: StreamingImageManager
+  images: Map<number, ShotImage>
 ): Promise<ExportResult> {
   const { project, onProgress, signal } = input;
   const timeline = computeProjectTimeline(project);
@@ -1805,17 +1505,7 @@ async function exportWithMediaRecorder(
 
   const audioCtx = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
   const dest = audioCtx.createMediaStreamDestination();
-  const mixed = await buildMixedAudio(
-    project,
-    input.voiceBlob,
-    input.bgmTrack,
-    input.voiceVolume,
-    input.bgmVolume,
-    input.isVoiceMuted,
-    input.isBgmMuted,
-    input.isSfxMuted,
-    input.sfxVolume
-  );
+  const mixed = await buildMixedAudio(project, input.voiceBlob, input.bgmTrack, input.voiceVolume, input.bgmVolume);
   const source = audioCtx.createBufferSource();
   source.buffer = mixed;
   source.connect(dest);
@@ -1825,7 +1515,7 @@ async function exportWithMediaRecorder(
   const profile = COMPRESSION_PROFILES[preset] ?? COMPRESSION_PROFILES.balanced;
   const videoBitrate = profile.videoBitrate;
 
-  const { mime, extension } = pickRecorderMime(input.exportFormat);
+  const { mime, extension } = pickRecorderMime();
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: videoBitrate });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => {
@@ -1842,32 +1532,22 @@ async function exportWithMediaRecorder(
 
   const startAt = performance.now();
   await new Promise<void>((resolve) => {
-    let animId: number;
-    let isFinished = false;
-
-    const render = async () => {
-      if (isFinished) return;
+    const render = () => {
       if (signal?.aborted) {
-        isFinished = true;
-        cancelAnimationFrame(animId);
         resolve();
         return;
       }
       const t = (performance.now() - startAt) / 1000;
       if (t >= totalSec) {
-        isFinished = true;
-        cancelAnimationFrame(animId);
         resolve();
         return;
       }
       const { shot, localSec, durationSec } = timeline.getShotAtTime(t);
-      await imageManager.prepareShot(shot.shotNumber);
-      imageManager.evictFarShots(shot.shotNumber);
-      drawFrame(ctx, project, shot, localSec, durationSec, imageManager.getShot(shot.shotNumber), targetW, targetH);
+      drawFrame(ctx, project, shot, localSec, durationSec, images.get(shot.shotNumber));
       onProgress?.(Math.min(0.95, t / totalSec), "تسجيل الفيديو…");
-      animId = requestAnimationFrame(render);
+      requestAnimationFrame(render);
     };
-    animId = requestAnimationFrame(render);
+    requestAnimationFrame(render);
   });
 
   source.stop();
@@ -1889,32 +1569,18 @@ export async function exportStoryVideo(input: ExportInput): Promise<ExportResult
     project: effectiveProject,
   };
 
-  const dims = getVideoDimensions(effectiveProject.aspectRatio);
-  const imageManager = new StreamingImageManager(effectiveProject.shots, dims.width, dims.height);
-  effectiveInput.onProgress?.(0.02, "تحضير المشاهد بنظام تفريغ الذاكرة الآمن…");
+  const images = await loadShotImages(effectiveProject.shots);
+  effectiveInput.onProgress?.(0.02, "تحضير المشاهد…");
 
   try {
-    if (effectiveProject.shots[0]) {
-      await imageManager.prepareShot(effectiveProject.shots[0].shotNumber);
-    }
-
-    // Direct WebM export if chosen by user (recommended for long videos)
-    if (effectiveInput.exportFormat === "webm") {
-      return await exportWithMediaRecorder(effectiveInput, imageManager);
-    }
-
-    try {
-      const result = await exportWithWebCodecs(effectiveInput, imageManager);
-      if (result) return result;
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") throw err;
-      console.warn("WebCodecs export failed, falling back to MediaRecorder:", err);
-    }
-
-    return await exportWithMediaRecorder(effectiveInput, imageManager);
-  } finally {
-    imageManager.dispose();
+    const result = await exportWithWebCodecs(effectiveInput, images);
+    if (result) return result;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    console.warn("WebCodecs export failed, falling back to MediaRecorder:", err);
   }
+
+  return exportWithMediaRecorder(effectiveInput, images);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

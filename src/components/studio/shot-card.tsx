@@ -14,7 +14,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { StoryShot } from "@/lib/types";
+import { StickmanGestureType, StickmanPropType, StoryShot } from "@/lib/types";
 import { useStudio } from "@/lib/store";
 import { useImageUrl } from "@/lib/use-image";
 import { themeGradient } from "@/lib/colors";
@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 
 export function ShotCard({ shot, index, active }: { shot: StoryShot; index: number; active: boolean }) {
   const selectShot = useStudio((s) => s.selectShot);
+  const setShotStickmanGesture = useStudio((s) => s.setShotStickmanGesture);
   const assignSingleImage = useStudio((s) => s.assignSingleImage);
   const assignSingleForegroundImage = useStudio((s) => s.assignSingleForegroundImage);
   const clearShotImage = useStudio((s) => s.clearShotImage);
@@ -300,8 +301,57 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
           </div>
         </div>
 
+        {/* Stickman Director Actor Controls */}
+        <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl bg-surface/60 border border-border/80 px-2.5 py-1.5 text-xs">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <span className="text-[11px] font-bold text-primary shrink-0">حركة الستيكمان:</span>
+            <select
+              value={shot.stickmanGesture || "CASUAL_TALK"}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                setShotStickmanGesture(shot.shotNumber, e.target.value as StickmanGestureType);
+              }}
+              className="bg-card border border-border rounded-lg px-2 py-1 text-xs text-fg font-medium outline-none focus:border-primary w-full truncate"
+            >
+              <option value="EXPLAIN_POINT">👉 إشارة وشرح</option>
+              <option value="THINK_PUZZLE">🤔 تفكير وحيرة</option>
+              <option value="SHOCK_FALL">😱 صدمة ورعب</option>
+              <option value="ACTION_BATTLE">⚔️ قتال وحماس</option>
+              <option value="HERO_VICTORY">🎉 فوز واحتفال</option>
+              <option value="CONFUSED_SHRUG">🤷‍♂️ استغراب وتعجب</option>
+              <option value="CASUAL_TALK">💬 حديث هادئ</option>
+              <option value="RUN_CHASE">🏃‍♂️ ركض وهروب</option>
+              <option value="MONEY_RICH">💰 ثروة ومكسب</option>
+              <option value="SAD_CRY">😢 حزن ودموع</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[11px] text-muted">العنصر:</span>
+            <select
+              value={shot.stickmanProp || "none"}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                setShotStickmanGesture(shot.shotNumber, shot.stickmanGesture || "CASUAL_TALK", e.target.value as StickmanPropType);
+              }}
+              className="bg-card border border-border rounded-lg px-2 py-1 text-xs text-fg font-medium outline-none focus:border-primary"
+            >
+              <option value="none">بدون</option>
+              <option value="lightbulb">💡 فكرة</option>
+              <option value="question">❓ سؤال</option>
+              <option value="exclamation">❗ صدمة</option>
+              <option value="money">💰 نقود</option>
+              <option value="chart_up">📈 صعود</option>
+              <option value="sword">⚔️ سيف</option>
+              <option value="sweat_drop">💧 عرق</option>
+            </select>
+          </div>
+        </div>
+
         {/* Action Controls for Image and Audio */}
-        <div className="mt-3 grid grid-cols-2 gap-2 pt-2 border-t border-border/50">
+        <div className="mt-2.5 grid grid-cols-2 gap-2 pt-2 border-t border-border/50">
           {/* Background Image button */}
           <div className="flex items-center gap-1">
             <input

@@ -149,17 +149,19 @@ export interface AudioModulation {
 
 export interface StoryShot {
   shotNumber: number;
-  sceneId?: string | number;
+  sceneId?: number;
   bookOrPart?: string;
   timeframe: string;
   startTimeSec: number;
   endTimeSec: number;
   durationSec?: number;
+  actualAudioDurationSec?: number;
+  audioModulation?: AudioModulation;
+  transitionEffect?: string;
   type: string;
   mood: string;
   vocalCue?: string;
-  audioModulation?: AudioModulation;
-  transitionEffect?: string;
+  anchorWord?: string;
   voiceoverEgyptian: string;
   soundDesign: string;
   colorTheme: string;
@@ -183,7 +185,6 @@ export interface StoryShot {
   imageMatchMethod?: "json_filename" | "shot_number" | "ordinal" | "manual";
   customAudioId?: string;
   audioDurationSec?: number;
-  actualAudioDurationSec?: number;
   sceneType: SceneArtType | string;
   textOverlay: string;
   sfxName: string;
@@ -201,7 +202,37 @@ export interface StoryShot {
   };
   spatialLayers?: VfxSpatialLayerItem[];
   wordBoundaries?: WordBoundary[];
+  // Stickman Video Director Engine Fields
+  stickmanGesture?: StickmanGestureType;
+  stickmanProp?: StickmanPropType;
+  stickmanPosition?: OverlayPosition;
+  stickmanFacing?: "left" | "right";
 }
+
+export type StickmanGestureType =
+  | "EXPLAIN_POINT"
+  | "THINK_PUZZLE"
+  | "SHOCK_FALL"
+  | "ACTION_BATTLE"
+  | "HERO_VICTORY"
+  | "CONFUSED_SHRUG"
+  | "CASUAL_TALK"
+  | "RUN_CHASE"
+  | "MONEY_RICH"
+  | "SAD_CRY";
+
+export type StickmanPropType =
+  | "lightbulb"
+  | "question"
+  | "exclamation"
+  | "money"
+  | "chart_up"
+  | "sword"
+  | "magnifier"
+  | "sweat_drop"
+  | "none";
+
+export type StickmanThemeType = "dark_chalkboard" | "whiteboard" | "blueprint";
 
 export interface SeoMetadata {
   suggestedTitles: string[];
@@ -218,6 +249,55 @@ export interface VoiceOption {
   shortName: string;
   labelAr: string;
   gender: "female" | "male";
+}
+
+export type NarrationPacingType = "normal" | "energetic" | "calm";
+export type NarrationStyleType = "narrator_only" | "narrator_dialogue" | "multi_voice";
+export type MotionLevelType = "light" | "medium" | "intense";
+
+export interface WordPacingStats {
+  totalWords: number;
+  targetDurationMinutes: number;
+  recommendedWordsMin: number;
+  recommendedWordsMax: number;
+  currentEstimatedDurationSec: number;
+  actualAudioDurationSec: number;
+  wordsPerMinute: number;
+  isDeficit: boolean;
+  deficitWords: number;
+  isSurplus: boolean;
+  surplusWords: number;
+  suggestions: string[];
+}
+
+export interface AssetLicenseInfo {
+  id: string;
+  name: string;
+  author?: string;
+  sourceType: "youtube_audio_library" | "freesound" | "pixabay" | "web_audio_synth" | "custom_upload" | "microsoft_edge_tts";
+  sourceUrl?: string;
+  licenseName: string;
+  requiresAttribution: boolean;
+  attributionText?: string;
+  isCommercialFree: boolean;
+}
+
+export interface PreExportCheckItem {
+  id: string;
+  titleAr: string;
+  status: "pass" | "warn" | "fail";
+  details: string;
+  recommendation?: string;
+}
+
+export interface PreExportReport {
+  overallStatus: "pass" | "warn" | "fail";
+  checks: PreExportCheckItem[];
+  totalShots: number;
+  totalDurationSec: number;
+  hasAudioForAllShots: boolean;
+  hasImagesForAllShots: boolean;
+  driftMs: number;
 }
 
 export interface StoryProject {
@@ -239,19 +319,6 @@ export interface StoryProject {
   selectedBgmId: number;
   customBgmId?: string;
   customBgmTitle?: string;
-  customAudioBedId?: string;
-  customAudioBedTitle?: string;
-  customAudioBedVolume?: number;
-  isSfxEnabled?: boolean;
-  enableCameraShake?: boolean;
-  enableModernAnimeOverlay?: boolean;
-  enableAnimeVoiceEnhancer?: boolean;
-  masterVfxDisabled?: boolean;
-  bgmTrimStartSec?: number;
-  bgmTrimEndSec?: number;
-  bgmFadeInSec?: number;
-  bgmFadeOutSec?: number;
-  bgmDuckingStrength?: number;
   transitionType: TransitionTypeId;
   shotDurationSec: number;
   showSubtitlesInVideo: boolean;
@@ -273,6 +340,31 @@ export interface StoryProject {
   generatedVoiceIds: string[];
   generatedVoiceDurations: number[];
   seoMetadata?: SeoMetadata;
+  // V20 Episode Planning & Long-form Fields
+  targetDurationMinutes?: number;
+  narrationPacing?: NarrationPacingType;
+  narrationStyle?: NarrationStyleType;
+  motionLevel?: MotionLevelType;
+  audioSilenceGapSec?: number;
+  renderResolution?: "1080p" | "720p";
+  renderFps?: 30 | 60;
+  chapterTimestamps?: { timeSec: number; label: string; formattedTime: string }[];
+  // Stickman Director Theme
+  stickmanTheme?: StickmanThemeType;
+  // Audio Bed & Mixer Settings
+  customAudioBedId?: string;
+  customAudioBedTitle?: string;
+  customAudioBedVolume?: number;
+  isSfxEnabled?: boolean;
+  enableCameraShake?: boolean;
+  enableModernAnimeOverlay?: boolean;
+  enableAnimeVoiceEnhancer?: boolean;
+  bgmTrimStartSec?: number;
+  bgmTrimEndSec?: number;
+  bgmFadeInSec?: number;
+  bgmFadeOutSec?: number;
+  bgmDuckingStrength?: number;
+  masterVfxDisabled?: boolean;
 }
 
 export interface ShotRange {

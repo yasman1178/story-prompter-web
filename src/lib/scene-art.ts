@@ -1,4 +1,5 @@
-import { SceneArtType } from "@/lib/types";
+import { SceneArtType, StickmanGestureType, StickmanPropType, StoryShot } from "@/lib/types";
+import { drawStickman, inferStickmanGesture } from "@/lib/stickman-renderer";
 
 type C = CanvasRenderingContext2D;
 
@@ -272,6 +273,8 @@ export function drawShotProceduralArt(
     colorTheme?: string;
     textOverlay?: string;
     sceneType?: SceneArtType | string;
+    stickmanGesture?: StickmanGestureType;
+    stickmanProp?: StickmanPropType;
   },
   w: number,
   h: number
@@ -377,14 +380,25 @@ export function drawShotProceduralArt(
   }
   ctx.restore();
 
-  // 6. Hunter / Shadow Hero Silhouette
-  drawSeifSilhouette(ctx, w, h, HOODIE_DARK_BLUE);
+  // 6. Expressive Stickman Character (Stickman Video Director Engine)
+  const inferred = inferStickmanGesture(shot as unknown as StoryShot);
+  const is169 = w > h;
+  const charScale = Math.min(w, h) / 720 * 1.5;
+  const charX = is169 ? w * 0.72 : w * 0.5;
+  const charY = is169 ? h * 0.68 : h * 0.62;
 
-  // Glowing Eye or Weapon Accent
-  const eyeX = w * 0.48;
-  const eyeY = h * 0.39;
-  disc(ctx, eyeX, eyeY, 6, pal.neon);
-  disc(ctx, eyeX, eyeY, 2, "#FFFFFF");
+  drawStickman(ctx, {
+    x: charX,
+    y: charY,
+    scale: charScale,
+    gesture: shot.stickmanGesture || inferred.gesture,
+    prop: shot.stickmanProp || inferred.prop,
+    localSec: 1.2,
+    isSpeaking: true,
+    facing: is169 ? "left" : "right",
+    strokeColor: "#FFFFFF",
+    accentColor: pal.neon || "#00E5FF",
+  });
 
   // 7. Visual Scene Stamp Header
   ctx.save();
@@ -442,6 +456,8 @@ export function drawSceneArt(
     colorTheme?: string;
     textOverlay?: string;
     sceneType?: SceneArtType | string;
+    stickmanGesture?: StickmanGestureType;
+    stickmanProp?: StickmanPropType;
   },
   zoom = 1,
   w = 720,

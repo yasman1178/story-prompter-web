@@ -33,6 +33,8 @@ export function SceneThumbnail({
           colorTheme: shot.colorTheme,
           textOverlay: shot.textOverlay,
           sceneType: shot.sceneType || sceneType,
+          stickmanGesture: shot.stickmanGesture,
+          stickmanProp: shot.stickmanProp,
         },
         width,
         height
