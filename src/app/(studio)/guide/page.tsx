@@ -469,18 +469,367 @@ Output Format: Strict, valid JSON array only, without markdown text wrappers if 
    - AudioBufferSourceNode.playbackRate = 1.08
 `;
 
+const MANGA_RECAP_PROMPT_V20_TEXT = `# برومبت موجه موتور ملخصات المانجا والموشن كوميك السينمائي (Motion Comic v20)
+# NOTEBOOKLM & GEMINI MANGA RECAP DIRECTOR PROMPT
+
+أنت مخرج فني أول ومهندس موشن كوميك متخصص في تحويل صفحات وفصول المانجا والمانهوا الثابتة إلى فيديوهات ملخصات سينمائية ديناميكية (Manga Recaps) مخصصة ليوتيوب والشورتس والتيك توك.
+
+## معمارية النظام ثلاثية الطبقات (3-Layer Architecture):
+1. المدخل والتقطيع (Input & Panel Extraction): تقسيم الصفحة إلى كادرات (Panels) وتحديد إحداثيات القص (crop_box: [x, y, w, h]) بنسبة مئوية من 0 إلى 100%.
+2. عزل العناصر البصرية (Split-Layering & Inpainting): عزل شخصية المانجا في طبقة أمامية مفرغة (foreground) مع خلفية الكادر لتطبيق تأثير العمق والبارالاكس 2.5D.
+3. المخرج البرمجي (Remotion / WebCodecs Rendering): تفعيل حركات الكاميرا (Ken Burns)، خطوط السرعة الديناميكية (Speed Lines)، اهتزاز الكادر (Screen Shake)، ومزامنة الكلمات مع الصوت.
+
+--------------------------------------------------------------------------------
+
+## 1. قواعد وحركات الكاميرا السينمائية (Camera Motions):
+- "dramatic_zoom": تقريب سريع وحاسم مع وقفة على ملامح الصدمة أو الضربة.
+- "parallax_zoom_in": تقريب الخلفية بسرعة 1.05x بينما تقترب الشخصية الأمامية بسرعة 1.25x لإعطاء عمق بصري ثلاثي الأبعاد حقيقي.
+- "dutch_tilt": دوران مائل طفيف للكاميرا (من -3.5 إلى +3.5 درجة) لزيادة التوتر في لحظات الخطر.
+- "pan_left" / "pan_right": انزلاق أفقي سلس لاستعراض تفاصيل الكادر الطويل أو مسار الضربة.
+- "zoom_in" / "zoom_out": تقريب وتبعيد سلس ومتناسق مع وتيرة السرد.
+
+## 2. مؤثرات المانجا البصرية التلقائية (Manga Procedural VFX):
+- "speed_lines": توليد خطوط سرعة شعاعية مركزها بؤرة الضربة أو وجه الشخصية.
+- "screen_shake": اهتزاز إحداثيات الكادر تزامناً مع اللحظة الأولى للضربة أو الصوت العنيف.
+- "flash_cut": ومضة بصرية بيضاء خاطفة في أول 0.15 ثانية لمشهد الضربة الخاطفة.
+- "red_overlay": هالة حمراء تعكس الغضب، صحوة القوة، أو حالة الخطر المميت.
+
+## 3. إحداثيات قص الكادر (crop_box):
+- المصفوفة [x, y, w, h] بالأرقام المئوية (0 إلى 100):
+  * x: المسافة الأفقية من الحافة اليسرى للصفحة.
+  * y: المسافة الرأسية من الحافة العلوية للصفحة.
+  * w: عرض الكادر المراد قصه (Width).
+  * h: ارتفاع الكادر المراد قصه (Height).
+- مثال كادر علوي عريض: [5, 2, 90, 32]
+- مثال كادر وجه درامي مقرب: [25, 38, 50, 42]
+
+## 4. نص التعليق الصوتي (Egyptian Arabic Edge-TTS):
+- كتابة تعليق سريع ومحكم بلهجة عامية مصرية مشوقة.
+- خالٍ من الشرطات والأقواس ومضبوط الترقيم (فواصل ونقاط وعلامات تعجب).
+- نبرة الصوت المعتمدة (vocal_cue):
+  * "excited": صرخات القتال وصدمات التحول والضربات القاضية.
+  * "tension": فترات الترقب وتدبير الخطط وقراءة تماثيل المتاهة.
+  * "beast": أصوات العمالقة والوحوش وزعماء الزنازين.
+  * "system": إشعارات نظام الترقية الافتراضي (System Windows).
+  * "narrator": السرد العام للراوي.
+
+--------------------------------------------------------------------------------
+
+## 5. هيكل الجيسون المعياري لموتور المانجا (Manga JSON Schema v20):
+\`\`\`json
+{
+  "project_info": {
+    "title": "سولو ليفلينج - الفصل 120 (ملخص سينمائي)",
+    "platform": "YouTube Shorts / Reels",
+    "aspect_ratio": "9:16",
+    "is_manga_mode": true,
+    "manga_chapter": 120,
+    "total_shots": 4,
+    "language": "Egyptian Arabic (Edge-TTS Pure Text)"
+  },
+  "shots": [
+    {
+      "shot_number": 1,
+      "duration_sec": 4.5,
+      "type": "صحوة البطل الخارقة",
+      "mood": "صدمة وحماس مدوي",
+      "vocal_cue": "excited",
+      "text_overlay": "الاستيقاظ الكامل للقوة!",
+      "panel_image": "manga/ch120/panel_01.jpg",
+      "manga_panel_crop": [4, 5, 92, 38],
+      "camera_motion": "parallax_zoom_in",
+      "manga_vfx": {
+        "speed_lines": true,
+        "screen_shake": true,
+        "flash_cut": true,
+        "red_overlay": false
+      },
+      "voiceover_egyptian": "ولم يدرك الاستيقاظ الكامل للقوة إلا بعد فوات الأوان!",
+      "dialogue": [
+        { "speaker": "سيف", "text": "مستحيل... الطاقة دي مش بشرية!", "start_time": 0.5, "end_time": 2.2 }
+      ],
+      "sound_design": {
+        "music": "Epic Shonen Battle Tension BPM 155",
+        "sfx": [
+          { "sfx_name": "Sub Boom Impact", "sfx_volume_percent": 95, "sfx_trigger_sec": 0.0 }
+        ]
+      }
+    }
+  ]
+}
+\`\`\`
+`;
+
+const REMOTION_COMPOSITION_CODE = `// ============================================================================
+// REMOTION MANGA RECAP COMPOSITION (Motion Comic Engine v20)
+// File: src/MangaRecapComposition.tsx
+// Run: npx remotion render src/index.ts MangaRecap out/recap.mp4
+// ============================================================================
+
+import React, { useMemo } from "react";
+import {
+  AbsoluteFill,
+  Audio,
+  Img,
+  interpolate,
+  Sequence,
+  spring,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from "remotion";
+
+export interface MangaScene {
+  shotNumber: number;
+  durationInFrames: number;
+  panelImage: string;
+  foregroundImage?: string;
+  cropBox?: [number, number, number, number]; // [x, y, w, h] in percent
+  cameraMotion?: "parallax_zoom_in" | "dramatic_zoom" | "dutch_tilt" | "pan_left" | "zoom_in" | "zoom_out";
+  mangaVfx?: {
+    speedLines?: boolean;
+    screenShake?: boolean;
+    flashCut?: boolean;
+    redOverlay?: boolean;
+  };
+  voiceoverAudioUrl?: string;
+  voiceoverText?: string;
+  subtitles?: Array<{ word: string; startFrame: number; endFrame: number }>;
+}
+
+export const MangaRecapComposition: React.FC<{ scenes: MangaScene[] }> = ({ scenes }) => {
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      {scenes.map((scene, idx) => {
+        const fromFrame = scenes
+          .slice(0, idx)
+          .reduce((acc, s) => acc + s.durationInFrames, 0);
+
+        return (
+          <Sequence
+            key={scene.shotNumber}
+            from={fromFrame}
+            durationInFrames={scene.durationInFrames}
+          >
+            <MangaSceneRenderer scene={scene} />
+          </Sequence>
+        );
+      })}
+    </AbsoluteFill>
+  );
+};
+
+export const MangaSceneRenderer: React.FC<{ scene: MangaScene }> = ({ scene }) => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+
+  // 1. Camera Motion Calculations
+  const motion = scene.cameraMotion || "zoom_in";
+  let bgScale = 1.0;
+  let fgScale = 1.0;
+  let rotateDeg = 0;
+  let panX = 0;
+
+  if (motion === "dramatic_zoom") {
+    bgScale = interpolate(frame, [0, 15, scene.durationInFrames], [1.0, 1.25, 1.3], { extrapolateRight: "clamp" });
+  } else if (motion === "parallax_zoom_in") {
+    bgScale = interpolate(frame, [0, scene.durationInFrames], [1.0, 1.12]);
+    fgScale = interpolate(frame, [0, scene.durationInFrames], [1.0, 1.28]);
+  } else if (motion === "dutch_tilt") {
+    rotateDeg = interpolate(frame, [0, scene.durationInFrames], [-3.5, 3.5]);
+    bgScale = 1.15;
+  } else if (motion === "pan_left") {
+    panX = interpolate(frame, [0, scene.durationInFrames], [30, -30]);
+    bgScale = 1.12;
+  } else {
+    bgScale = interpolate(frame, [0, scene.durationInFrames], [1.0, 1.15]);
+  }
+
+  // 2. Procedural Manga Screen Shake
+  let shakeX = 0;
+  let shakeY = 0;
+  if (scene.mangaVfx?.screenShake && frame < 20) {
+    const intensity = (1 - frame / 20) * 16;
+    shakeX = Math.sin(frame * 2.5) * intensity;
+    shakeY = Math.cos(frame * 3.1) * intensity;
+  }
+
+  // 3. Flash Cut
+  const flashOpacity = scene.mangaVfx?.flashCut && frame < 6 ? (1 - frame / 6) * 0.9 : 0;
+
+  // 4. Crop Calculation
+  const crop = scene.cropBox || [0, 0, 100, 100];
+  const [cx, cy, cw, ch] = crop;
+
+  return (
+    <AbsoluteFill
+      style={{
+        transform: \`translate(\${shakeX + panX}px, \${shakeY}px) rotate(\${rotateDeg}deg)\`,
+        transformOrigin: "center center",
+        overflow: "hidden",
+      }}
+    >
+      {/* Background Manga Panel (with Ken Burns crop scale) */}
+      <div
+        style={{
+          position: "absolute",
+          width: \`\${(100 / cw) * 100}%\`,
+          height: \`\${(100 / ch) * 100}%\`,
+          left: \`-\${(cx / cw) * 100}%\`,
+          top: \`-\${(cy / ch) * 100}%\`,
+          transform: \`scale(\${bgScale})\`,
+          transformOrigin: "center center",
+        }}
+      >
+        <Img
+          src={scene.panelImage.startsWith("http") ? scene.panelImage : staticFile(scene.panelImage)}
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      </div>
+
+      {/* 2.5D Foreground Cutout Layer (Parallax layer) */}
+      {scene.foregroundImage && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            transform: \`scale(\${fgScale})\`,
+            transformOrigin: "center center",
+            pointerEvents: "none",
+            filter: "drop-shadow(0 15px 30px rgba(0,0,0,0.8))",
+          }}
+        >
+          <Img
+            src={scene.foregroundImage.startsWith("http") ? scene.foregroundImage : staticFile(scene.foregroundImage)}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          />
+        </div>
+      )}
+
+      {/* Manga Speed Lines Overlay */}
+      {scene.mangaVfx?.speedLines && (
+        <MangaSpeedLinesCanvas width={width} height={height} frame={frame} />
+      )}
+
+      {/* Dramatic Red/Dark Vignette Overlay */}
+      {scene.mangaVfx?.redOverlay && (
+        <AbsoluteFill
+          style={{
+            background: "radial-gradient(circle, transparent 40%, rgba(220, 20, 60, 0.45) 95%)",
+            mixBlendMode: "color-burn",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
+      {/* Impact Flash Cut */}
+      {flashOpacity > 0 && (
+        <AbsoluteFill
+          style={{
+            backgroundColor: "#fff",
+            opacity: flashOpacity,
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
+      {/* Word-by-Word Kinetic Subtitles */}
+      {scene.voiceoverText && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "8%",
+            left: "6%",
+            right: "6%",
+            backgroundColor: "rgba(0, 0, 0, 0.82)",
+            borderRadius: 20,
+            padding: "16px 24px",
+            border: "2px solid rgba(0, 229, 255, 0.5)",
+            backdropFilter: "blur(8px)",
+            textAlign: "center",
+            fontFamily: "Cairo, sans-serif",
+            fontSize: width > 1080 ? 38 : 28,
+            fontWeight: 800,
+            color: "#fff",
+            lineHeight: 1.5,
+          }}
+        >
+          {scene.voiceoverText}
+        </div>
+      )}
+
+      {/* Voiceover Audio */}
+      {scene.voiceoverAudioUrl && <Audio src={scene.voiceoverAudioUrl} />}
+    </AbsoluteFill>
+  );
+};
+
+// Procedural Radial Speed Lines Canvas Component
+const MangaSpeedLinesCanvas: React.FC<{ width: number; height: number; frame: number }> = ({
+  width,
+  height,
+  frame,
+}) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, width, height);
+    const cx = width / 2;
+    const cy = height / 2;
+    const maxR = Math.hypot(cx, cy);
+    const lineCount = 36;
+    const seed = frame * 1.7;
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.lineWidth = 3.5;
+
+    for (let i = 0; i < lineCount; i++) {
+      const angle = (i / lineCount) * Math.PI * 2 + ((Math.sin(seed + i) * 0.05));
+      const innerR = maxR * (0.35 + (Math.sin(seed * 2 + i * 3) * 0.12));
+      const x1 = cx + Math.cos(angle) * innerR;
+      const y1 = cy + Math.sin(angle) * innerR;
+      const x2 = cx + Math.cos(angle) * maxR;
+      const y2 = cy + Math.sin(angle) * maxR;
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }, [width, height, frame]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+    />
+  );
+};
+`;
+
 export default function GuidePage() {
   const [query, setQuery] = useState("");
   const [copiedNotebookLM, setCopiedNotebookLM] = useState(false);
+  const [copiedMangaPrompt, setCopiedMangaPrompt] = useState(false);
+  const [copiedRemotionCode, setCopiedRemotionCode] = useState(false);
   const [copiedGuide, setCopiedGuide] = useState(false);
   const [copiedAgent, setCopiedAgent] = useState(false);
   const [copiedStoryteller, setCopiedStoryteller] = useState(false);
   const [copiedArchitecture, setCopiedArchitecture] = useState(false);
-  const [activeTab, setActiveTab] = useState<"notebooklm" | "storyteller" | "guide" | "agent" | "architecture">("notebooklm");
+  const [activeTab, setActiveTab] = useState<"manga" | "notebooklm" | "storyteller" | "guide" | "agent" | "architecture">("manga");
   const [architectureText, setArchitectureText] = useState("");
   const [loadingArch, setLoadingArch] = useState(false);
 
-  function selectTab(tab: "notebooklm" | "storyteller" | "guide" | "agent" | "architecture") {
+  function selectTab(tab: "manga" | "notebooklm" | "storyteller" | "guide" | "agent" | "architecture") {
     setActiveTab(tab);
     if (tab === "architecture" && !architectureText) {
       setLoadingArch(true);
@@ -503,6 +852,26 @@ export default function GuidePage() {
       );
     });
   }, [query]);
+
+  async function copyMangaPrompt() {
+    try {
+      await navigator.clipboard.writeText(MANGA_RECAP_PROMPT_V20_TEXT);
+      setCopiedMangaPrompt(true);
+      setTimeout(() => setCopiedMangaPrompt(false), 2500);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function copyRemotionCode() {
+    try {
+      await navigator.clipboard.writeText(REMOTION_COMPOSITION_CODE);
+      setCopiedRemotionCode(true);
+      setTimeout(() => setCopiedRemotionCode(false), 2500);
+    } catch {
+      // ignore
+    }
+  }
 
   async function copyNotebookLMPrompt() {
     try {
@@ -566,23 +935,23 @@ export default function GuidePage() {
       <section className="rounded-2xl sm:rounded-3xl border border-border bg-surface/70 p-4 sm:p-5 shadow-lg min-w-0 w-full">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/20 text-primary border border-primary/40">
-              <BookOpen className="h-5 w-5" />
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40">
+              <Flame className="h-5 w-5" />
             </span>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-bold text-fg">
-                  دليل التعليمات وبروفايل الراوي والمخرج الذكي
+                  موتور ملخصات المانجا (Motion Comic v20) ومخرج الأنمي
                 </h1>
                 <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-[11px] font-bold text-amber-400 border border-amber-500/40">
-                  The Storyteller
+                  Manga Recaps v20
                 </span>
                 <span className="rounded-md bg-primary/20 px-2 py-0.5 text-[11px] font-bold text-primary border border-primary/40">
-                  Modern Anime Overlay
+                  Remotion & 2.5D Parallax
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                بروفايل راوي حكايات الأنمي، مواصفة المخرج الفني الذكي، معالجة الصوت بفلتر الـ Bass، وشريط الأوفرلاي النيون.
+                الوصفة السحرية لتحويل صفحات المانجا الثابتة إلى موشن كوميك سينمائي، قص الكادرات، خطوط السرعة، واهتزاز الشاشة.
               </p>
             </div>
           </div>
@@ -590,44 +959,59 @@ export default function GuidePage() {
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             <button
               type="button"
+              onClick={copyMangaPrompt}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-amber-500/60 bg-amber-500/15 px-3.5 text-xs font-bold text-amber-300 hover:bg-amber-500 hover:text-black transition shrink-0 shadow-md"
+              title="نسخ برومبت NotebookLM و Gemini لمخرج ملخصات المانجا (v20)"
+            >
+              {copiedMangaPrompt ? <Check className="h-4 w-4 stroke-[3]" /> : <Flame className="h-4 w-4 text-amber-400" />}
+              <span>{copiedMangaPrompt ? "تم نسخ برومبت المانجا!" : "نسخ برومبت المانجا (v20) 🔥"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={copyRemotionCode}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-cyan-500/50 bg-cyan-500/10 px-3.5 text-xs font-bold text-cyan-300 hover:bg-cyan-400 hover:text-black transition shrink-0 shadow-sm"
+              title="نسخ كود Remotion الجاهز للرندر (MangaRecapComposition.tsx)"
+            >
+              {copiedRemotionCode ? <Check className="h-4 w-4 stroke-[3]" /> : <FileCode className="h-4 w-4 text-cyan-400" />}
+              <span>{copiedRemotionCode ? "تم نسخ كود Remotion!" : "نسخ كود Remotion TSX"}</span>
+            </button>
+            <button
+              type="button"
               onClick={copyNotebookLMPrompt}
               className="flex h-11 items-center justify-center gap-2 rounded-xl border border-purple-500/60 bg-purple-500/15 px-3.5 text-xs font-bold text-purple-300 hover:bg-purple-500 hover:text-black transition shrink-0 shadow-md"
               title="نسخ برومبت NotebookLM لتحويل فصول الروايات والمانها إلى ستيكمان"
             >
               {copiedNotebookLM ? <Check className="h-4 w-4 stroke-[3]" /> : <Sparkles className="h-4 w-4 text-purple-400" />}
-              <span>{copiedNotebookLM ? "تم نسخ برومبت NotebookLM!" : "نسخ برومبت NotebookLM (ستيكمان) ⚡"}</span>
-            </button>
-            <a
-              href="/SYSTEM_ARCHITECTURE_ANALYSIS.md"
-              download="SYSTEM_ARCHITECTURE_ANALYSIS.md"
-              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3.5 text-xs font-bold text-primary hover:bg-primary hover:text-black transition shrink-0 shadow-sm"
-              title="تحميل وثيقة التحليل المعماري والهندسي الشامل للأيجنت (.MD)"
-            >
-              <Download className="h-4 w-4" />
-              <span className="hidden sm:inline">تحميل تحليل النظام للأيجنت (.MD)</span>
-              <span className="sm:hidden">تحميل .MD للأيجنت</span>
-            </a>
-            <button
-              type="button"
-              onClick={copyStorytellerPrompt}
-              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/10 px-3.5 text-xs font-bold text-amber-400 hover:bg-amber-400 hover:text-black transition shrink-0 shadow-sm"
-            >
-              {copiedStoryteller ? <Check className="h-4 w-4 stroke-[3]" /> : <Flame className="h-4 w-4" />}
-              <span>{copiedStoryteller ? "تم نسخ بروفايل الراوي!" : "نسخ بروفايل راوي الأنمي"}</span>
+              <span>{copiedNotebookLM ? "تم النسخ!" : "برومبت الستيكمان ⚡"}</span>
             </button>
             <button
               type="button"
               onClick={copyGuidePrompt}
-              className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-black transition hover:brightness-110 shrink-0 shadow-md"
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-3.5 text-xs font-bold text-primary hover:bg-primary hover:text-black transition shrink-0 shadow-sm"
+              title="نسخ الدليل المرجعي ومعيار v19"
             >
-              {copiedGuide ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
-              <span>{copiedGuide ? "تم نسخ البرومبت الكامل!" : "نسخ الدليل المرجعي"}</span>
+              {copiedGuide ? <Check className="h-4 w-4 stroke-[3]" /> : <BookOpen className="h-4 w-4" />}
+              <span>{copiedGuide ? "تم نسخ الدليل!" : "الدليل المرجعي v19"}</span>
             </button>
           </div>
         </div>
 
         {/* View Switcher Tabs */}
         <div className="mt-4 flex items-center gap-2 border-t border-border/50 pt-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => selectTab("manga")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition",
+              activeTab === "manga"
+                ? "bg-amber-500 text-black shadow-sm font-extrabold"
+                : "border border-border bg-card text-muted hover:text-fg hover:border-amber-500/50"
+            )}
+          >
+            <Flame className="h-3.5 w-3.5 text-current" />
+            <span>موتور ملخصات المانجا (Motion Comic v20) 🔥</span>
+          </button>
+
           <button
             type="button"
             onClick={() => selectTab("notebooklm")}
@@ -699,6 +1083,154 @@ export default function GuidePage() {
           </button>
         </div>
       </section>
+
+      {/* Tab: Manga Recaps & Motion Comic Engine v20 */}
+      {activeTab === "manga" && (
+        <section className="space-y-5">
+          {/* Architecture & Secrets Banner */}
+          <div className="rounded-2xl border border-amber-500/40 bg-gradient-to-r from-card via-surface to-surface p-4 sm:p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2 border-b border-border/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                  <Flame className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-fg">
+                    الوصفة السحرية لفيديوهات ملخصات المانجا (Manga Recaps) المليونية
+                  </h2>
+                  <p className="text-xs text-muted">
+                    الهندسة البرمجية لتحويل صفحات المانجا الثابتة إلى مشاهد سينمائية حية (Motion Comic Workflow) بأقل جهد يدوي.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyMangaPrompt}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 text-xs font-bold text-black hover:brightness-110 transition shadow-md"
+                >
+                  {copiedMangaPrompt ? <Check className="h-4 w-4 stroke-[3]" /> : <Copy className="h-4 w-4" />}
+                  <span>{copiedMangaPrompt ? "تم النسخ!" : "نسخ برومبت المانجا v20"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyRemotionCode}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl border border-cyan-500/50 bg-cyan-500/10 px-4 text-xs font-bold text-cyan-300 hover:bg-cyan-400 hover:text-black transition"
+                >
+                  {copiedRemotionCode ? <Check className="h-4 w-4 stroke-[3]" /> : <FileCode className="h-4 w-4" />}
+                  <span>{copiedRemotionCode ? "تم النسخ!" : "نسخ كود Remotion"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* The 3 Core Architecture Pillars */}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                  <span className="grid h-6 w-6 place-items-center rounded-lg bg-amber-500/20">1</span>
+                  <span>المدخل والتقطيع (Input & Panel Extraction)</span>
+                </div>
+                <p className="text-xs text-fg leading-relaxed">
+                  تحديد إحداثيات الكادر <code className="text-amber-300 font-mono">crop_box: [x, y, w, h]</code> بنسب مئوية دقيقة لعزل كل كادر مانجا على حدة بدلاً من عرض الصفحة الكاملة بصورة ثابتة.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-primary/30 bg-primary/10 p-3.5 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-primary">
+                  <span className="grid h-6 w-6 place-items-center rounded-lg bg-primary/20">2</span>
+                  <span>عزل العناصر (2.5D Multi-Layering)</span>
+                </div>
+                <p className="text-xs text-fg leading-relaxed">
+                  فصل شخصية المانجا في طبقة أمامية مفرغة (Foreground Cutout) وخلفية الكادر في طبقة منفصلة لتحريك كل منهما بسرعة مختلفة (Parallax Effect) لعمق بصري حيوي.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-accent/30 bg-accent/10 p-3.5 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-accent">
+                  <span className="grid h-6 w-6 place-items-center rounded-lg bg-accent/20">3</span>
+                  <span>موتور الرندر (Remotion & Canvas VFX)</span>
+                </div>
+                <p className="text-xs text-fg leading-relaxed">
+                  تطبيق حركات الكاميرا (Ken Burns & Dutch Tilt)، ومولد خطوط السرعة الديناميكية (Speed Lines)، واهتزاز الشاشة (Screen Shake) متزامناً مع الصوت والكلمات.
+                </p>
+              </div>
+            </div>
+
+            {/* 4 Cinematic Tricks Grid */}
+            <div className="pt-2">
+              <h3 className="text-xs font-bold text-muted mb-2">حيل الموشن كوميك البرمجية المنفذة في هذا التطبيق:</h3>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+                <div className="rounded-lg border border-border bg-card p-2.5">
+                  <strong className="block text-primary mb-1">⚡ خطوط السرعة (Speed Lines)</strong>
+                  <p className="text-muted text-[11px]">مولد كانفس إجرائي (Procedural Radial Lines) يركز على بؤرة اللكمة أو وجه البطل في لحظات الحماس.</p>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-2.5">
+                  <strong className="block text-accent mb-1">📳 اهتزاز الكادر (Screen Shake)</strong>
+                  <p className="text-muted text-[11px]">دوال جيبية Sine/Cosine تهز إحداثيات المشهد في أول 0.4 ثانية تزامناً مع مؤثرات Sub Boom وSword Slash.</p>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-2.5">
+                  <strong className="block text-amber-300 mb-1">🎥 الكاميرا المائلة (Dutch Tilt)</strong>
+                  <p className="text-muted text-[11px]">دوران خفيف للكاميرا بين -3.5° و +3.5° يعطي شعوراً بعدم الاستقرار والرهبة عند ظهور الوحوش.</p>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-2.5">
+                  <strong className="block text-rose-400 mb-1">🩸 الهالة الدرامية (Red Glow Vignette)</strong>
+                  <p className="text-muted text-[11px]">طبقة لونية داكنة بحواف دموية تعبر عن الغضب القاتل أو صحوة القوة والتحول الخارق.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 1: NotebookLM / Gemini Prompt Text */}
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-amber-400" />
+                <h3 className="text-sm font-bold text-fg">
+                  برومبت مخرج المانجا لـ NotebookLM و Gemini (Manga Recap System Prompt)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={copyMangaPrompt}
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 text-xs font-semibold text-amber-300 hover:bg-amber-500 hover:text-black transition"
+              >
+                {copiedMangaPrompt ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedMangaPrompt ? "تم النسخ!" : "نسخ البرومبت"}</span>
+              </button>
+            </div>
+            <pre className="max-h-[380px] overflow-auto rounded-xl bg-bg/90 p-4 text-xs font-mono text-fg leading-relaxed whitespace-pre-wrap select-all border border-border/70 scrollbar-thin">
+              {MANGA_RECAP_PROMPT_V20_TEXT}
+            </pre>
+          </div>
+
+          {/* Section 2: Remotion Composition Code */}
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <FileCode className="h-4 w-4 text-cyan-400" />
+                <h3 className="text-sm font-bold text-fg">
+                  كود Remotion الكامل لتوليد ملفات الفيديو (MangaRecapComposition.tsx)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={copyRemotionCode}
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-cyan-500/50 bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-300 hover:bg-cyan-400 hover:text-black transition"
+              >
+                {copiedRemotionCode ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copiedRemotionCode ? "تم النسخ!" : "نسخ كود Remotion"}</span>
+              </button>
+            </div>
+            <p className="text-xs text-muted">
+              يمكنك استخدام هذا الكود داخل أي مشروع Remotion لرندر الفيديو محلياً أو على سحابة AWS Lambda بدقة 1080x1920 بمعدل 30fps:
+              <code className="mx-1 text-cyan-300 font-mono bg-surface px-1.5 py-0.5 rounded border border-border">npx remotion render src/index.ts MangaRecap out/recap.mp4</code>
+            </p>
+            <pre className="max-h-[420px] overflow-auto rounded-xl bg-bg/90 p-4 text-xs font-mono text-cyan-200 leading-relaxed whitespace-pre-wrap select-all border border-border/70 scrollbar-thin" dir="ltr">
+              {REMOTION_COMPOSITION_CODE}
+            </pre>
+          </div>
+        </section>
+      )}
 
       {/* Tab: NotebookLM Stickman Director View */}
       {activeTab === "notebooklm" && (

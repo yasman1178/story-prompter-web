@@ -11,9 +11,36 @@ export const TRANSITION_TYPES: TransitionType[] = [
   { id: "SMOOTH_FADE", labelAr: "تلاشي ناعم (Smooth Fade)" },
 ];
 
-export type CameraMotionType = "zoom_in" | "zoom_out" | "pan_left" | "pan_right" | "shake" | "static";
+export type CameraMotionType =
+  | "zoom_in"
+  | "zoom_out"
+  | "pan_left"
+  | "pan_right"
+  | "shake"
+  | "static"
+  | "dramatic_zoom"
+  | "dutch_tilt"
+  | "parallax_zoom_in";
 export type TransitionOutType = "cut" | "flash" | "glitch" | "fade" | "whip";
 export type ForegroundAnimationType = "floating" | "pulse" | "shake" | "scale_up" | "static";
+
+export interface MangaPanelCrop {
+  x: number; // 0 - 100 (% of page width)
+  y: number; // 0 - 100 (% of page height)
+  w: number; // 0 - 100 (% of page width)
+  h: number; // 0 - 100 (% of page height)
+}
+
+export interface MangaVfxConfig {
+  speedLines?: boolean;
+  speedLinesDensity?: "low" | "medium" | "high";
+  speedLinesAngleDeg?: number;
+  screenShake?: boolean;
+  screenShakeIntensity?: number; // 0 - 100
+  flashCut?: boolean;
+  dramaticRedOverlay?: boolean;
+  focusZoom?: number; // 1.0 - 2.5
+}
 
 export interface BeatItem {
   atSec: number;
@@ -192,6 +219,7 @@ export interface StoryShot {
   sfxVolumePercent: number;
   sfxTriggerSec: number;
   dialogueLines: DialogueLine[];
+  dialogue?: Array<{ speaker?: string; text?: string; start_time?: number; end_time?: number }>;
   vfxSettings?: VfxSettings;
   textOverlayPos?: OverlayPosition;
   ctaPos?: OverlayPosition;
@@ -207,6 +235,12 @@ export interface StoryShot {
   stickmanProp?: StickmanPropType;
   stickmanPosition?: OverlayPosition;
   stickmanFacing?: "left" | "right";
+  // Manga Motion Comic Engine Fields
+  mangaPanelCrop?: MangaPanelCrop;
+  mangaVfx?: MangaVfxConfig;
+  panelImage?: string;
+  effect?: string;
+  durationInFrames?: number;
 }
 
 export type StickmanGestureType =
@@ -365,6 +399,9 @@ export interface StoryProject {
   bgmFadeOutSec?: number;
   bgmDuckingStrength?: number;
   masterVfxDisabled?: boolean;
+  // Manga Motion Comic Mode
+  isMangaMode?: boolean;
+  mangaChapter?: string;
 }
 
 export interface ShotRange {

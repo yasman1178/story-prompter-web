@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import {
+  Crop,
   Eye,
   ImagePlus,
   Layers,
@@ -20,6 +21,7 @@ import { useImageUrl } from "@/lib/use-image";
 import { themeGradient } from "@/lib/colors";
 import { SceneThumbnail } from "@/components/studio/scene-thumbnail";
 import { SfxPickerModal } from "@/components/studio/sfx-picker-modal";
+import { MangaPanelCropperModal } from "@/components/studio/manga-panel-cropper-modal";
 import { audioEngine } from "@/lib/audio-engine";
 import { synthesizeSpeech, speakWithBrowser } from "@/lib/tts-client";
 import { getAsset } from "@/lib/db";
@@ -50,6 +52,7 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
   const [stopAudioFn, setStopAudioFn] = useState<(() => void) | null>(null);
   const [sfxModalOpen, setSfxModalOpen] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [cropperOpen, setCropperOpen] = useState(false);
 
   async function togglePlayShotAudio(e: React.MouseEvent) {
     e.stopPropagation();
@@ -175,6 +178,33 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
                     {shot.matchedForegroundFileName && (
                       <span className="text-[10px] rounded bg-accent/15 border border-accent/40 px-1.5 py-0.5 font-mono text-accent truncate max-w-[110px]" title={`العنصر الأمامي: ${shot.matchedForegroundFileName}`}>
                         🎭 {shot.matchedForegroundFileName}
+                      </span>
+                    )}
+                    {shot.mangaPanelCrop && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCropperOpen(true);
+                        }}
+                        className="cursor-pointer text-[10px] rounded bg-amber-500/15 border border-amber-500/40 px-1.5 py-0.5 font-mono text-amber-300 hover:bg-amber-500/25 transition"
+                        title={`كادر مقصوص: [X:${Math.round(shot.mangaPanelCrop.x)}% Y:${Math.round(shot.mangaPanelCrop.y)}% W:${Math.round(shot.mangaPanelCrop.w)}% H:${Math.round(shot.mangaPanelCrop.h)}%] - اضغط للتعديل`}
+                      >
+                        📐 كادر [{Math.round(shot.mangaPanelCrop.w)}×{Math.round(shot.mangaPanelCrop.h)}%]
+                      </span>
+                    )}
+                    {shot.mangaVfx?.speedLines && (
+                      <span className="text-[10px] rounded bg-yellow-500/15 border border-yellow-500/40 px-1.5 py-0.5 font-semibold text-yellow-300" title="خطوط سرعة المانجا مفعلة">
+                        ⚡ خطوط سرعة
+                      </span>
+                    )}
+                    {shot.mangaVfx?.screenShake && (
+                      <span className="text-[10px] rounded bg-red-500/15 border border-red-500/40 px-1.5 py-0.5 font-semibold text-red-300" title="اهتزاز الشاشة مفعل">
+                        📳 اهتزاز
+                      </span>
+                    )}
+                    {shot.cameraMotion && (
+                      <span className="text-[10px] rounded bg-cyan-500/15 border border-cyan-500/40 px-1.5 py-0.5 font-semibold text-cyan-300" title={`حركة الكاميرا: ${shot.cameraMotion}`}>
+                        🎥 {shot.cameraMotion}
                       </span>
                     )}
                     <button
@@ -432,49 +462,71 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
           </div>
         </div>
 
-        {/* Foreground Cutout Layer Row (Split-Layer Compositing) */}
-        <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-between gap-2 text-xs">
-          <input
-            ref={fgInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void assignSingleForegroundImage(shot.shotNumber, file);
-              e.target.value = "";
-            }}
-          />
+        {/* Foreground Cutout Layer & Manga Panel Cropper Row */}
+        <div className="mt-2 pt-2 border-t border-border/40 grid grid-cols-2 gap-2 text-xs">
+          {/* Manga Panel Cropper Button */}
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              fgInputRef.current?.click();
+              setCropperOpen(true);
             }}
             className={cn(
-              "flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition",
-              shot.customForegroundImageId
-                ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20"
-                : "border-border/60 bg-surface/40 text-muted hover:border-accent hover:text-fg"
+              "flex h-8 items-center justify-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition",
+              shot.mangaPanelCrop
+                ? "border-amber-500/50 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                : "border-border/60 bg-surface/40 text-muted hover:border-amber-500/60 hover:text-amber-300"
             )}
-            title="رفع عنصر أمامي مفرغ (PNG شفاف) لتحريك البارالاكس ثلاثي الأبعاد"
+            title="قص وتحديد كادر المانجا بدقة (Crop Box) مع إحداثيات الحركة"
           >
-            <Layers className="h-3 w-3" />
-            <span>{shot.customForegroundImageId ? "تغيير العنصر الأمامي (FG)" : "+ عنصر أمامي مفرغ (FG)"}</span>
+            <Crop className="h-3 w-3 text-amber-400" />
+            <span>{shot.mangaPanelCrop ? "تعديل الكادر (Crop)" : "قص كادر المانجا"}</span>
           </button>
-          {shot.customForegroundImageId && (
+
+          {/* Foreground Cutout Layer */}
+          <div className="flex items-center gap-1">
+            <input
+              ref={fgInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void assignSingleForegroundImage(shot.shotNumber, file);
+                e.target.value = "";
+              }}
+            />
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                void clearShotForegroundImage(shot.shotNumber);
+                fgInputRef.current?.click();
               }}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border text-muted hover:border-amber-500/60 hover:text-amber-400 transition"
-              title="إزالة العنصر الأمامي المفرغ"
+              className={cn(
+                "flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition",
+                shot.customForegroundImageId
+                  ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20"
+                  : "border-border/60 bg-surface/40 text-muted hover:border-accent hover:text-fg"
+              )}
+              title="رفع عنصر أمامي مفرغ (PNG شفاف) لتحريك البارالاكس ثلاثي الأبعاد"
             >
-              <Trash2 className="h-3 w-3" />
+              <Layers className="h-3 w-3" />
+              <span className="truncate">{shot.customForegroundImageId ? "تغيير FG" : "+ مفرغ FG"}</span>
             </button>
-          )}
+            {shot.customForegroundImageId && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void clearShotForegroundImage(shot.shotNumber);
+                }}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border text-muted hover:border-amber-500/60 hover:text-amber-400 transition"
+                title="إزالة العنصر الأمامي المفرغ"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
       </article>
 
@@ -484,6 +536,13 @@ export function ShotCard({ shot, index, active }: { shot: StoryShot; index: numb
         currentSfxId={shot.assignedSfxId}
         isOpen={sfxModalOpen}
         onClose={() => setSfxModalOpen(false)}
+      />
+
+      {/* Manga Panel Cropper Modal */}
+      <MangaPanelCropperModal
+        shot={shot}
+        isOpen={cropperOpen}
+        onClose={() => setCropperOpen(false)}
       />
 
       {/* Synchronized Shot Visual & Audio Preview Modal */}

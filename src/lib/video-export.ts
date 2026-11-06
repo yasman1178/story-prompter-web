@@ -193,8 +193,34 @@ function drawCover(
   scale: number,
   offsetX = 0,
   targetW = VIDEO_WIDTH,
-  targetH = VIDEO_HEIGHT
+  targetH = VIDEO_HEIGHT,
+  crop?: import("./types").MangaPanelCrop
 ) {
+  if (crop && crop.w > 0 && crop.h > 0) {
+    const sx = Math.max(0, Math.min(bitmap.width, (crop.x / 100) * bitmap.width));
+    const sy = Math.max(0, Math.min(bitmap.height, (crop.y / 100) * bitmap.height));
+    const sw = Math.max(10, Math.min(bitmap.width - sx, (crop.w / 100) * bitmap.width));
+    const sh = Math.max(10, Math.min(bitmap.height - sy, (crop.h / 100) * bitmap.height));
+
+    const canvasRatio = targetW / targetH;
+    const cropRatio = sw / sh;
+    let drawW: number;
+    let drawH: number;
+    if (cropRatio > canvasRatio) {
+      drawH = targetH;
+      drawW = drawH * cropRatio;
+    } else {
+      drawW = targetW;
+      drawH = drawW / cropRatio;
+    }
+    drawW *= scale;
+    drawH *= scale;
+    const x = (targetW - drawW) / 2 + offsetX;
+    const y = (targetH - drawH) / 2;
+    ctx.drawImage(bitmap, sx, sy, sw, sh, x, y, drawW, drawH);
+    return;
+  }
+
   const canvasRatio = targetW / targetH;
   const imageRatio = bitmap.width / bitmap.height;
   let drawW: number;
@@ -506,6 +532,16 @@ export function drawFrame(
       case "shake":
         zoom = 1.10;
         break;
+      case "dramatic_zoom":
+        zoom = 1.05 + progress * 0.38 * motionIntensity;
+        break;
+      case "dutch_tilt":
+        zoom = 1.14;
+        break;
+      case "parallax_zoom_in":
+        zoom = 1.02 + progress * 0.14 * motionIntensity;
+        panX = (0.5 - progress) * 24 * motionIntensity;
+        break;
       case "static":
         zoom = 1.05;
         break;
@@ -521,6 +557,9 @@ export function drawFrame(
       panX = (progress - 0.5) * 36 * motionIntensity;
     }
   }
+
+  // Dutch tilt rotation angle
+  const tiltAngle = shot.cameraMotion === "dutch_tilt" ? Math.sin(progress * Math.PI) * 0.045 : 0;
 
   // Initial 0.8s Impact Hook for high-energy start
   const hookPunch = localSec < 0.8 ? Math.sin((localSec / 0.8) * Math.PI) * 0.05 : 0;
@@ -549,10 +588,12 @@ export function drawFrame(
   // 3D Parallax Depth displacement
   const parallaxShiftX = panX + (progress - 0.5) * 26 * parallaxDepth;
 
-  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook
+  // 2. Camera Screen Shake on impacts / lasers / Shot 1 Hook / Manga Shake
   const isHookShot1 = shot.shotNumber === 1 && localSec < 0.45;
+  const isMangaShake = Boolean(shot.mangaVfx?.screenShake);
   const isImpact =
     isHookShot1 ||
+    isMangaShake ||
     shot.cameraMotion === "shake" ||
     shot.type.includes("انغلاق") ||
     shot.type.includes("زئير") ||
@@ -567,6 +608,10 @@ export function drawFrame(
     const intensity = (1 - localSec / 0.45) * 16;
     shakeX = Math.sin(localSec * 75) * intensity;
     shakeY = Math.cos(localSec * 65) * intensity;
+  } else if (isMangaShake && localSec < 0.6) {
+    const mIntensity = ((shot.mangaVfx?.screenShakeIntensity ?? 65) / 100) * 16 * (1 - localSec / 0.6);
+    shakeX = Math.sin(localSec * 75) * mIntensity;
+    shakeY = Math.cos(localSec * 65) * mIntensity;
   } else if (isImpact && localSec < 0.35) {
     const intensity = (1 - localSec / 0.35) * 12;
     shakeX = Math.sin(localSec * 60) * intensity;
@@ -575,13 +620,18 @@ export function drawFrame(
 
   ctx.save();
   ctx.translate(shakeX, shakeY);
+  if (tiltAngle !== 0) {
+    ctx.translate(targetW / 2, targetH / 2);
+    ctx.rotate(tiltAngle);
+    ctx.translate(-targetW / 2, -targetH / 2);
+  }
 
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, targetW, targetH);
 
   // Draw visual artwork (Image or Stickman Video Director Engine)
   if (image && project.stickmanTheme === undefined) {
-    drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH);
+    drawCover(ctx, image.bitmap, zoom, parallaxShiftX, targetW, targetH, shot.mangaPanelCrop);
     if (image.foregroundBitmap) {
       drawForegroundCutout(
         ctx,
@@ -636,6 +686,7 @@ export function drawFrame(
 
   // 2c. Manga / Anime Dynamic Action Speedlines
   const isActionMoment =
+    Boolean(shot.mangaVfx?.speedLines) ||
     isImpact ||
     shot.type.includes("قتال") ||
     shot.type.includes("خطر") ||
@@ -643,15 +694,15 @@ export function drawFrame(
     shot.type.includes("سيف");
   if ((project.enableVFXSpeedlines || isActionMoment) && project.enableVFXSpeedlines !== false) {
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
     ctx.lineWidth = 2.5;
     const cx = targetW / 2;
     const cy = targetH * 0.46;
-    const numLines = 26;
-    const seed = Math.floor(localSec * 14);
+    const numLines = shot.mangaVfx?.speedLinesDensity === "high" ? 42 : 28;
+    const seed = Math.floor(localSec * 16);
     for (let i = 0; i < numLines; i++) {
       const angle = (i / numLines) * Math.PI * 2 + ((seed + i * 7) % 11) * 0.04;
-      const innerR = Math.min(targetW, targetH) * 0.28 + (((seed * 17 + i * 31) % 60));
+      const innerR = Math.min(targetW, targetH) * 0.26 + (((seed * 17 + i * 31) % 60));
       const outerR = Math.max(targetW, targetH);
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
@@ -661,7 +712,33 @@ export function drawFrame(
     ctx.restore();
   }
 
-  // 2d. Tension Glitch / Shockwave slice
+  // 2d. Manga Flash Cut
+  if (shot.mangaVfx?.flashCut && localSec < 0.2) {
+    ctx.save();
+    ctx.fillStyle = `rgba(255, 255, 255, ${(1 - localSec / 0.2) * 0.9})`;
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.restore();
+  }
+
+  // 2e. Manga Dramatic Red Overlay
+  if (shot.mangaVfx?.dramaticRedOverlay) {
+    ctx.save();
+    const redGrad = ctx.createRadialGradient(
+      targetW / 2,
+      targetH / 2,
+      Math.min(targetW, targetH) * 0.35,
+      targetW / 2,
+      targetH / 2,
+      Math.max(targetW, targetH) * 0.72
+    );
+    redGrad.addColorStop(0, "rgba(220, 38, 38, 0)");
+    redGrad.addColorStop(1, "rgba(185, 28, 28, 0.45)");
+    ctx.fillStyle = redGrad;
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.restore();
+  }
+
+  // 2f. Tension Glitch / Shockwave slice
   const isTenseMoment =
     shot.mood.includes("رعب") || shot.mood.includes("توتر") || shot.type.includes("صدمة");
   if ((project.enableVFXGlitch || isTenseMoment) && project.enableVFXGlitch !== false && localSec < 0.22) {

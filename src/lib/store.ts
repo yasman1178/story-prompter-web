@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { BGM_TRACKS, createSampleProject, parseStoryJson } from "@/lib/data";
+import { BGM_TRACKS, createSampleProject, createSampleMangaProject, parseStoryJson } from "@/lib/data";
 import {
   AspectRatioType,
+  MangaPanelCrop,
   OverlayPosition,
   StickmanGestureType,
   StickmanPropType,
@@ -75,7 +76,10 @@ interface StudioState {
   setProject: (project: StoryProject | null) => void;
   clearProject: () => void;
   loadSample: () => void;
+  loadSampleManga: () => void;
   importJson: (json: string) => boolean;
+  updateShotMangaCrop: (shotNumber: number, crop: MangaPanelCrop) => void;
+  toggleMangaMode: (enabled?: boolean) => void;
 
   setAspectRatio: (ratio: AspectRatioType) => void;
   setStickmanTheme: (theme: StickmanThemeType) => void;
@@ -263,6 +267,35 @@ export const useStudio = create<StudioState>((set, get) => ({
   loadSample: () => {
     const project = createSampleProject();
     set({ project, activeShotIndex: 0, feedback: "تم تحميل قصة 'حكاية سيف' بنجاح!" });
+  },
+
+  loadSampleManga: () => {
+    const project = createSampleMangaProject();
+    set({ project, activeShotIndex: 0, feedback: "تم تحميل مشروع ملخص المانجا النموذجي (الفصل 120) بنجاح!" });
+  },
+
+  updateShotMangaCrop: (shotNumber, crop) => {
+    const project = get().project;
+    if (!project) return;
+    const shots = project.shots.map((s) => (s.shotNumber === shotNumber ? { ...s, mangaPanelCrop: crop } : s));
+    set({
+      project: { ...project, shots },
+      feedback: `تم تحديث إحداثيات كادر المشهد #${shotNumber}`,
+    });
+  },
+
+  toggleMangaMode: (enabled) => {
+    const project = get().project;
+    if (!project) return;
+    const nextVal = enabled !== undefined ? enabled : !project.isMangaMode;
+    set({
+      project: {
+        ...project,
+        isMangaMode: nextVal,
+        stickmanTheme: nextVal ? undefined : "dark_chalkboard",
+      },
+      feedback: nextVal ? "تم تفعيل نمط المانجا موشن كوميك" : "تم إلغاء نمط المانجا",
+    });
   },
 
   importJson: (json) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, FileText, FileUp, FolderUp, Layers, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, BookOpen, CheckCircle, FileText, FileUp, FolderUp, Layers, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
 import { EmptyState } from "@/components/studio/empty-state";
 import { ShotCard } from "@/components/studio/shot-card";
 import { BatchImageMatcherModal } from "@/components/studio/batch-image-matcher-modal";
@@ -31,6 +31,8 @@ export default function ProjectPage() {
   const assignImages = useStudio((s) => s.assignImages);
   const importJson = useStudio((s) => s.importJson);
   const loadSample = useStudio((s) => s.loadSample);
+  const loadSampleManga = useStudio((s) => s.loadSampleManga);
+  const toggleMangaMode = useStudio((s) => s.toggleMangaMode);
   const optimizeProjectVoiceovers = useStudio((s) => s.optimizeProjectVoiceovers);
   const showFeedback = useStudio((s) => s.showFeedback);
   const isCompressingImages = useStudio((s) => s.isCompressingImages);
@@ -163,6 +165,17 @@ export default function ProjectPage() {
 
           {/* Action Buttons: JSON first, then Images */}
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {/* 0. Load Sample Manga Recap Button */}
+            <button
+              type="button"
+              onClick={loadSampleManga}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/15 px-3.5 text-xs sm:text-sm font-bold text-amber-300 hover:bg-amber-500 hover:text-black transition shadow-sm shrink-0"
+              title="تحميل مشروع ملخص مانجا جاهز مع مؤثرات Speed Lines وكادرات مقصوصة وحركات كاميرا"
+            >
+              <BookOpen className="h-4 w-4" />
+              <span>نموذج ملخص مانجا (Recap)</span>
+            </button>
+
             {/* 1. Upload JSON Button (Placed right before image bundle) */}
             <button
               type="button"
@@ -303,10 +316,10 @@ export default function ProjectPage() {
           </label>
         </div>
 
-        {/* Stickman Studio Staging & Theme Bar */}
-        <div className="mt-3.5 grid gap-3 sm:grid-cols-2 pt-3 border-t border-border/50 min-w-0">
+        {/* Stickman Studio Staging & Manga Mode Bar */}
+        <div className="mt-3.5 grid gap-3 sm:grid-cols-3 pt-3 border-t border-border/50 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted whitespace-nowrap">لوحة رسم الستيكمان:</span>
+            <span className="text-xs text-muted whitespace-nowrap">لوحة الستيكمان:</span>
             <select
               value={project.stickmanTheme || "dark_chalkboard"}
               onChange={(e) => setStickmanTheme(e.target.value as StickmanThemeType)}
@@ -316,6 +329,24 @@ export default function ProjectPage() {
               <option value="whiteboard">🤍 دفتر رسم ناصع (Whiteboard Sketch)</option>
               <option value="blueprint">💙 مخطط هندسي أزرق (Blueprint)</option>
             </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted whitespace-nowrap">نمط المانجا:</span>
+            <button
+              type="button"
+              onClick={() => toggleMangaMode(!project.isMangaMode)}
+              className={cn(
+                "h-10 w-full rounded-xl px-3 text-xs font-bold transition border flex items-center justify-center gap-1.5",
+                project.isMangaMode
+                  ? "border-amber-500/60 bg-amber-500/20 text-amber-300 shadow-sm"
+                  : "border-border bg-card text-muted hover:text-fg hover:border-amber-500/40"
+              )}
+              title="تفعيل وضع ملخصات المانجا (Motion Comic): إخفاء رسم الستيكمان وتفعيل كادرات المانجا وخطوط السرعة والبارالاكس"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-amber-400" />
+              <span>{project.isMangaMode ? "وضع الموشن كوميك (مفعل ✓)" : "تفعيل وضع المانجا (Motion Comic)"}</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
@@ -331,7 +362,7 @@ export default function ProjectPage() {
                     : "bg-card text-muted border-border hover:text-fg"
                 )}
               >
-                16:9 يوتيوب طويل
+                16:9 يوتيوب
               </button>
               <button
                 type="button"
@@ -343,7 +374,7 @@ export default function ProjectPage() {
                     : "bg-card text-muted border-border hover:text-fg"
                 )}
               >
-                9:16 شورتس وتيك توك
+                9:16 شورتس
               </button>
             </div>
           </div>
@@ -532,17 +563,30 @@ export default function ProjectPage() {
             />
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  loadSample();
-                  setPasteOpen(false);
-                }}
-                className="flex items-center gap-1.5 text-xs text-dim hover:text-primary transition"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                استعادة القصة النموذجية الافتراضية
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadSample();
+                    setPasteOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-dim hover:text-primary transition"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  القصة النموذجية
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadSampleManga();
+                    setPasteOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-semibold transition"
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  نموذج المانجا (Motion Comic)
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button

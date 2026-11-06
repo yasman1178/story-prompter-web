@@ -165,6 +165,47 @@ export default function PublishPage() {
     URL.revokeObjectURL(url);
   }
 
+  function downloadRemotionBundle() {
+    if (!project) return;
+    const is16_9 = project.aspectRatio === "16:9";
+    const remotionData = {
+      videoId: project.title.toLowerCase().replace(/\s+/g, "-"),
+      fps: 30,
+      width: is16_9 ? 1920 : 1080,
+      height: is16_9 ? 1080 : 1920,
+      isMangaMode: project.isMangaMode ?? true,
+      scenes: project.shots.map((s) => ({
+        shotNumber: s.shotNumber,
+        durationInFrames: Math.round((s.durationSec ?? 5) * 30),
+        durationSec: s.durationSec ?? 5,
+        type: s.type,
+        panelImage: s.panelImage || s.matchedFileName || `panel_${s.shotNumber}.jpg`,
+        cropBox: s.mangaPanelCrop
+          ? [s.mangaPanelCrop.x, s.mangaPanelCrop.y, s.mangaPanelCrop.w, s.mangaPanelCrop.h]
+          : [0, 0, 100, 100],
+        cameraMotion: s.cameraMotion || "zoom_in",
+        mangaVfx: s.mangaVfx || {
+          speedLines: s.type.includes("قتال") || s.type.includes("هجوم") || s.type.includes("Hook"),
+          screenShake: s.type.includes("قتال") || s.type.includes("Hook"),
+          flashCut: s.shotNumber === 1,
+          redOverlay: false,
+        },
+        voiceoverText: s.voiceoverEgyptian,
+        dialogue: s.dialogue ?? [],
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(remotionData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `remotion-${project.title}.json`;
+    a.click();
+    playInteractionSound("download");
+    showFeedback("تم تنزيل حزمة Remotion JSON جاهزة للرندر 🎬");
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-4 sm:space-y-5 min-w-0 w-full max-w-full">
       {/* Header Section */}
@@ -184,6 +225,15 @@ export default function PublishPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={downloadRemotionBundle}
+              className="flex h-11 items-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 text-xs sm:text-sm font-semibold text-amber-300 transition hover:bg-amber-500 hover:text-black hover:shadow-[0_0_15px_rgba(245,158,11,0.4)] active:scale-95"
+              title="تصدير ملف Remotion JSON المتكامل مع كادرات وحركات المانجا"
+            >
+              <Download className="h-4 w-4" />
+              <span>تصدير حزمة Remotion (v20)</span>
+            </button>
             <a
               href="/SYSTEM_ARCHITECTURE_ANALYSIS.md"
               download="SYSTEM_ARCHITECTURE_ANALYSIS.md"

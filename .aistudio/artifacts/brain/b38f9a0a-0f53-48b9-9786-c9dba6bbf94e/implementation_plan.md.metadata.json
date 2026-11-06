@@ -1,0 +1,6 @@
+{
+  "summary": "خطة معمارية وهندسية شاملة لبناء موتور موشن كوميك وملخصات المانجا السينمائية (Dynamic Manga Recaps & Motion Comic Engine):\n1. نظام استخراج وقص كادرات المانجا التفاعلي وتغذية إحداثيات الكادر (Panel Extraction & Crop Box Coordinates [x,y,w,h]).\n2. معمارية تركيب الطبقات المتعددة (2.5D Parallax Compositing): عزل الشخصية وخلفية الكادر مع تحريكهما بسرعات متباينة لمنح عمق سينمائي ثلاثي الأبعاد.\n3. محرك تحريك وتأثيرات المانجا الحركية (Ken Burns Dynamic Camera, Speed Lines Shaders, Screen Shake, Glitch/Flash).\n4. تزامن نطق الكلمات الحية (Word-by-Word Captions) متوافقة مع Edge-TTS و Remotion.\n5. تحديث شامل لدليل التعليمات البرمجية والبرومبت المرجعي ومكتبات الإحداثيات في صفحة الدليل (/guide) لتوليد بيانات JSON مطابقة بنقرة واحدة.",
+  "updatedAt": "2026-11-06T09:42:10.482239424Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

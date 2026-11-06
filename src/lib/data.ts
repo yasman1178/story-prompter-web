@@ -437,6 +437,189 @@ export function createSampleProject(): StoryProject {
   };
 }
 
+export function createSampleMangaProject(): StoryProject {
+  const mangaShots: StoryShot[] = [
+    {
+      shotNumber: 1,
+      sceneId: 1,
+      timeframe: "00:00 - 00:05",
+      startTimeSec: 0,
+      endTimeSec: 5,
+      durationSec: 5,
+      type: "الاستيقاظ الكامل (Manga Hook)",
+      mood: "صدمة وحماس أسطوري",
+      vocalCue: "excited",
+      anchorWord: "الاستيقاظ",
+      voiceoverEgyptian: "ولم يدرك الاستيقاظ الكامل للقوة، إلا بعد فوات الأوان!",
+      soundDesign: "Sub Boom Impact + Sword Slash",
+      soundMusic: "Epic Shonen Battle Tension BPM 155",
+      soundSfx: "Sub Boom Impact + Sword Slash",
+      colorTheme: "#ff3b30",
+      imagePromptEn: "Dynamic manga comic panel of an awakened hunter eyes glowing neon cyan with dark aura, high contrast black and white screentone ink with cyan accents",
+      imageFilename: "manga_ch120_panel_01.png",
+      panelImage: "manga_ch120_panel_01.png",
+      charactersInShot: ["seif"],
+      cameraMotion: "dramatic_zoom",
+      transitionOut: "flash",
+      textOverlay: "الاستيقاظ الكامل!",
+      sfxName: "Sub Boom Impact",
+      sfxVolumePercent: 95,
+      sfxTriggerSec: 0,
+      dialogueLines: [],
+      mangaPanelCrop: { x: 5, y: 8, w: 90, h: 46 },
+      mangaVfx: { speedLines: true, screenShake: true, screenShakeIntensity: 80, flashCut: true, focusZoom: 1.4 },
+      effect: "parallax_zoom_in",
+      sceneType: "DAGGER_TREMBLING",
+    },
+    {
+      shotNumber: 2,
+      sceneId: 2,
+      timeframe: "00:05 - 00:10",
+      startTimeSec: 5,
+      endTimeSec: 10,
+      durationSec: 5,
+      type: "اندفاع الظلال (Combat Rush)",
+      mood: "قتال وسرعة جنونية",
+      vocalCue: "tension",
+      anchorWord: "الجيش",
+      voiceoverEgyptian: "جيش كامل من الوحوش طالع من الأرض، والملك مبتسم في هدوء!",
+      soundDesign: "Monarch Shadow Rise + Kasaka Roar",
+      soundMusic: "Monarch Shadow Rise BPM 140",
+      soundSfx: "Kasaka Roar",
+      colorTheme: "#9333ea",
+      imagePromptEn: "Manga panel showing shadow soldiers rising from smoke in battle stance, screentone shading, action lines",
+      imageFilename: "manga_ch120_panel_02.png",
+      panelImage: "manga_ch120_panel_02.png",
+      charactersInShot: ["seif"],
+      cameraMotion: "parallax_zoom_in",
+      transitionOut: "cut",
+      textOverlay: "جيش الظلال!",
+      sfxName: "25. Giant Monster Roar",
+      sfxVolumePercent: 85,
+      sfxTriggerSec: 0.5,
+      dialogueLines: [],
+      mangaPanelCrop: { x: 6, y: 50, w: 88, h: 45 },
+      mangaVfx: { speedLines: true, speedLinesDensity: "high", screenShake: true, screenShakeIntensity: 55 },
+      effect: "speed_lines",
+      sceneType: "DOUBLE_DUNGEON_RUNES",
+    },
+    {
+      shotNumber: 3,
+      sceneId: 3,
+      timeframe: "00:10 - 00:15",
+      startTimeSec: 10,
+      endTimeSec: 15,
+      durationSec: 5,
+      type: "ضربة الخنجر القاضية (Fatal Slash)",
+      mood: "لحظة الحسم والنصر",
+      vocalCue: "excited",
+      anchorWord: "الضربة",
+      voiceoverEgyptian: "ضربة واحدة قسمت الوحش لاتنين، والكل واقف مش مصدق عينيه!",
+      soundDesign: "Dagger Slash + Impact Shockwave",
+      soundMusic: "Critical Strike Tension BPM 160",
+      soundSfx: "Dagger Slash + Impact Shockwave",
+      colorTheme: "#00e5ff",
+      imagePromptEn: "Manga panel extreme close-up of a critical dagger strike cutting monster in half with dynamic perspective and sharp speedlines",
+      imageFilename: "manga_ch120_panel_03.png",
+      panelImage: "manga_ch120_panel_03.png",
+      charactersInShot: ["seif"],
+      cameraMotion: "dutch_tilt",
+      transitionOut: "glitch",
+      textOverlay: "الضربة القاضية!",
+      sfxName: "01. Sword Heavy Slash Impact",
+      sfxVolumePercent: 90,
+      sfxTriggerSec: 0.2,
+      dialogueLines: [],
+      mangaPanelCrop: { x: 10, y: 15, w: 80, h: 70 },
+      mangaVfx: { speedLines: true, screenShake: true, screenShakeIntensity: 90, flashCut: true, dramaticRedOverlay: true },
+      effect: "dutch_angle_shake",
+      sceneType: "SEIF_DUCK_WARNING",
+    },
+    {
+      shotNumber: 4,
+      sceneId: 4,
+      timeframe: "00:15 - 00:20",
+      startTimeSec: 15,
+      endTimeSec: 20,
+      durationSec: 5,
+      type: "صدمة الرتبة S (Replay Cliffhanger)",
+      mood: "غموض وتشويق لا يُقاوم",
+      vocalCue: "tension",
+      anchorWord: "الحقيقة",
+      voiceoverEgyptian: "يا ترى إيه اللي هيحصل في الفصل الجاي؟! اكتب توقعك في التعليقات!",
+      soundDesign: "Cliffhanger Stinger + Dark Ambient",
+      soundMusic: "Cliffhanger Stinger BPM 120",
+      soundSfx: "Dark Ambient",
+      colorTheme: "#f59e0b",
+      imagePromptEn: "Manga panel wide view of the devastated battlefield with the mysterious hunter standing tall, question mark screentone",
+      imageFilename: "manga_ch120_panel_04.png",
+      panelImage: "manga_ch120_panel_04.png",
+      charactersInShot: ["seif"],
+      cameraMotion: "zoom_out",
+      transitionOut: "fade",
+      textOverlay: "اشترك لمتابعة الفصل القادم!",
+      sfxName: "Shorts Cliffhanger Stinger",
+      sfxVolumePercent: 85,
+      sfxTriggerSec: 0,
+      dialogueLines: [],
+      mangaPanelCrop: { x: 5, y: 8, w: 90, h: 84 },
+      mangaVfx: { speedLines: false, screenShake: false },
+      effect: "slow_zoom_out",
+      sceneType: "THRONE_STATUE_RED_EYES",
+    },
+  ];
+
+  return {
+    id: uid("proj_manga"),
+    title: "ملخص مانجا - صعود ملك الظلال (الفصل 120)",
+    platform: "YouTube Shorts (9:16) / Reels / TikTok",
+    aspectRatio: "9:16",
+    totalShots: mangaShots.length,
+    language: "Egyptian Arabic (العامية المصرية)",
+    shots: mangaShots,
+    isBgmEnabled: true,
+    selectedBgmId: 5,
+    isSfxEnabled: true,
+    enableCameraShake: true,
+    transitionType: "FLASH_CUT",
+    shotDurationSec: 5,
+    showSubtitlesInVideo: true,
+    customAudioBedVolume: 0.25,
+    channelName: "مانجا موشن كوميك",
+    showChannelWatermark: true,
+    showSubscribeCta: true,
+    enableDazzlingCTA: true,
+    enableModernAnimeOverlay: true,
+    enableAnimeVoiceEnhancer: true,
+    vfxSettings: { ...DEFAULT_VFX_ACTION },
+    defaultTextOverlayPos: { x: 0.5, y: 0.78 },
+    defaultCtaPos: { x: 0.5, y: 0.92 },
+    voiceName: "ar-EG-ShakirNeural",
+    voiceNameAr: "شاكر (ذكر مصري)",
+    generatedVoiceIds: [],
+    generatedVoiceDurations: [],
+    isMangaMode: true,
+    mangaChapter: "Chapter 120",
+    seriesMeta: {
+      seriesName: "ملخصات مانجا سولو",
+      episodeNumber: 120,
+      chaptersCovered: [120],
+      nextEpisodeTeaser: "معركة القصر الملكي المرعبة في الفصل 121!",
+    },
+    seoMetadata: {
+      suggestedTitles: [
+        "لما الملك استدعى جيش الظلال لأول مرة! 🔥 ملخص مانجا",
+        "الاستيقاظ الكامل! محدش صدق الضربة دي إزاي حصلت 😱",
+        "الوحوش انهارت في ثواني! ملخص الفصل 120 #Shorts",
+      ],
+      description: "ملخص سينمائي بالموشن كوميك للفصل 120 من المانجا الأسطورية.\n\nتابعنا لمشاهدة تلخيص الفصول القادمة حصرياً أول بأول!\n\n#مانجا #ملخص_مانجا #موشن_كوميك #Shorts #أنمي",
+      hashtags: "#مانجا #ملخص_مانجا #موشن_كوميك #Shorts #أنمي #مانهوا",
+      tags: "مانجا, ملخص مانجا, موشن كوميك, سولو ليفلينج, شورتس, أنمي, Manga Recap, Motion Comic",
+      recommendedUploadTime: "الساعة 7 مساءً بتوقيت القاهرة",
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Resilient JSON parser (TypeScript port of DefaultStoryData.parseStoryJson)
 // ---------------------------------------------------------------------------
@@ -690,6 +873,59 @@ function parseSeoMetadata(obj: unknown): SeoMetadata | undefined {
     thumbnailPromptEn: extractString(obj, ["thumbnail_prompt_en", "thumbnail_prompt", "thumbnail"]) ?? undefined,
     pinnedComment: extractString(obj, ["pinned_comment", "pinned", "comment"]) ?? undefined,
   };
+}
+
+export function parseMangaPanelCrop(raw: unknown): import("./types").MangaPanelCrop | undefined {
+  if (!raw) return undefined;
+  if (Array.isArray(raw) && raw.length >= 4) {
+    const x = Number(raw[0]) || 0;
+    const y = Number(raw[1]) || 0;
+    const w = Number(raw[2]) || 100;
+    const h = Number(raw[3]) || 100;
+    return {
+      x: x <= 1 && w <= 1 ? Math.round(x * 100) : Math.min(100, Math.max(0, x)),
+      y: y <= 1 && h <= 1 ? Math.round(y * 100) : Math.min(100, Math.max(0, y)),
+      w: w <= 1 ? Math.round(w * 100) : Math.min(100, Math.max(1, w)),
+      h: h <= 1 ? Math.round(h * 100) : Math.min(100, Math.max(1, h)),
+    };
+  }
+  if (isObject(raw)) {
+    const x = Number(raw.x ?? raw.left ?? 0);
+    const y = Number(raw.y ?? raw.top ?? 0);
+    const w = Number(raw.w ?? raw.width ?? 100);
+    const h = Number(raw.h ?? raw.height ?? 100);
+    return {
+      x: x <= 1 && w <= 1 ? Math.round(x * 100) : Math.min(100, Math.max(0, x)),
+      y: y <= 1 && h <= 1 ? Math.round(y * 100) : Math.min(100, Math.max(0, y)),
+      w: w <= 1 ? Math.round(w * 100) : Math.min(100, Math.max(1, w)),
+      h: h <= 1 ? Math.round(h * 100) : Math.min(100, Math.max(1, h)),
+    };
+  }
+  return undefined;
+}
+
+export function parseMangaVfx(raw: unknown, effectStr?: string): import("./types").MangaVfxConfig | undefined {
+  const vfx: import("./types").MangaVfxConfig = {};
+  if (isObject(raw)) {
+    vfx.speedLines = Boolean(raw.speed_lines ?? raw.speedLines ?? raw.speedlines);
+    vfx.screenShake = Boolean(raw.screen_shake ?? raw.screenShake ?? raw.shake);
+    vfx.screenShakeIntensity = typeof raw.shake_intensity === "number" ? raw.shake_intensity : (vfx.screenShake ? 65 : 0);
+    vfx.flashCut = Boolean(raw.flash_cut ?? raw.flash ?? raw.impact_flash);
+    vfx.dramaticRedOverlay = Boolean(raw.dramatic_red ?? raw.red_overlay);
+    vfx.focusZoom = typeof raw.focus_zoom === "number" ? raw.focus_zoom : undefined;
+  }
+  if (effectStr) {
+    const s = effectStr.toLowerCase();
+    if (s.includes("speed") || s.includes("lines")) vfx.speedLines = true;
+    if (s.includes("shake")) {
+      vfx.screenShake = true;
+      vfx.screenShakeIntensity = 75;
+    }
+    if (s.includes("flash")) vfx.flashCut = true;
+    if (s.includes("zoom")) vfx.focusZoom = 1.35;
+    if (s.includes("red") || s.includes("dramatic")) vfx.dramaticRedOverlay = true;
+  }
+  return Object.keys(vfx).length > 0 ? vfx : undefined;
 }
 
 export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): StoryProject | null {
@@ -1049,8 +1285,16 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         dialogueLines,
       });
 
-      const stickmanGesture = parsedGesture || inferred.gesture;
-      const stickmanProp = parsedProp || inferred.prop;
+      const stickmanGesture: StickmanGestureType = parsedGesture || inferred.gesture;
+      const stickmanProp: StickmanPropType = parsedProp || inferred.prop;
+
+      const rawCrop = shotObj.crop_box ?? shotObj.cropBox ?? shotObj.panel_crop ?? shotObj.panelCrop ?? shotObj.crop;
+      const mangaPanelCrop = parseMangaPanelCrop(rawCrop);
+      const rawMangaVfx = shotObj.manga_vfx ?? shotObj.mangaVfx ?? shotObj.effects ?? shotObj.vfx;
+      const effectStr = extractString(shotObj, ["effect", "camera_effect", "motion_effect"]) ?? undefined;
+      const mangaVfx = parseMangaVfx(rawMangaVfx, effectStr);
+      const panelImage = extractString(shotObj, ["panelImage", "panel_image", "panel_file", "manga_panel"]) ?? undefined;
+      const durationInFrames = extractInt(shotObj, 0, ["durationInFrames", "duration_in_frames", "frames"]);
 
       shots.push({
         shotNumber: shotNum,
@@ -1070,7 +1314,7 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         soundDesign,
         colorTheme,
         imagePromptEn,
-        imageFilename,
+        imageFilename: imageFilename || panelImage,
         backgroundPromptEn,
         foregroundElementPromptEn,
         foregroundAnimation: foregroundAnimation || (shotNum === 1 ? "scale_up" : "floating"),
@@ -1096,6 +1340,11 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
         spatialLayers: vfxSpatialLayers?.layers ?? [],
         stickmanGesture,
         stickmanProp,
+        mangaPanelCrop,
+        mangaVfx,
+        panelImage,
+        effect: effectStr,
+        durationInFrames: durationInFrames > 0 ? durationInFrames : undefined,
       });
     }
 
@@ -1184,11 +1433,26 @@ export function parseStoryJson(jsonStr: string, defaultShotDuration = 10): Story
       renderResolution: "1080p",
       renderFps: 30,
       stickmanTheme: (() => {
+        const hasMangaPanels = shots.some((s) => Boolean(s.mangaPanelCrop || s.panelImage || s.mangaVfx));
+        const isManga =
+          Boolean(extractString(contextObj, ["mode", "genre", "format"])?.toLowerCase().includes("manga")) ||
+          Boolean(rootObj.is_manga || projInfo?.is_manga) ||
+          title.toLowerCase().includes("مانجا") ||
+          title.toLowerCase().includes("manga") ||
+          hasMangaPanels;
+        if (isManga) return undefined;
         const rawTheme = extractString(contextObj, ["stickman_theme", "theme"]);
         return rawTheme === "whiteboard" || rawTheme === "blueprint" || rawTheme === "dark_chalkboard"
           ? (rawTheme as StickmanThemeType)
           : "dark_chalkboard";
       })(),
+      isMangaMode:
+        Boolean(extractString(contextObj, ["mode", "genre", "format"])?.toLowerCase().includes("manga")) ||
+        Boolean(rootObj.is_manga || projInfo?.is_manga) ||
+        title.toLowerCase().includes("مانجا") ||
+        title.toLowerCase().includes("manga") ||
+        shots.some((s) => Boolean(s.mangaPanelCrop || s.panelImage || s.mangaVfx)),
+      mangaChapter: extractString(contextObj, ["chapter", "manga_chapter", "ch"]) ?? undefined,
     };
   } catch {
     return null;
